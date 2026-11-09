@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>TONE3000 audition</title>
+<style>
+  :root { color-scheme: dark; font: 14px 'Segoe UI', sans-serif; background: #171717; color: #f0f0f0; }
+  body { margin: 0; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+  main { display: flex; flex: 1; min-height: 0; align-items: center; gap: 12px; padding: 4px 12px; }
+  [hidden] { display: none !important; }
+  .details, .profile { min-width: 0; flex: 1; }
+  img { width: 58px; height: 58px; object-fit: cover; border-radius: 5px; }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  h1, p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  p { margin: 0; color: #c7c7c7; }
+  label { color: #ddd; }
+  select, button { font: inherit; background: #333; color: inherit; border: 1px solid #575757; border-radius: 4px; padding: 4px 9px; }
+  #model { width: 100%; margin-top: 3px; }
+  button:enabled { cursor: pointer; }
+  button:disabled { opacity: .5; }
+  button:focus-visible, select:focus-visible { outline: 2px solid #fa8585; }
+  footer { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px;
+    padding: 5px 12px; border-top: 1px solid #404040; background: #232323; }
+  #status { flex: 1; min-width: 80px; }
+  .destination { display: flex; align-items: center; gap: 6px; }
+  #save:enabled { background: #862829; border-color: #b54545; }
+  @media (max-width: 700px), (max-height: 114px) { img { display: none; } }
+  @media (max-width: 520px) {
+    body { font-size: 12px; }
+    main { gap: 8px; }
+    h1 { font-size: 15px; }
+    #status { flex-basis: 100%; }
+    footer { justify-content: flex-start; gap: 4px; padding: 4px 7px; }
+    footer button, footer select { padding: 3px 6px; }
+    .destination { gap: 4px; }
+  }
+  @media (max-height: 105px) { .details p, .profile label { display: none; } }
+</style>
+<main $hidden>
+  $cover
+  <div class="details">
+    <h1 title="$title">$title</h1>
+    <p>$author · $gear · NAM A2 Lite · $license</p>
+  </div>
+  <div class="profile">
+    <label for="model">Profile</label>
+    <select id="model" disabled>$options</select>
+  </div>
+</main>
+<footer>
+  <p id="status" role="status"></p>
+  <button id="source" $hidden>View on TONE3000</button>
+  <button id="back" hidden>Back to catalog</button>
+  <button id="retry" hidden>Browse again</button>
+  <div class="destination" hidden>
+    <select id="destination" aria-label="Free User IR slot"></select>
+    <button id="save">Save to Helix</button>
+  </div>
+  <button id="finish">Close</button>
+</footer>
+<script>
+  const model = document.querySelector('#model');
+  const source = document.querySelector('#source');
+  const back = document.querySelector('#back');
+  const retry = document.querySelector('#retry');
+  const finish = document.querySelector('#finish');
+  const status = document.querySelector('#status');
+  const destination = document.querySelector('#destination');
+  const save = document.querySelector('#save');
+  let trial = null;
+  const hasTone = !document.querySelector('main').hidden;
+  const host = window.chrome.webview;
+  model.onchange = () => host.postMessage('model:' + model.value);
+  source.onclick = () => host.postMessage('source');
+  back.onclick = () => host.postMessage('back');
+  retry.onclick = () => host.postMessage('retry');
+  finish.onclick = () => host.postMessage('finish');
+  save.onclick = () => host.postMessage('save:' + trial + ':' + destination.value);
+  host.addEventListener('message', ({data}) => {
+    model.disabled = source.disabled = !!data.busy;
+    if (Number.isInteger(data.model)) model.selectedIndex = data.model;
+    status.textContent = status.title = data.text || '';
+    source.hidden = !hasTone || data.viewing_source;
+    back.hidden = !data.viewing_source;
+    retry.hidden = !data.can_retry;
+    trial = data.trial;
+    const slots = data.free_slots || [];
+    const previous = destination.value;
+    destination.replaceChildren(...slots.map(slot => new Option('User IR ' + slot, slot)));
+    if (slots.includes(Number(previous))) destination.value = previous;
+    destination.parentElement.hidden = trial == null;
+    destination.disabled = save.disabled = !!data.busy || !slots.length;
+  });
+</script>
+</html>

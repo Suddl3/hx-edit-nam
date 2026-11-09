@@ -26,6 +26,7 @@ function installNamView(profiles) {
   const importIr = method(0x20b4b0, 'void', []);
   const exportIr = method(0x20b080, 'void', []);
   const clearIr = method(0x20aef0, 'void', []);
+  const clearIrSlots = method(0x3da2b0, 'void', ['pointer']);
   const rebuildModelMenu = method(0x26e680, 'void', []);
   const libraryViews = [0x70727677, 0x69727677, 0x66767677, 0x6e616d76]; // prvw, irvw, fvvw, namv
   const namListId = 0x6e6c7374; // nlst
@@ -38,6 +39,7 @@ function installNamView(profiles) {
   let namPanel = NULL;
   let irController = NULL;
   let activeModel = NULL;
+  let audition = null;
   let buttons = {};
   let tab = 0;
 
@@ -164,6 +166,19 @@ function installNamView(profiles) {
     return !activeModel.isNull() && !getParent(activeModel).isNull() && isVisible(activeModel, 1);
   }
 
+  function setModelSlot(slot) {
+    if (!hasActiveModel()) return false;
+    const slider = activeModel;
+    const value = slot - 1;
+    if (value === getValue(slider)) return true;
+    const popup = slider.add(0x144).readPointer();
+    if (popup.isNull()) return false;
+    // The native popup stores the slot before handing its change to Model.
+    setValue(popup, value, 0, 0);
+    handleModelEvent(slider, 0x21617663, popup, NULL); // cva!
+    return true;
+  }
+
   function syncSelection() {
     if (namList.isNull()) return;
     const row = hasActiveModel() ? slots.indexOf(getValue(activeModel) + 1) : -1;
@@ -232,15 +247,7 @@ function installNamView(profiles) {
       if (!this.selection) return;
       refreshButtons();
       const slot = selectedSlot();
-      if (!slot || !hasActiveModel()) return;
-      const value = slot - 1;
-      const slider = activeModel;
-      if (value === getValue(slider)) return;
-      // The native popup stores the slot before handing its change to Model.
-      const popup = slider.add(0x144).readPointer();
-      if (popup.isNull()) return;
-      setValue(popup, value, 0, 0);
-      handleModelEvent(slider, 0x21617663, popup, NULL); // cva!
+      if (slot) setModelSlot(slot);
     },
   });
 
@@ -310,7 +317,7 @@ function installNamView(profiles) {
           || displayType.readCString() !== 'ir_select') return;
       this.model = slider;
       this.previous = constructing.get(this.threadId);
-      constructing.set(this.threadId, { menu: slider.add(0x144).readPointer(), count: 0 });
+      constructing.set(this.threadId, { slider, menu: slider.add(0x144).readPointer(), count: 0 });
     },
     onLeave() {
       if (!this.model) return;
@@ -359,6 +366,8 @@ function installNamView(profiles) {
     if (parts && Object.hasOwn(profiles, parts[1]) && profiles[parts[1]] === parts[2]) {
       return append(menu, index, label, id, options, disabled);
     }
+    if (parts && audition && audition.slider.equals(state.slider) && Number(parts[1]) === audition.slot
+        && parts[2] === audition.name) return append(menu, index, label, id, options, disabled);
     if (slots.length === 0 && state.count++ === 0) {
       return append(menu, index, empty, id, options, 1);
     }
@@ -367,6 +376,86 @@ function installNamView(profiles) {
 
   return {
     refreshProfiles,
+    modelSlot: () => hasActiveModel() ? getValue(activeModel) + 1 : null,
+    playPreview(transfer) {
+      const name = this.previewName(transfer);
+      if (!name || !hasActiveModel()) return false;
+      audition = { slider: activeModel, slot: transfer.slot, name };
+      rebuildModelMenu(activeModel);
+      return setModelSlot(transfer.slot);
+    },
+    stopPreview() {
+      if (!audition) return;
+      audition = null;
+      if (hasActiveModel()) rebuildModelMenu(activeModel);
+    },
+    freeSlots(excluded) {
+      const list = irList();
+      const free = [];
+      if (list.isNull()) return free;
+      for (let slot = 1; slot <= 128; slot++) {
+        if (slot === excluded) continue;
+        const row = getIrRow(list, slot - 1);
+        if (!row.isNull() && !row.add(0x10c).readU32()) free.push(slot);
+      }
+      return free;
+    },
+    importPreview(file, slot) {
+      const list = irList();
+      if (list.isNull()) throw new Error('Connect Helix LT to audition a tone.');
+      if (!namImportController.isNull()) throw new Error('Wait for the current NAM import to finish.');
+      const transfer = { controller: irController, slot, file };
+      if (!this.previewSlotEmpty(transfer)) throw new Error(`User IR ${slot} is no longer free.`);
+      toneImport = transfer;
+      selectStockRow(list, slot - 1);
+      namImportController = irController;
+      importIr(irController);
+      return transfer;
+    },
+    previewName(transfer) {
+      if (!transfer.controller.equals(irController) || !transfer.name) return '';
+      const list = irList();
+      if (list.isNull()) return '';
+      const row = getIrRow(list, transfer.slot - 1);
+      if (row.isNull() || !row.add(0x10c).readU32()) return '';
+      const name = row.readUtf8String();
+      return name === transfer.name || (name.length >= 31 && transfer.name.startsWith(name)) ? name : '';
+    },
+    registerProfile(transfer) {
+      const name = this.previewName(transfer);
+      if (!name) return false;
+      profiles[transfer.slot] = name;
+      renderProfiles();
+      if (hasActiveModel()) rebuildModelMenu(activeModel);
+      return true;
+    },
+    selectProfile(transfer) {
+      return !!this.previewName(transfer) && setModelSlot(transfer.slot);
+    },
+    clearPreview(transfer) {
+      if (!this.previewName(transfer)) return false;
+      const librarian = irController.add(0x270).readPointer();
+      if (librarian.isNull()) return false;
+      // Same single-slot array passed by the stock Clear confirmation handler.
+      const index = Memory.alloc(4);
+      index.writeU32(transfer.slot - 1);
+      const slots = Memory.alloc(24);
+      slots.writePointer(address(0x8bb0dc));
+      slots.add(4).writeU32(1);
+      slots.add(8).writePointer(index);
+      slots.add(12).writeU32(1);
+      slots.add(16).writeU32(0);
+      slots.add(20).writeU32(1);
+      clearIrSlots(librarian, slots);
+      return true;
+    },
+    previewSlotEmpty(transfer) {
+      if (!transfer.controller.equals(irController)) return false;
+      const list = irList();
+      if (list.isNull()) return false;
+      const row = getIrRow(list, transfer.slot - 1);
+      return !row.isNull() && !row.add(0x10c).readU32();
+    },
     trackImport(first, count, imported) {
       for (let slot = first; slot < first + count; slot++) pending.delete(slot);
       for (const [slot, name] of Object.entries(imported)) pending.set(Number(slot), name);

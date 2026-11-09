@@ -19,6 +19,7 @@ def message(text, flags):
 
 def run_editor(exe, workspace, device, profiles):
     from nam_convert import convert_batch, validate_import
+    from tone_preview import TonePreview
 
     pid = device.spawn([str(exe)], cwd=str(exe.parent))
     try:
@@ -29,9 +30,12 @@ def run_editor(exe, workspace, device, profiles):
         session.on('detached', lambda *_: detached.set())
         imports = (ROOT / 'nam_import.js').read_text(encoding='utf-8')
         view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
+        tone = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
         script = session.create_script(
-            f"{view}\n{imports}\nconst namView = installNamView({json.dumps(profiles)});\nsend({{ type: 'ready' }});"
+            f"{view}\n{imports}\n{tone}\nconst namView = installNamView({json.dumps(profiles)});"
+            "\ninstallToneView();\nsend({ type: 'ready' });"
         )
+        preview = TonePreview(script, workspace, CONVERTER, detached, message)
 
         def on_message(event, _data):
             if event['type'] == 'error':
@@ -41,6 +45,8 @@ def run_editor(exe, workspace, device, profiles):
             payload = event.get('payload', {})
             if payload.get('type') == 'ready':
                 ready.set()
+            if payload.get('type') in {'toneStart', 'toneBounds', 'toneReply'}:
+                preview.receive(payload)
             if payload.get('type') in {'convert', 'validateImport'}:
                 try:
                     if payload['type'] == 'convert':
@@ -60,6 +66,8 @@ def run_editor(exe, workspace, device, profiles):
             raise RuntimeError(errors[0] if errors else 'HX Edit did not initialize the IR import hook.')
         device.resume(pid)
         detached.wait()
+        if preview.thread:
+            preview.thread.join(timeout=2)
     except BaseException:
         try:
             device.kill(pid)

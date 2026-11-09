@@ -4,6 +4,7 @@
 const fields = { owner: 4, filter: 12, file: 28, capacity: 32, title: 36,
   titleCapacity: 40, fileOffset: 56, extensionOffset: 58 };
 const openFile = Process.getModuleByName('comdlg32.dll').getExportByName('GetOpenFileNameW');
+const openFileDialog = new NativeFunction(openFile, 'int', ['pointer'], 'stdcall');
 const user32 = Process.getModuleByName('user32.dll');
 const getActiveWindow = new NativeFunction(user32.getExportByName('GetActiveWindow'), 'pointer', [], 'stdcall');
 const messageBox = new NativeFunction(
@@ -40,6 +41,7 @@ const importTypes = ['pointer', 'pointer', 'int'];
 const importFiles = new NativeFunction(importAddress, 'void', importTypes, 'thiscall');
 const getIrRow = new NativeFunction(base.add(0x380610), 'pointer', ['pointer', 'int'], 'thiscall');
 let namImportController = NULL;
+let toneImport = null;
 
 function firstFreeSlot(list, count) {
   if (list.isNull()) return -1;
@@ -75,7 +77,7 @@ Interceptor.replace(importAddress, new NativeCallback(function (controller, batc
     if (array.isNull() || list.isNull()) throw new Error('Could not read the import batch.');
     const namOnly = controller.equals(namImportController);
     if (namOnly) {
-      first = firstFreeSlot(list, end - begin);
+      first = toneImport ? toneImport.slot - 1 : firstFreeSlot(list, end - begin);
       if (first < 0) throw new Error('There are not enough consecutive free User IR slots for this batch.');
     }
     if (first < 0 || end < begin || end - begin > 128 || first + end - begin > 128) {
@@ -90,9 +92,21 @@ Interceptor.replace(importAddress, new NativeCallback(function (controller, batc
       files.push(file.add(0x10).readPointer().readUtf8String());
       if (row.add(0x10c).readU32()) occupied.push(slot + 1);
     }
+    if (namOnly && toneImport && (files.length !== 1 || !toneImport.supplied ||
+        files[0].toLowerCase() !== toneImport.file.toLowerCase())) {
+      throw new Error('HX Edit returned a different file for the TONE3000 import.');
+    }
     const { profiles } = requestImport({ type: 'validateImport', files, firstSlot: first + 1, occupied, namOnly });
-    namView.trackImport(first + 1, files.length, profiles);
+    if (namOnly && toneImport) {
+      toneImport.name = profiles[first + 1];
+    } else {
+      namView.trackImport(first + 1, files.length, profiles);
+    }
   } catch (error) {
+    if (controller.equals(namImportController) && toneImport) {
+      toneImport.error = String(error.message);
+      return;
+    }
     messageBox(getActiveWindow(), Memory.allocUtf16String(String(error.message)),
       Memory.allocUtf16String('HX Edit NAM Import'), 0x10);
     return;
@@ -101,66 +115,75 @@ Interceptor.replace(importAddress, new NativeCallback(function (controller, batc
   namView.refreshProfiles(controller);
 }, 'void', importTypes, 'thiscall'));
 
-Interceptor.attach(openFile, {
-  onEnter(args) {
-    const dialog = args[0];
-    if (dialog.isNull() || dialog.readU32() < 76) return;
-    const filterField = dialog.add(fields.filter);
-    const filters = filterField.readPointer();
-    if (filters.isNull()) return;
-    const entries = readStrings(filters, 2048);
-    this.nam = !namImportController.isNull();
-    for (let i = 1; i < entries.length; i += 2) {
-      if (!entries[i].toLowerCase().split(';').includes('*.wav')) continue;
-      if (this.nam) {
-        entries.splice(0, entries.length, 'NAM A2 Lite profiles (*.nam;*.wav)', '*.nam;*.wav');
-      } else {
-        entries[i] += ';*.nam';
-        entries[i - 1] = 'Cabinet IRs and NAM profiles (' + entries[i] + ')';
-      }
-      this.originalFilters = filters;
-      this.dialog = dialog;
-      this.filters = Memory.allocUtf16String(entries.join('\0') + '\0');
-      filterField.writePointer(this.filters);
-      break;
-    }
-  },
-  onLeave(result) {
-    if (!this.dialog) return;
-    const dialog = this.dialog;
-    dialog.add(fields.filter).writePointer(this.originalFilters);
-    if (!result.toInt32()) {
-      return;
-    }
+Interceptor.replace(openFile, new NativeCallback(function (dialog) {
+  if (dialog.isNull() || dialog.readU32() < 76) return openFileDialog(dialog);
+  const filterField = dialog.add(fields.filter);
+  const filters = filterField.readPointer();
+  if (filters.isNull()) return openFileDialog(dialog);
+  const entries = readStrings(filters, 2048);
+  const wav = entries.findIndex((entry, index) => index % 2 && entry.toLowerCase().split(';').includes('*.wav'));
+  if (wav < 0) return openFileDialog(dialog);
 
-    const buffer = dialog.add(fields.file).readPointer();
-    const capacity = dialog.add(fields.capacity).readU32();
-    const first = buffer.readUtf16String();
-    const multiple = dialog.add(fields.fileOffset).readU16() > first.length;
-    const selected = multiple
-      ? readStrings(buffer, capacity).slice(1).map(name => first + '\\' + name)
-      : [first];
-    if (!selected.some(file => /\.nam$/i.test(file))) return;
-
-    try {
-      const { files } = requestImport({ type: 'convert', files: selected });
-      const slash = files[0].lastIndexOf('\\');
-      const folder = files[0].slice(0, slash);
-      const names = files.map(file => file.slice(slash + 1));
-      const value = multiple ? [folder, ...names].join('\0') : files[0];
-      const title = dialog.add(fields.title).readPointer();
-      const titleCapacity = dialog.add(fields.titleCapacity).readU32();
-      if (value.length + 2 > capacity || (!multiple && !title.isNull() && names[0].length + 1 > titleCapacity)) {
-        throw new Error('The converted file names are too long for the HX Edit import dialog.');
-      }
-      buffer.writeUtf16String(value + '\0');
-      dialog.add(fields.fileOffset).writeU16(slash + 1);
-      dialog.add(fields.extensionOffset).writeU16(multiple ? 0 : value.length - 3);
-      if (!multiple && !title.isNull()) title.writeUtf16String(names[0]);
-    } catch (error) {
-      result.replace(0);
-      messageBox(dialog.add(fields.owner).readPointer(),
-        Memory.allocUtf16String(String(error.message)), Memory.allocUtf16String('NAM A2 Lite import'), 0x10);
+  const nam = !namImportController.isNull();
+  const buffer = dialog.add(fields.file).readPointer();
+  const capacity = dialog.add(fields.capacity).readU32();
+  const title = dialog.add(fields.title).readPointer();
+  const titleCapacity = dialog.add(fields.titleCapacity).readU32();
+  if (nam && toneImport && !toneImport.supplied) {
+    const file = toneImport.file;
+    if (buffer.isNull() || file.length + 2 > capacity) {
+      toneImport.error = 'The TONE3000 file path is too long for HX Edit.';
+      return 0;
     }
+    const offset = file.lastIndexOf('\\') + 1;
+    buffer.writeUtf16String(file + '\0');
+    dialog.add(fields.fileOffset).writeU16(offset);
+    dialog.add(fields.extensionOffset).writeU16(file.length - 3);
+    if (!title.isNull() && file.length - offset < titleCapacity) title.writeUtf16String(file.slice(offset));
+    toneImport.supplied = true;
+    return 1;
   }
-});
+
+  if (nam) {
+    entries.splice(0, entries.length, 'NAM A2 Lite profiles (*.nam;*.wav)', '*.nam;*.wav');
+  } else {
+    entries[wav] += ';*.nam';
+    entries[wav - 1] = 'Cabinet IRs and NAM profiles (' + entries[wav] + ')';
+  }
+  const replacement = Memory.allocUtf16String(entries.join('\0') + '\0');
+  filterField.writePointer(replacement);
+  let result;
+  try {
+    result = openFileDialog(dialog);
+  } finally {
+    filterField.writePointer(filters);
+  }
+  if (!result) return 0;
+
+  const first = buffer.readUtf16String();
+  const multiple = dialog.add(fields.fileOffset).readU16() > first.length;
+  const selected = multiple
+    ? readStrings(buffer, capacity).slice(1).map(name => first + '\\' + name)
+    : [first];
+  if (!selected.some(file => /\.nam$/i.test(file))) return result;
+
+  try {
+    const { files } = requestImport({ type: 'convert', files: selected });
+    const slash = files[0].lastIndexOf('\\');
+    const folder = files[0].slice(0, slash);
+    const names = files.map(file => file.slice(slash + 1));
+    const value = multiple ? [folder, ...names].join('\0') : files[0];
+    if (value.length + 2 > capacity || (!multiple && !title.isNull() && names[0].length + 1 > titleCapacity)) {
+      throw new Error('The converted file names are too long for the HX Edit import dialog.');
+    }
+    buffer.writeUtf16String(value + '\0');
+    dialog.add(fields.fileOffset).writeU16(slash + 1);
+    dialog.add(fields.extensionOffset).writeU16(multiple ? 0 : value.length - 3);
+    if (!multiple && !title.isNull()) title.writeUtf16String(names[0]);
+  } catch (error) {
+    messageBox(dialog.add(fields.owner).readPointer(),
+      Memory.allocUtf16String(String(error.message)), Memory.allocUtf16String('NAM A2 Lite import'), 0x10);
+    return 0;
+  }
+  return result;
+}, 'int', ['pointer'], 'stdcall'));
