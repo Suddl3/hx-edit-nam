@@ -24,13 +24,7 @@ SDK_ASSETS = (
 )
 
 
-def prepare_browser():
-    source = ROOT / 'tone_browser.cs'
-    build = ROOT / 'build' / f'tone-browser-{SDK_VERSION}'
-    exe = build / 'ToneBrowser.exe'
-    if exe.is_file() and exe.stat().st_mtime_ns >= source.stat().st_mtime_ns:
-        return exe
-
+def browser_sdk():
     package = 'microsoft.web.webview2'
     filename = f'{package}.{SDK_VERSION}.nupkg'
     cached = Path(os.environ.get('NUGET_PACKAGES', Path.home() / '.nuget' / 'packages'))
@@ -46,9 +40,17 @@ def prepare_browser():
             raise ToneError('Could not download the WebView2 SDK from NuGet. Try opening TONE3000 again.') from error
         if len(archive) > 20 * 1024 * 1024:
             raise ToneError('The WebView2 SDK package exceeded the download limit.')
+    return ZipFile(BytesIO(archive))
 
+
+def prepare_browser():
+    source = ROOT / 'tone_browser.cs'
+    build = ROOT / 'build' / f'tone-browser-{SDK_VERSION}'
+    exe = build / 'ToneBrowser.exe'
+    if exe.is_file() and (not source.is_file() or exe.stat().st_mtime_ns >= source.stat().st_mtime_ns):
+        return exe
     build.mkdir(parents=True, exist_ok=True)
-    with ZipFile(BytesIO(archive)) as sdk:
+    with browser_sdk() as sdk:
         for name in SDK_ASSETS:
             (build / Path(name).name).write_bytes(sdk.read(name))
     compiler = Path(os.environ['WINDIR']) / 'Microsoft.NET' / 'Framework' / 'v4.0.30319' / 'csc.exe'

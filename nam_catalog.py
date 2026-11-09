@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 from xml.etree import ElementTree as ET
@@ -125,13 +126,18 @@ def patch_library(resources, scan_error):
 
 def prepare_copy(working_directory, scan_error=False):
     baseline = ROOT / 'build' / 'HX Edit'
+    if not (baseline / 'HX Edit.exe').is_file():
+        program_files = Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'))
+        installed = program_files / 'Line6' / 'HX Edit'
+        baseline = Path(os.environ.get('HX_EDIT_SOURCE_DIRECTORY') or installed)
     source_exe = baseline / 'HX Edit.exe'
     if not source_exe.is_file():
-        raise FileNotFoundError('Run prepare-hx-edit.ps1 to create the HX Edit 3.82 baseline.')
+        raise FileNotFoundError('Install Line 6 HX Edit 3.82. If it is installed outside the default folder, '
+                                'set HX_EDIT_SOURCE_DIRECTORY to its installation directory.')
     if hashlib.sha256(source_exe.read_bytes()).hexdigest() != EXE_HASH:
         raise ValueError('The baseline executable does not match HX Edit 3.82.')
     destination = Path(working_directory) / 'HX Edit NAM'
-    shutil.copytree(baseline, destination)
+    shutil.copytree(baseline, destination, ignore=shutil.ignore_patterns('HX Edit Uninstaller.exe'))
     exe = destination / 'HX Edit NAM.exe'
     (destination / source_exe.name).rename(exe)
     patch_catalog(destination / 'res')
