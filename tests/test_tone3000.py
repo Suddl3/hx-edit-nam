@@ -11,7 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import urlopen
 
-from nam_convert import is_nam_wav, validate_import
+from nam_convert import is_nam_wav, stage_tone_import, validate_import
 from test_nam import CONVERTER, capture
 from tone3000 import API, ToneError, callback_result, get_tone, prepare_model, read_url, select_tone
 from tone_preview import TonePreview, render_card
@@ -156,6 +156,12 @@ class ToneTests(unittest.TestCase):
             self.assertTrue(wav.name.isascii())
             self.assertTrue(wav.stem.endswith('_5150III_ amp'))
             read.assert_called_once_with(model['model_url'], token='test-token')
+            audition = stage_tone_import(wav, folder)
+            audition.unlink()  # HX Edit consumes staged files during import.
+            saved = stage_tone_import(wav, folder)
+            self.assertNotEqual(audition, saved)
+            self.assertEqual(saved.name, wav.name)
+            self.assertEqual(saved.read_bytes(), wav.read_bytes())
             with self.assertRaisesRegex(ValueError, 'already occupied'):
                 validate_import([wav], 1, set(range(1, 129)), nam_only=True)
             read.return_value = b'{}'

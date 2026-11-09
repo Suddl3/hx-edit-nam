@@ -1,6 +1,26 @@
 # HX Edit NAM
 
-База проекта — локальная копия HX Edit 3.82 для Windows. Она использует оригинальный редактор Line 6, его ресурсы и установленные драйверы. При запуске лаунчер проверяет SHA-256 оригинального `HX Edit.exe`. Инсталлятор и рабочая копия исключены из Git.
+Проект использует локальную копию оригинального HX Edit 3.82 и ресурсов Line 6. Версия для Windows проверяет SHA-256 оригинального `HX Edit.exe` при запуске, версия для macOS сверяет Mach-O при сборке. Инсталляторы и рабочие копии хранятся локально.
+
+## Готовая сборка для macOS на Apple Silicon
+
+Распакуйте macOS ARM64 ZIP из [релиза v0.2.0](https://github.com/andreidevs/hx-edit-nam/releases/tag/v0.2.0), закройте штатный HX Edit и откройте **HX Edit NAM.app**. Лаунчер подготовит рабочую копию из установленного `/Applications/Line6/HX Edit.app` или из официального `~/Downloads/HXEdit.dmg`. Нужна версия [Line 6 HX Edit 3.82](https://line6.com/software/readeula.html?rid=12926) и Helix LT с прошивкой `helix-lt-nam` 3.80.0.
+
+Для другого пути запустите `open 'HX Edit NAM.app' --args --hx-edit-source '/путь/к/HXEdit.dmg'`. Можно указать `.app`, `.pkg` или `.dmg`. Приложение подписано локальной подписью ad hoc. На первом запуске macOS может попросить подтверждение в настройках безопасности. [Справка Apple](https://support.apple.com/ru-ru/102445)
+
+В версии для macOS есть **NAM A2 Lite**, вкладка **NAM**, фильтр профилей в меню **Model**, импорт `.nam` и встроенный каталог **TONE3000** на WebKit.
+
+## Сборка для macOS из исходников
+
+Для сборки нужны `uv`, Git, инструменты командной строки Xcode и Python 3.11 или новее.
+
+```sh
+python3 -B build-macos.py --release-version v0.2.0
+# Или соберите локальное приложение с рабочей копией HX Edit внутри.
+python3 -B build-macos.py ~/Downloads/HXEdit.dmg
+```
+
+Готовые файлы лежат в `build`. В обе сборки входят Python, [Frida 17.5.2](https://github.com/frida/frida/tree/17.5.2) и конвертер NAM. Релизный ZIP берёт оригинальные файлы HX Edit при запуске с компьютера пользователя.
 
 ## Готовая сборка для Windows
 
@@ -29,7 +49,9 @@ python .\start-hx-edit-nam.pyw --lt-nam
 
 ## TONE3000
 
-Скопируйте **Publishable Key** (`t3k_pub_…`) в настройках TONE3000 и задайте переменную пользователя Windows `T3K_PUBLISHABLE_KEY`. Встроенному браузеру нужен Microsoft Edge WebView2 Runtime. При запуске из исходников панель собирается при первом открытии каталога с помощью SDK WebView2 из NuGet. [Настройка ключа TONE3000](https://www.tone3000.com/api#authentication)
+Скопируйте **Publishable Key** (`t3k_pub_…`) в настройках TONE3000. На macOS сохраните его одной строкой в файле `~/Library/Application Support/HX Edit NAM/tone3000-publishable-key`. При запуске из терминала также можно задать `T3K_PUBLISHABLE_KEY`. [Настройка ключа TONE3000](https://www.tone3000.com/api#authentication)
+
+На Windows задайте пользовательскую переменную `T3K_PUBLISHABLE_KEY`. Встроенному браузеру нужен Microsoft Edge WebView2 Runtime. При запуске из исходников панель собирается при первом открытии каталога с помощью SDK WebView2 из NuGet.
 
 ```powershell
 $env:T3K_PUBLISHABLE_KEY = 't3k_pub_...'

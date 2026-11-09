@@ -69,6 +69,8 @@ def prepare_browser():
 
 
 class ToneBrowser:
+    startup_error = 'The TONE3000 pane did not start. Check the Microsoft Edge WebView2 Runtime.'
+
     def __init__(self, parent, bounds, detached):
         exe = prepare_browser()
         profile = Path(os.environ['LOCALAPPDATA']) / 'HX Edit NAM' / 'TONE3000 WebView'
@@ -125,7 +127,7 @@ class ToneBrowser:
         if self.is_set():
             return False
         if not self.ready.is_set():
-            raise ToneError('The TONE3000 pane did not start. Check the Microsoft Edge WebView2 Runtime.')
+            raise ToneError(self.startup_error)
         return True
 
     def navigate(self, url):

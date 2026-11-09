@@ -56,6 +56,16 @@ def validate_import(files, first_slot, occupied, nam_only=False):
     return profiles
 
 
+def stage_tone_import(file, workspace):
+    """Give HX Edit a disposable copy for each upload, including Save to Helix."""
+    source = Path(file).resolve(strict=True)
+    workspace = Path(workspace).resolve()
+    if not source.is_relative_to(workspace) or source.suffix != '.wav' or not is_nam_wav(source):
+        raise ValueError('Could not read the converted TONE3000 profile.')
+    folder = Path(tempfile.mkdtemp(prefix='tone-import-', dir=workspace))
+    return shutil.copyfile(source, folder / source.name)
+
+
 def convert_batch(files, workspace, converter):
     sources = [Path(file).resolve(strict=True) for file in files]
     names = set()

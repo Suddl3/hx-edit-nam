@@ -1,4 +1,4 @@
-"""Read and classify User IR slots on a Helix LT before HX Edit opens WinUSB."""
+"""Read and classify User IR slots before HX Edit claims the editor interface."""
 
 from contextlib import contextmanager
 import ctypes as ct
@@ -157,17 +157,21 @@ def scan_profiles(firmware_tools):
     path = device_path()
     if not path:
         return {}
+    with open_link(path) as link:
+        return scan_link(firmware_tools, link)
+
+
+def scan_link(firmware_tools, link):
     sys.path.insert(0, str(firmware_tools))
     try:
         from hx_ctl import Channel, LIBRARIAN
     finally:
         sys.path.pop(0)
-    with open_link(path) as link:
-        deadline = time.monotonic() + 0.5
-        while time.monotonic() < deadline and link.read(50):
-            pass
-        channel = Channel(link, timeout=1.5, **LIBRARIAN)
-        try:
-            return read_profiles(channel)
-        finally:
-            channel.close()
+    deadline = time.monotonic() + 0.5
+    while time.monotonic() < deadline and link.read(50):
+        pass
+    channel = Channel(link, timeout=1.5, **LIBRARIAN)
+    try:
+        return read_profiles(channel)
+    finally:
+        channel.close()

@@ -31,12 +31,14 @@ def render_card(tone=None, models=()):
 
 
 class TonePreview:
-    def __init__(self, script, workspace, converter, detached, message):
+    def __init__(self, script, workspace, converter, detached, message, *, browser_factory=ToneBrowser, client_id=''):
         self.script = script
         self.workspace = workspace
         self.converter = converter
         self.detached = detached
         self.message = message
+        self.browser_factory = browser_factory
+        self.client_id = client_id
         self.replies = Queue()
         self.thread = None
         self.browser = None
@@ -85,10 +87,10 @@ class TonePreview:
         notice = None
         slot = None
         try:
-            client_id = os.environ.get('T3K_PUBLISHABLE_KEY', '').strip()
+            client_id = (self.client_id or os.environ.get('T3K_PUBLISHABLE_KEY', '')).strip()
             if not client_id.startswith('t3k_pub_'):
                 raise ToneError('Set T3K_PUBLISHABLE_KEY to the publishable key from TONE3000 → Settings → API Keys and restart HX Edit NAM.')
-            browser = self.browser = ToneBrowser(window, self.bounds, self.detached)
+            browser = self.browser = self.browser_factory(window, self.bounds, self.detached)
             if browser.wait_ready():
                 browser.send('card', html=render_card(), has_tone=False)
                 slot = self.browse(browser, session, client_id)

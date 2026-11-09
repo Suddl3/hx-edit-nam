@@ -70,14 +70,14 @@
   const save = document.querySelector('#save');
   let trial = null;
   const hasTone = !document.querySelector('main').hidden;
-  const host = window.chrome.webview;
+  const host = window.chrome?.webview || window.webkit?.messageHandlers.hxToneCard;
   model.onchange = () => host.postMessage('model:' + model.value);
   source.onclick = () => host.postMessage('source');
   back.onclick = () => host.postMessage('back');
   retry.onclick = () => host.postMessage('retry');
   finish.onclick = () => host.postMessage('finish');
   save.onclick = () => host.postMessage('save:' + trial + ':' + destination.value);
-  host.addEventListener('message', ({data}) => {
+  window.hxToneStatus = data => {
     model.disabled = source.disabled = !!data.busy;
     if (Number.isInteger(data.model)) model.selectedIndex = data.model;
     status.textContent = status.title = data.text || '';
@@ -91,6 +91,7 @@
     if (slots.includes(Number(previous))) destination.value = previous;
     destination.parentElement.hidden = trial == null;
     destination.disabled = save.disabled = !!data.busy || !slots.length;
-  });
+  };
+  host?.addEventListener?.('message', ({data}) => window.hxToneStatus(data));
 </script>
 </html>
