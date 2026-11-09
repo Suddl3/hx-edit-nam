@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from queue import Queue
 import tempfile
-from threading import Event, Thread
+from threading import Event, Thread, Timer
 import unittest
 from unittest.mock import Mock, call, patch
 from urllib.error import HTTPError, URLError
@@ -59,10 +59,16 @@ class ToneTests(unittest.TestCase):
             worker.start()
             return True
 
-        with patch('tone3000.read_url', read):
-            result = select_tone('t3k_pub_test', Event(), open_browser=open_browser, timeout=5)
-        for worker in workers:
-            worker.join(timeout=3)
+        stopped = Event()
+        watchdog = Timer(5, stopped.set)
+        watchdog.start()
+        try:
+            with patch('tone3000.read_url', read):
+                result = select_tone('t3k_pub_test', stopped, open_browser=open_browser)
+        finally:
+            watchdog.cancel()
+            for worker in workers:
+                worker.join(timeout=3)
         self.assertEqual((self.status, self.result), (400, 200))
         self.assertFalse(self.replayed)
         return result
@@ -83,6 +89,12 @@ class ToneTests(unittest.TestCase):
         with patch('tone3000.read_url') as read:
             self.assertIsNone(self.select(dict(canceled='true', code='unused'), read))
             read.assert_not_called()
+
+    def test_selection_survives_the_old_five_minute_limit(self):
+        # Simulate a delay beyond the old deadline without waiting five minutes.
+        with patch('tone3000.monotonic', side_effect=[0, 301], create=True), \
+                patch('tone3000.read_url', return_value=b'{"access_token":"test-token"}') as read:
+            self.assertEqual(self.select(dict(code='right', tone_id=42), read), (42, 'test-token'))
 
     def test_api_errors_and_untrusted_download_host(self):
         with self.assertRaisesRegex(ToneError, 'unexpected model URL'):

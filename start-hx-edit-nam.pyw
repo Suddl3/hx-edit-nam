@@ -82,20 +82,14 @@ def main():
     from nam_inventory import scan_profiles
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--lt-nam', action='store_true', help='Confirm the device runs the helix-lt-nam 3.80.0 build.')
-    args = parser.parse_args()
+    parser.add_argument('--lt-nam', action='store_true', help=argparse.SUPPRESS)
+    parser.parse_args()
 
     device = frida.get_local_device()
     if any(p.name.lower() in {'hx edit.exe', 'hx edit nam.exe'} for p in device.enumerate_processes()):
         raise RuntimeError('Close the open HX Edit window, then start HX Edit NAM again.')
     if not CONVERTER.is_file():
         raise FileNotFoundError('Keep the helix-lt-nam checkout next to hx-edit-nam for the built-in converter.')
-
-    if not args.lt_nam:
-        choice = message('This editor is for Helix LT with the helix-lt-nam 3.80.0 firmware.\n\n'
-                         'Is NAM A2 Lite already available under Amp > NAM on your device?', 0x24 | 0x100)
-        if choice != 6:
-            return
 
     try:
         profiles = scan_profiles(CONVERTER.parent)

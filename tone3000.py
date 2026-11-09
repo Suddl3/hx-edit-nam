@@ -8,7 +8,6 @@ from pathlib import Path
 import re
 import secrets
 import tempfile
-from time import monotonic
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -80,7 +79,7 @@ def callback_result(path, state):
     return True, (code, int(tone_id))
 
 
-def select_tone(client_id, stopped, *, open_browser, timeout=300):
+def select_tone(client_id, stopped, *, open_browser):
     verifier = secrets.token_urlsafe(48)
     challenge = base64.urlsafe_b64encode(sha256(verifier.encode()).digest()).rstrip(b'=').decode()
     state = secrets.token_urlsafe(32)
@@ -118,17 +117,13 @@ def select_tone(client_id, stopped, *, open_browser, timeout=300):
             if stopped.is_set():
                 return None
             raise ToneError('Could not open the TONE3000 catalog in your browser.')
-        deadline = monotonic() + timeout
-        while not done and not stopped.is_set() and monotonic() < deadline:
+        # The open catalog keeps this callback URL until it returns a selection.
+        while not done and not stopped.is_set():
             server.handle_request()
-    if stopped.is_set():
+    if stopped.is_set() or result is None:
         return None
-    if not done:
-        raise ToneError('TONE3000 selection expired. Open the catalog again to retry.')
     if isinstance(result, ToneError):
         raise result
-    if result is None:
-        return None
     code, tone_id = result
     form = dict(grant_type='authorization_code', code=code, code_verifier=verifier,
                 redirect_uri=redirect, client_id=client_id)

@@ -159,7 +159,8 @@ function installToneView() {
       }
     },
     onLeave() {
-      if (this.ours && active && !active.applying && !(active.inserting ? atPosition() : atTarget())) {
+      if (this.ours && active && !active.applying &&
+          !(active.inserting || active.restoring ? atPosition() : atTarget())) {
         active.valid = false;
       }
     },
@@ -212,10 +213,12 @@ function installToneView() {
     const saving = request.action === 'save';
     if (!saving) active.transfer = transfer;
     active.undoBefore = undoIndex();
+    active.originalBlock = active.block;
     active.originalSlot = namView.modelSlot();
     active.inserting = active.originalSlot === null;
     if (active.inserting) insertNam();
     let selecting = false;
+    let expectedUndo;
     poll(request, expired => {
       if (!(active.inserting ? atPosition() : atTarget())) {
         throw new Error(`The target changed. The downloaded profile is in User IR ${transfer.slot}.`);
@@ -230,8 +233,13 @@ function installToneView() {
         active.block = block(active.controller);
         active.inserting = false;
       }
-      if (!selecting) selecting = saving ? namView.selectProfile(transfer) : namView.playPreview(transfer);
-      if (!selecting || namView.modelSlot() !== transfer.slot) {
+      if (!selecting) {
+        expectedUndo = active.undoBefore + Number(active.originalSlot === null) +
+          Number(namView.modelSlot() !== transfer.slot);
+        selecting = saving ? namView.selectProfile(transfer) : namView.playPreview(transfer);
+      }
+      // HX Edit can update the Model widget before recording the edit for Undo.
+      if (!selecting || namView.modelSlot() !== transfer.slot || undoIndex() !== expectedUndo) {
         if (!expired) return null;
         throw new Error(`Could not apply the profile. Check User IR ${transfer.slot} on Helix.`);
       }
@@ -254,25 +262,53 @@ function installToneView() {
     return playing(transfer) && !active.deviceSaved && active.undoAfter === undoIndex();
   }
 
-  function restore() {
-    const { transfer, editor, undoBefore, undoAfter } = active;
-    if (!transfer) return {};
+  function restore(request, saved) {
+    const { transfer, editor, undoBefore, undoAfter, originalSlot, originalBlock } = active;
+    if (!transfer) return afterRestore(request, {}, saved);
     const retained = { notice: `Check User IR ${transfer.slot}. The audition profile was left on Helix.` };
-    if (!canRestore(transfer)) return retained;
     const steps = undoAfter - undoBefore;
-    if (steps < 0 || steps > 2 || (!steps && active.originalSlot !== transfer.slot)) return retained;
+    if (!canRestore(transfer) || steps < 0 || steps > 2 || (!steps && originalSlot !== transfer.slot)) {
+      return afterRestore(request, retained, saved);
+    }
     const undo = new NativeFunction(editor.readPointer().add(0xdc).readPointer(), 'int', ['pointer'], 'thiscall');
+    let undone = true;
     active.applying = true;
     try {
       for (let step = 0; step < steps; step++) {
-        if (undo(editor) < 0 || undoIndex() !== undoAfter - step - 1) return retained;
+        if (undo(editor) < 0 || undoIndex() !== undoAfter - step - 1) {
+          undone = false;
+          break;
+        }
       }
-      if (!atPosition()) return retained;
-      active.block = block(active.controller);
     } finally {
       active.applying = false;
     }
-    return namView.clearPreview(transfer) ? { clearing: transfer } : retained;
+    if (!undone) return afterRestore(request, retained, saved);
+
+    active.restoring = true;
+    poll(request, expired => {
+      if (!atPosition() || undoIndex() !== undoBefore) return afterRestore(request, retained, saved);
+      if (namView.modelSlot() !== originalSlot || block(active.controller) !== originalBlock) {
+        return expired ? afterRestore(request, retained, saved) : null;
+      }
+      active.block = originalBlock;
+      active.restoring = false;
+      if (!namView.clearPreview(transfer)) return afterRestore(request, retained, saved);
+      namView.stopPreview();
+      poll(request, expired => {
+        if (namView.previewSlotEmpty(transfer)) {
+          active.transfer = null;
+          if (request.action !== 'close' && (!atTarget() || undoIndex() !== undoBefore)) {
+            throw new Error('The target changed. Select TONE3000 again on the desired block.');
+          }
+          return afterRestore(request, {}, saved);
+        }
+        return expired ? afterRestore(request, {
+          notice: `Could not verify that User IR ${transfer.slot} was cleared.`,
+        }, saved) : null;
+      }, 3500);
+      return {};
+    }, 3500);
   }
 
   const commandAddress = base.add(0x35e800);
@@ -287,6 +323,7 @@ function installToneView() {
   }, 'uint8', ['pointer', 'pointer'], 'thiscall'));
 
   function afterRestore(request, result, saved) {
+    active.restoring = false;
     if (request.action !== 'close') {
       if (result.notice) throw new Error(result.notice);
       active.selectionUndo = undoIndex();
@@ -301,25 +338,11 @@ function installToneView() {
         awaitImport(request, transfer, () => applyProfile(request, transfer));
       }
     } else {
+      namView.stopPreview();
       active = null;
       reply(request, result);
     }
     return {};
-  }
-
-  function finishRestore(request, result, saved) {
-    if (result.notice && request.action !== 'close') throw new Error(result.notice);
-    namView.stopPreview();
-    active.transfer = null;
-    if (result.clearing) {
-      const transfer = result.clearing;
-      poll(request, expired => {
-        if (namView.previewSlotEmpty(transfer)) return afterRestore(request, {}, saved);
-        return expired ? afterRestore(request, { notice: `Could not verify that User IR ${transfer.slot} was cleared.` }, saved) : null;
-      }, 3500);
-    } else {
-      afterRestore(request, result, saved);
-    }
   }
 
   function run(request) {
@@ -334,7 +357,7 @@ function installToneView() {
       awaitImport(request, saved, () => {
         if (!namView.registerProfile(saved)) throw new Error(`Check User IR ${slot} on Helix.`);
         request.savedSlot = slot;
-        finishRestore(request, restore(), saved);
+        restore(request, saved);
       });
       return;
     }
@@ -342,7 +365,7 @@ function installToneView() {
         (!active.transfer && active.selectionUndo !== undoIndex()))) {
       throw new Error('The target changed. Select TONE3000 again on the desired block.');
     }
-    finishRestore(request, restore());
+    restore(request);
   }
 
   Interceptor.attach(user32.getExportByName('DispatchMessageW'), {

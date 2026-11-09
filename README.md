@@ -24,7 +24,7 @@ python3 -B build-macos.py ~/Downloads/HXEdit.dmg
 
 ## Готовая сборка для Windows
 
-Скачайте Windows x64 ZIP из [релиза v0.1.0](https://github.com/andreidevs/hx-edit-nam/releases/tag/v0.1.0), распакуйте всю папку и запустите **HX Edit NAM.exe**. В архиве есть Python, конвертер NAM и скомпилированная панель TONE3000. Лаунчер подготовит рабочую копию из установленного HX Edit 3.82. Для другой папки установки задайте переменную `HX_EDIT_SOURCE_DIRECTORY`.
+Скачайте Windows x64 ZIP из [релиза v0.2.1](https://github.com/andreidevs/hx-edit-nam/releases/tag/v0.2.1), распакуйте всю папку и запустите **HX Edit NAM.exe**. В архиве есть Python, конвертер NAM и скомпилированная панель TONE3000. Лаунчер подготовит рабочую копию из установленного HX Edit 3.82. Для другой папки установки задайте переменную `HX_EDIT_SOURCE_DIRECTORY`.
 
 На компьютере нужны установленный HX Edit 3.82 с драйверами Line 6 и Helix LT с прошивкой `helix-lt-nam` 3.80.0. Для каталога TONE3000 также нужны WebView2 Runtime и ваш ключ `T3K_PUBLISHABLE_KEY`. Для настройки ключа используйте раздел TONE3000 ниже.
 
@@ -34,10 +34,10 @@ python3 -B build-macos.py ~/Downloads/HXEdit.dmg
 
 ```powershell
 python -m pip install frida==17.5.2 msgpack==1.2.4
-python .\start-hx-edit-nam.pyw --lt-nam
+python .\start-hx-edit-nam.pyw
 ```
 
-Закройте открытый HX Edit перед запуском. Можно открыть `start-hx-edit-nam.pyw` двойным щелчком и подтвердить, что NAM A2 Lite уже есть в меню Helix LT. Лаунчер готовит рабочую копию в `build`, включает каталог NAM и обслуживает конвертер, пока редактор открыт. Windows x64 ZIP собирается командой `python -B build-windows.py v0.1.0`.
+Закройте открытый HX Edit перед запуском. Можно также открыть `start-hx-edit-nam.pyw` двойным щелчком. Лаунчер готовит рабочую копию в `build`, включает каталог NAM и обслуживает конвертер, пока редактор открыт. Windows x64 ZIP собирается командой `python -B build-windows.py v0.2.1`.
 
 **NAM** и кабинетные IR используют общие 128 слотов User IR. Вкладка **IRs** показывает физические слоты, а **NAM** и меню **Model** показывают только распознанные профили A2 Lite с их реальными номерами.
 
@@ -55,7 +55,7 @@ python .\start-hx-edit-nam.pyw --lt-nam
 
 ```powershell
 $env:T3K_PUBLISHABLE_KEY = 't3k_pub_...'
-python .\start-hx-edit-nam.pyw --lt-nam
+python .\start-hx-edit-nam.pyw
 ```
 
 1. Выберите позицию в цепочке и откройте **Amp → NAM → TONE3000**. В правой панели HX Edit войдите в TONE3000 и выберите тон. Вход сохраняется в профиле встроенного браузера HX Edit NAM.
