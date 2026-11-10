@@ -4,7 +4,7 @@
 
 ## Готовая сборка для macOS на Apple Silicon
 
-Распакуйте macOS ARM64 ZIP из [релиза v0.2.0](https://github.com/andreidevs/hx-edit-nam/releases/tag/v0.2.0), закройте штатный HX Edit и откройте **HX Edit NAM.app**. Лаунчер подготовит рабочую копию из установленного `/Applications/Line6/HX Edit.app` или из официального `~/Downloads/HXEdit.dmg`. Нужна версия [Line 6 HX Edit 3.82](https://line6.com/software/readeula.html?rid=12926) и Helix LT с прошивкой `helix-lt-nam` 3.80.0.
+Распакуйте macOS ARM64 ZIP из [релизов](https://github.com/andreidevs/hx-edit-nam/releases), закройте штатный HX Edit и откройте **HX Edit NAM.app**. Лаунчер подготовит рабочую копию из установленного `/Applications/Line6/HX Edit.app` или из официального `~/Downloads/HXEdit.dmg`. Нужна версия Line 6 HX Edit 3.82 и устройство с подходящей NAM-прошивкой из раздела «HX Edit с NAM». [Line 6 HX Edit 3.82](https://line6.com/software/readeula.html?rid=12926)
 
 Для другого пути запустите `open 'HX Edit NAM.app' --args --hx-edit-source '/путь/к/HXEdit.dmg'`. Можно указать `.app`, `.pkg` или `.dmg`. Приложение подписано локальной подписью ad hoc. На первом запуске macOS может попросить подтверждение в настройках безопасности. [Справка Apple](https://support.apple.com/ru-ru/102445)
 
@@ -15,7 +15,7 @@
 Для сборки нужны `uv`, Git, инструменты командной строки Xcode и Python 3.11 или новее.
 
 ```sh
-python3 -B build-macos.py --release-version v0.2.0
+python3 -B build-macos.py --release-version v0.3.0
 # Или соберите локальное приложение с рабочей копией HX Edit внутри.
 python3 -B build-macos.py ~/Downloads/HXEdit.dmg
 ```
@@ -24,9 +24,9 @@ python3 -B build-macos.py ~/Downloads/HXEdit.dmg
 
 ## Готовая сборка для Windows
 
-Скачайте Windows x64 ZIP из [релиза v0.2.1](https://github.com/andreidevs/hx-edit-nam/releases/tag/v0.2.1), распакуйте всю папку и запустите **HX Edit NAM.exe**. В архиве есть Python, конвертер NAM и скомпилированная панель TONE3000. Лаунчер подготовит рабочую копию из установленного HX Edit 3.82. Для другой папки установки задайте переменную `HX_EDIT_SOURCE_DIRECTORY`.
+Скачайте Windows x64 ZIP из релиза v0.3.0, распакуйте всю папку и запустите **HX Edit NAM.exe**. В архиве есть Python, конвертер NAM и скомпилированная панель TONE3000. Лаунчер подготовит рабочую копию из установленного HX Edit 3.82. Для другой папки установки задайте переменную `HX_EDIT_SOURCE_DIRECTORY`. [Релиз v0.3.0](https://github.com/andreidevs/hx-edit-nam/releases/tag/v0.3.0)
 
-На компьютере нужны установленный HX Edit 3.82 с драйверами Line 6 и Helix LT с прошивкой `helix-lt-nam` 3.80.0. Для каталога TONE3000 также нужны WebView2 Runtime и ваш ключ `T3K_PUBLISHABLE_KEY`. Для настройки ключа используйте раздел TONE3000 ниже.
+На компьютере нужны установленный HX Edit 3.82 с драйверами Line 6 и устройство с подходящей NAM-прошивкой. Для каталога TONE3000 также нужны WebView2 Runtime и ваш ключ `T3K_PUBLISHABLE_KEY`. Для настройки ключа используйте раздел TONE3000 ниже.
 
 ## HX Edit с NAM
 
@@ -39,7 +39,7 @@ python -m pip install frida==17.5.2 msgpack==1.2.4
 python .\start-hx-edit-nam.pyw
 ```
 
-Закройте открытый HX Edit перед запуском. Можно также открыть `start-hx-edit-nam.pyw` двойным щелчком. Лаунчер готовит рабочую копию в `build`, включает каталог NAM и обслуживает конвертер, пока редактор открыт. Windows x64 ZIP собирается командой `python -B build-windows.py v0.2.1`.
+Закройте открытый HX Edit перед запуском. Можно также открыть `start-hx-edit-nam.pyw` двойным щелчком. Лаунчер готовит рабочую копию в `build`, включает каталог NAM и обслуживает конвертер, пока редактор открыт. Windows x64 ZIP собирается командой `python -B build-windows.py v0.3.0`.
 
 **NAM** и кабинетные IR используют общие 128 слотов User IR. Вкладка **IRs** показывает физические слоты, а **NAM** и меню **Model** показывают только распознанные профили A2 Lite с их реальными номерами.
 
