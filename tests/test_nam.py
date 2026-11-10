@@ -4,6 +4,7 @@ import struct
 import tempfile
 import unittest
 from xml.etree import ElementTree as ET
+from unittest.mock import patch
 
 import msgpack
 
@@ -34,8 +35,8 @@ def capture():
 
 class NamTests(unittest.TestCase):
     @unittest.skipUnless(BASELINE.is_dir(), 'requires the prepared HX Edit 3.82 baseline')
-    def test_catalog_adds_one_lt_model(self):
-        with tempfile.TemporaryDirectory() as temp:
+    def test_catalog_adds_one_nam_model_for_lt_and_floor(self):
+        with tempfile.TemporaryDirectory() as temp, patch('nam_catalog.read_custom_names', return_value={}):
             res = prepare_copy(temp).parent / 'res'
             symbols = json.loads((res / 'Helix.sym').read_bytes())
             original = json.loads((BASELINE / 'Helix.sym').read_bytes())
@@ -48,7 +49,10 @@ class NamTests(unittest.TestCase):
             self.assertEqual(symbols[380]['parameters'], [p['symbolicID\0'].rstrip('\0') for p in params])
             self.assertEqual([p['valueType\0'] for p in params], [0, 1, 1, 1, 1, 1, 1, 2])
             self.assertEqual([p['default\0'] for p in params], [1] + [0.5] * 6 + [False])
-            self.assertEqual(nam['devices\0'][0]['id\0'], 0x210004)
+            self.assertEqual(nam['devices\0'], [
+                {'id\0': 0x210004, 'version\0': '0x03800000\0'},
+                {'id\0': 0x210001, 'version\0': '0x03800000\0'},
+            ])
             catalog = msgpack.unpackb((res / 'HX_ModelCatalog.bin').read_bytes())
             amp = next(c for c in catalog['categories\0'] if c['name\0'] == 'Amp\0')
             folder = next(c for c in amp['subcategories\0'] if c['name\0'] == 'NAM\0')
@@ -67,6 +71,29 @@ class NamTests(unittest.TestCase):
                              ['ncop', 'npas', 'nimp', 'nexp', 'nclr'])
             self.assertEqual([button.findtext('text/label') for button in actions],
                              ['COPY', 'PASTE', 'IMPORT', 'EXPORT', 'CLEAR'])
+
+    @unittest.skipUnless(BASELINE.is_dir(), 'requires the prepared HX Edit 3.82 baseline')
+    def test_custom_names_apply_to_the_stock_definition_and_catalog(self):
+        with tempfile.TemporaryDirectory() as temp:
+            csv_path = Path(temp, 'names.csv')
+            csv_path.write_text('internal,real_name\nHD2_DistScream808Stereo,Мой овердрайв\n'
+                                'Drive,Other Gain\nHD2_AmpNAMLite,Other NAM\n', encoding='utf-8-sig')
+            with patch.dict('os.environ', {'HX_EDIT_NAM_NAMES': str(csv_path)}):
+                resources = prepare_copy(temp).parent / 'res'
+
+            symbol = 'HD2_DistScream808\0'
+            original = msgpack.unpackb((BASELINE / 'HelixModelDefs.bin').read_bytes())
+            next(model for model in original if model['symbolicID\0'] == symbol)['name\0'] = 'Мой овердрайв\0'
+            definitions = msgpack.unpackb((resources / 'HelixModelDefs.bin').read_bytes())
+            self.assertEqual(definitions[:-1], original)
+            self.assertEqual(definitions[-1]['name\0'], 'NAM A2 Lite\0')
+            catalog = msgpack.unpackb((resources / 'HX_ModelCatalog.bin').read_bytes())
+            distortion = next(c for c in catalog['categories\0'] if c['name\0'] == 'Distortion\0')
+            mono, stereo, _ = distortion['subcategories\0']
+            model = next(m for m in mono['models\0'] if m['id\0'] == symbol)
+            self.assertEqual(model['name\0'], 'Мой овердрайв\0')
+            alias = next(m for m in stereo['models\0'] if m['id\0'] == symbol)
+            self.assertEqual(alias['use_subcategory\0'], mono['id\0'])
 
     @unittest.skipUnless(CONVERTER.is_file(), 'requires the sibling helix-lt-nam checkout')
     def test_conversion_preserves_file_names_and_wav(self):

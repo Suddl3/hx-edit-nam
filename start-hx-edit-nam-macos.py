@@ -15,7 +15,7 @@ import tempfile
 from threading import Event, Thread
 from time import monotonic, sleep
 
-from prepare_editor_macos import EDITOR_BINARY, prepare_editor
+from prepare_editor_macos import EDITOR_BINARY, prepare_editor, run
 
 
 ROOT = Path(__file__).resolve().parent
@@ -49,10 +49,19 @@ def single_instance():
 
 
 def working_editor(source, workspace):
-    bundled = ROOT / 'HX Edit.app' / EDITOR_BINARY
+    from nam_catalog import read_custom_names, rename_stock_models
+
+    names = read_custom_names(APP_SUPPORT / 'custom-names.csv')
+    bundled = ROOT / 'HX Edit.app'
+    destination = workspace / 'HX Edit.app'
     if source is None:
-        if bundled.is_file():
-            return bundled
+        if (bundled / EDITOR_BINARY).is_file():
+            if not names:
+                return bundled / EDITOR_BINARY
+            run('/usr/bin/ditto', bundled, destination)
+            rename_stock_models(destination / 'Contents' / 'Resources', names)
+            run('/usr/bin/codesign', '--force', '--sign', '-', destination)
+            return destination / EDITOR_BINARY
         installed = Path('/Applications/Line6/HX Edit.app')
         installer = Path.home() / 'Downloads' / 'HXEdit.dmg'
         if installed.is_dir():
@@ -63,7 +72,7 @@ def working_editor(source, workspace):
             raise FileNotFoundError('Install Line 6 HX Edit 3.82 in /Applications/Line6 or put the official '
                                     'HXEdit.dmg in Downloads. To use another path, pass --hx-edit-source.')
     with tempfile.TemporaryDirectory(prefix='source-', dir=workspace) as work:
-        return prepare_editor(source.expanduser().resolve(), workspace / 'HX Edit.app', Path(work))
+        return prepare_editor(source.expanduser().resolve(), destination, Path(work), model_names=names)
 
 
 def run_editor(editor, workspace, profiles, scan_failed):
@@ -146,7 +155,8 @@ def run_editor(editor, workspace, profiles, scan_failed):
                     if kind == 'convert':
                         result = {'files': convert_batch(payload['files'], workspace, CONVERTER)}
                     elif kind == 'stageTone':
-                        result = {'file': str(stage_tone_import(payload['file'], workspace))}
+                        staged = stage_tone_import(payload['file'], workspace, audition=payload['audition'])
+                        result = {'file': str(staged)}
                     else:
                         result = {'profiles': validate_import(payload['files'], payload['firstSlot'],
                                                                set(payload['occupied']), payload['namOnly'])}
@@ -180,11 +190,11 @@ def run_editor(editor, workspace, profiles, scan_failed):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--lt-nam', action='store_true', help='Confirm the Helix LT has the NAM firmware.')
+    parser.add_argument('--lt-nam', action='store_true', help='Confirm the Helix has the NAM firmware.')
     parser.add_argument('--hx-edit-source', type=Path, help='Local HX Edit 3.82 app, PKG or DMG')
     args = parser.parse_args()
     if not args.lt_nam and not dialog(
-        'Is NAM A2 Lite already available under Amp > NAM on your Helix LT?', confirm=True,
+        'Is NAM A2 Lite already available under Amp > NAM on your Helix?', confirm=True,
     ):
         return
     from nam_inventory_macos import scan_profiles
@@ -196,7 +206,7 @@ def main():
             profiles = scan_profiles(CONVERTER.parent, editor.with_name('libusb-1.0.0.dylib'))
             scan_failed = False
         except Exception as error:
-            print(f'Could not scan Helix LT NAM profiles: {error}', file=sys.stderr, flush=True)
+            print(f'Could not scan Helix NAM profiles: {error}', file=sys.stderr, flush=True)
             profiles, scan_failed = {}, True
         run_editor(editor, workspace, profiles, scan_failed)
 

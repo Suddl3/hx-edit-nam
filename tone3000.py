@@ -12,7 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from nam_convert import convert_batch
+from nam_convert import IR_NAME_LIMIT, convert_batch
 
 
 ORIGIN = 'https://www.tone3000.com'
@@ -20,6 +20,7 @@ API = ORIGIN + '/api/v1'
 CALLBACK = '/callback'
 MAX_MODEL_BYTES = 4 * 1024 * 1024
 API_HOSTS = {'tone3000.com', 'www.tone3000.com'}
+WINDOWS_DEVICE = re.compile(r'CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9]|CONIN\$|CONOUT\$', re.IGNORECASE)
 
 
 class ToneError(Exception):
@@ -152,8 +153,14 @@ def prepare_model(model, token, workspace, converter):
         # HX Edit can rewrite non-ASCII paths in the native import batch.
         ascii_name = model['name'].encode('ascii', 'ignore').decode('ascii')
         label = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f]', '_', ascii_name).strip(' .')
-        name = f'T3K {int(model["id"])} {secrets.token_hex(3)} {label}'
-        name = name[:31].rstrip(' .')
+        # A dot after a DOS device name still makes the filename reserved on Windows.
+        if '.' in label and WINDOWS_DEVICE.fullmatch(label.split('.', 1)[0].rstrip()):
+            label = '_' + label
+        number = str(int(model['id']))
+        if len(number) > IR_NAME_LIMIT - len('T3K ') or number == '0' or number.startswith('-'):
+            raise ToneError('TONE3000 returned an invalid profile ID.')
+        label = label[:IR_NAME_LIMIT - len(number) - 1].rstrip(' .')
+        name = f'{label} {number}' if label else f'T3K {number}'
         capture = Path(folder, name + '.nam')
         capture.write_bytes(read_url(model['model_url'], token=token))
         return convert_batch([capture], workspace, converter)[0]

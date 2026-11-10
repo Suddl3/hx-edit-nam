@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import secrets
 import shutil
 import struct
 import subprocess
@@ -12,6 +13,7 @@ from nam_inventory import is_nam_profile
 
 
 LAST_SLOT = 128
+IR_NAME_LIMIT = 31
 
 
 def is_nam_wav(path):
@@ -56,14 +58,19 @@ def validate_import(files, first_slot, occupied, nam_only=False):
     return profiles
 
 
-def stage_tone_import(file, workspace):
+def stage_tone_import(file, workspace, *, audition=False):
     """Give HX Edit a disposable copy for each upload, including Save to Helix."""
     source = Path(file).resolve(strict=True)
     workspace = Path(workspace).resolve()
     if not source.is_relative_to(workspace) or source.suffix != '.wav' or not is_nam_wav(source):
         raise ValueError('Could not read the converted TONE3000 profile.')
+    name = source.name
+    if audition:
+        # The editor matches this name before clearing the audition slot.
+        tag = ' ' + secrets.token_hex(3)
+        name = source.stem[:IR_NAME_LIMIT - len(tag)].rstrip(' .') + tag + '.wav'
     folder = Path(tempfile.mkdtemp(prefix='tone-import-', dir=workspace))
-    return shutil.copyfile(source, folder / source.name)
+    return shutil.copyfile(source, folder / name)
 
 
 def convert_batch(files, workspace, converter):

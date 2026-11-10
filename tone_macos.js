@@ -180,7 +180,7 @@ function installToneMac(nam) {
   async function upload(state, file, slot, audition) {
     const transfer = await main(() => {
       requireTarget(state);
-      const transfer = nam.importPreview(file, slot);
+      const transfer = nam.importPreview(file, slot, audition);
       if (audition) state.trial = transfer;
       return transfer;
     });
@@ -274,7 +274,7 @@ function installToneMac(nam) {
       } else if (request.action === 'audition') {
         await restore(state);
         state.scratch ??= await main(() => nam.freeSlots()[0]);
-        if (!state.scratch) throw new Error('No free User IR slots on Helix LT.');
+        if (!state.scratch) throw new Error('No free User IR slots on the Helix.');
         const transfer = await upload(state, request.file, state.scratch, true);
         await apply(state, transfer, true);
         result.slot = transfer.slot;

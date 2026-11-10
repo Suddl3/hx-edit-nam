@@ -132,7 +132,7 @@ function installNamMac(profiles, scanFailed) {
     const status = find(panel, id('nmsg'), true);
     if (!status.isNull()) {
       if (scanFailed) {
-        setText(status, Memory.allocUtf8String('Connect Helix LT and restart to scan profiles.'), false);
+        setText(status, Memory.allocUtf8String('Connect your Helix and restart to scan profiles.'), false);
       }
       show(status, slots.length === 0, true);
     }
@@ -416,16 +416,16 @@ function installNamMac(profiles, scanFailed) {
     modelSlot: () => activeModel() ? getValue(model) + 1 : null,
     freeSlots: () => Array.from({length: 128}, (_, index) => index + 1)
       .filter(slot => slotEmpty(slot) && !reserved.has(slot)),
-    importPreview(file, slot) {
+    importPreview(file, slot, audition) {
       const librarian = worker();
       if (librarian.isNull() || !slotEmpty(slot) || reserved.has(slot)) {
-        throw new Error('Choose an empty User IR slot on the connected Helix LT.');
+        throw new Error('Choose an empty User IR slot on the connected Helix.');
       }
-      const name = file.split('/').at(-1).replace(/\.wav$/, '');
-      if (!/^T3K [\x20-\x7e]{1,27}$/.test(name)) throw new Error('Invalid TONE3000 profile name.');
-      const transfer = {controller, worker: librarian, file, slot, name};
       // The native importer deletes files in the temporary directory after reading them.
-      const staged = request({type: 'stageTone', file}).file;
+      const staged = request({type: 'stageTone', file, audition}).file;
+      const name = staged.split('/').at(-1).replace(/\.wav$/, '');
+      if (!/^[\x20-\x7e]{1,31}$/.test(name)) throw new Error('Invalid TONE3000 profile name.');
+      const transfer = {controller, worker: librarian, file, slot, name};
       const string = Memory.alloc(16);
       string.writePointer(at(0xa7c650)); // L6String vtable
       assignString(string, Memory.allocUtf8String(staged));

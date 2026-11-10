@@ -157,6 +157,19 @@ class ToneTests(unittest.TestCase):
         self.assertEqual(preview.command.call_args_list, [
             call(1, 'audition', file='first.wav'), call(1, 'audition', file='second.wav'), call(1, 'save', slot=4)])
 
+    def test_saved_names_fit_the_slot_and_are_safe_for_windows(self):
+        with tempfile.TemporaryDirectory() as folder, patch('tone3000.read_url', return_value=b'capture'), \
+                patch('tone3000.convert_batch', return_value=['profile.wav']) as convert:
+            for label, model_id, expected in (
+                ('A' * 40, 123456789, 'A' * 21 + ' 123456789'),
+                ('Чистый тон', 42, 'T3K 42'),
+                ('CON.clean', 42, '_CON.clean 42'),
+            ):
+                with self.subTest(label=label):
+                    model = dict(id=model_id, name=label, model_url=f'{API}/models/{model_id}/download')
+                    prepare_model(model, 'test-token', folder, CONVERTER)
+                    self.assertEqual(convert.call_args.args[0][0].stem, expected)
+
     @unittest.skipUnless(CONVERTER.is_file(), 'requires the sibling helix-lt-nam checkout')
     def test_prepares_only_selected_profile_and_rejects_incompatible_data(self):
         model = dict(id=42, name='../5150III®: amp', model_url=f'{API}/models/42/download')
@@ -164,11 +177,14 @@ class ToneTests(unittest.TestCase):
             read.return_value = json.dumps(capture()).encode()
             wav = Path(prepare_model(model, 'test-token', folder, CONVERTER))
             self.assertTrue(is_nam_wav(wav))
-            self.assertTrue(wav.name.startswith('T3K 42 '))
+            self.assertEqual(wav.stem, '_5150III_ amp 42')
             self.assertTrue(wav.name.isascii())
-            self.assertTrue(wav.stem.endswith('_5150III_ amp'))
             read.assert_called_once_with(model['model_url'], token='test-token')
-            audition = stage_tone_import(wav, folder)
+            with patch('nam_convert.secrets.token_hex', side_effect=['1a2b3c', '4d5e6f']):
+                audition = stage_tone_import(wav, folder, audition=True)
+                repeated = stage_tone_import(wav, folder, audition=True)
+            self.assertEqual(audition.stem, f'{wav.stem} 1a2b3c')
+            self.assertNotEqual(audition.stem, repeated.stem)
             audition.unlink()  # HX Edit consumes staged files during import.
             saved = stage_tone_import(wav, folder)
             self.assertNotEqual(audition, saved)

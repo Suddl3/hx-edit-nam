@@ -1,6 +1,7 @@
-"""Build the Helix LT NAM catalog from the local HX Edit 3.82 resources."""
+"""Build the Helix LT and Floor NAM catalog from the local HX Edit 3.82 resources."""
 
 import copy
+import csv
 import hashlib
 import json
 import os
@@ -15,11 +16,54 @@ ROOT = Path(__file__).resolve().parent
 EXE_HASH = 'f7faac4996164f9039c9ae3ca8d85cd135c5bceae8a511c8921a1244046cab66'
 NAM_SYMBOL = 'HD2_AmpNAMLite'
 NAM_ID = 380
-LT_DEVICE_ID = 0x00210004
+DEVICE_IDS = (0x00210004, 0x00210001)  # Helix LT and Helix Floor
 
 
 def nul(value):
     return value + '\0'
+
+
+def read_custom_names(default_path):
+    path = Path(os.environ.get('HX_EDIT_NAM_NAMES') or default_path).expanduser()
+    if not path.is_file():
+        return {}
+    names = {}
+    with path.open(newline='', encoding='utf-8-sig') as rows:
+        reader = csv.DictReader(rows)
+        if not {'internal', 'real_name'}.issubset(reader.fieldnames or ()):
+            raise ValueError(f'{path} must have internal and real_name columns.')
+        for row in reader:
+            symbol = (row['internal'] or '').strip()
+            name = (row['real_name'] or '').strip()
+            if not symbol or not name:
+                continue
+            if '\0' in symbol or '\0' in name:
+                raise ValueError(f'{path} contains a NUL character on line {reader.line_num}.')
+            names[nul(symbol)] = nul(name)
+            # HX Edit can share one entry between Mono and Stereo variants.
+            for suffix in ('Mono', 'Stereo'):
+                if symbol.endswith(suffix):
+                    names.setdefault(nul(symbol.removesuffix(suffix)), nul(name))
+    names.pop(nul(NAM_SYMBOL), None)
+    return names
+
+
+def rename_stock_models(resources, names):
+    definitions_path = resources / 'HelixModelDefs.bin'
+    catalog_path = resources / 'HX_ModelCatalog.bin'
+    definitions = msgpack.unpackb(definitions_path.read_bytes())
+    catalog = msgpack.unpackb(catalog_path.read_bytes())
+    for model in definitions:
+        symbol = model['symbolicID\0']
+        if symbol in names:
+            model['name\0'] = names[symbol]
+    for category in catalog['categories\0']:
+        for folder in [category, *category.get('subcategories\0', [])]:
+            for model in folder.get('models\0', []):
+                if 'name\0' in model and model['id\0'] in names:
+                    model['name\0'] = names[model['id\0']]
+    definitions_path.write_bytes(msgpack.packb(definitions, use_single_float=True))
+    catalog_path.write_bytes(msgpack.packb(catalog, use_single_float=True))
 
 
 def patch_catalog(resources):
@@ -54,7 +98,7 @@ def patch_catalog(resources):
     model['name\0'] = 'NAM A2 Lite\0'
     model['symbolicID\0'] = nul(NAM_SYMBOL)
     model['load\0'] = 36.0
-    model['devices\0'] = [{'id\0': LT_DEVICE_ID, 'version\0': '0x03800000\0'}]
+    model['devices\0'] = [{'id\0': device, 'version\0': '0x03800000\0'} for device in DEVICE_IDS]
     model['params\0'] = parameters + [amp_params['@enabled\0'], amp_params['@bypassvolume\0']]
     del model['cablink\0'], model['ircablink\0']
     definitions.append(model)
@@ -116,8 +160,8 @@ def patch_library(resources, scan_error):
                 <multiline>yes</multiline><text_color>0xFFC4C4C4</text_color></text>
         </text_widget>
     ''')
-    status = ('Connect Helix LT and restart to scan profiles.' if scan_error
-              else 'No NAM profiles on this Helix LT.')
+    status = ('Connect your Helix and restart to scan profiles.' if scan_error
+              else 'No NAM profiles on this Helix.')
     message.find('text/label').text = status + '\nUse Import to add a profile to a free slot.'
     frame.append(message)
     library.append(view)
@@ -140,6 +184,9 @@ def prepare_copy(working_directory, scan_error=False):
     shutil.copytree(baseline, destination, ignore=shutil.ignore_patterns('HX Edit Uninstaller.exe'))
     exe = destination / 'HX Edit NAM.exe'
     (destination / source_exe.name).rename(exe)
-    patch_catalog(destination / 'res')
-    patch_library(destination / 'res', scan_error)
+    resources = destination / 'res'
+    patch_catalog(resources)
+    if names := read_custom_names(ROOT / 'custom-names.csv'):
+        rename_stock_models(resources, names)
+    patch_library(resources, scan_error)
     return exe

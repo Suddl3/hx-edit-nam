@@ -18,7 +18,7 @@ def message(text, flags):
 
 
 def run_editor(exe, workspace, device, profiles):
-    from nam_convert import convert_batch, validate_import
+    from nam_convert import convert_batch, stage_tone_import, validate_import
     from tone_preview import TonePreview
 
     pid = device.spawn([str(exe)], cwd=str(exe.parent))
@@ -47,10 +47,13 @@ def run_editor(exe, workspace, device, profiles):
                 ready.set()
             if payload.get('type') in {'toneStart', 'toneBounds', 'toneReply'}:
                 preview.receive(payload)
-            if payload.get('type') in {'convert', 'validateImport'}:
+            if payload.get('type') in {'convert', 'validateImport', 'stageTone'}:
                 try:
                     if payload['type'] == 'convert':
                         result = {'files': convert_batch(payload['files'], workspace, CONVERTER)}
+                    elif payload['type'] == 'stageTone':
+                        staged = stage_tone_import(payload['file'], workspace, audition=payload['audition'])
+                        result = {'file': str(staged)}
                     else:
                         imported = validate_import(payload['files'], payload['firstSlot'],
                                                    set(payload['occupied']), payload['namOnly'])
@@ -95,7 +98,7 @@ def main():
         profiles = scan_profiles(CONVERTER.parent)
         scan_error = False
     except Exception as error:
-        print(f'Could not scan Helix LT NAM profiles: {error}')
+        print(f'Could not scan Helix NAM profiles: {error}')
         profiles, scan_error = {}, True
 
     (ROOT / 'build').mkdir(exist_ok=True)

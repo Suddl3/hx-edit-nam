@@ -10,7 +10,8 @@ from uuid import UUID
 
 
 DEVICE_INTERFACE = UUID('fd7bdaab-7d76-b4c8-b9be-209c747294d0')
-LT_INTERFACE = 'vid_0e41&pid_424a&mi_00'
+PRODUCT_IDS = (0x424A, 0x4248)  # Helix LT and Helix Floor
+EDITOR_INTERFACES = tuple(f'vid_0e41&pid_{product:04x}&mi_00' for product in PRODUCT_IDS)
 BEGIN_EXPORT, END_EXPORT = 0xFF, 0xFE
 GET_IR_DATA, GET_IR_INFO = 0x0B, 0x0C
 
@@ -68,9 +69,10 @@ def device_path():
     paths = ct.create_unicode_buffer(count.value)
     if read(guid, None, paths, count, 0):
         raise OSError('Could not read the Line 6 WinUSB interface list.')
-    matches = [path for path in paths[:].split('\0') if LT_INTERFACE in path.lower()]
+    matches = [path for path in paths[:].split('\0')
+               if any(interface in path.lower() for interface in EDITOR_INTERFACES)]
     if len(matches) > 1:
-        raise OSError('Connect one Helix LT to scan NAM profiles.')
+        raise OSError('Connect one Helix to scan NAM profiles.')
     return matches[0] if matches else None
 
 
@@ -88,12 +90,12 @@ class UsbLink:
         for index in range(2):
             pipe = PipeInfo()
             if not query(handle, 0, index, ct.byref(pipe)) or pipe.type != 2:
-                raise OSError('The Helix LT editor interface has unexpected USB endpoints.')
+                raise OSError('The Helix editor interface has unexpected USB endpoints.')
             self.endpoints[bool(pipe.endpoint & 0x80)] = pipe.endpoint
             if pipe.endpoint & 0x80:
                 self.mtu = pipe.packet_size
         if len(self.endpoints) != 2:
-            raise OSError('Helix LT did not expose both bulk directions.')
+            raise OSError('The Helix did not expose both bulk directions.')
         signature = (win.HANDLE, ct.c_ubyte, ct.c_void_p, win.ULONG, ct.POINTER(win.ULONG), ct.c_void_p)
         self.read_pipe = win_api(usb, 'WinUsb_ReadPipe', win.BOOL, *signature)
         self.write_pipe = win_api(usb, 'WinUsb_WritePipe', win.BOOL, *signature)
@@ -111,7 +113,7 @@ class UsbLink:
         if not self.write_pipe(self.handle, self.endpoints[False], data, len(data), ct.byref(count), None):
             raise ct.WinError(ct.get_last_error())
         if count.value != len(data):
-            raise OSError('Short Helix LT USB write.')
+            raise OSError('Short Helix USB write.')
 
     def read(self, timeout_ms=100):
         if timeout_ms != self.timeout:

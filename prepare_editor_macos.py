@@ -48,8 +48,8 @@ def editor_source(source, work):
     raise ValueError('Choose HX Edit 3.82 for macOS as an app, PKG or DMG.')
 
 
-def prepare_editor(source, destination, work):
-    from nam_catalog import patch_catalog, patch_library
+def prepare_editor(source, destination, work, *, model_names=None):
+    from nam_catalog import patch_catalog, patch_library, rename_stock_models
 
     with editor_source(source, work) as original:
         exe = original / EDITOR_BINARY
@@ -68,7 +68,10 @@ def prepare_editor(source, destination, work):
     plist['CFBundleName'] = 'HX Edit NAM'
     plist['CFBundleDisplayName'] = 'HX Edit NAM'
     info.write_bytes(plistlib.dumps(plist))
-    patch_catalog(contents / 'Resources')
-    patch_library(contents / 'Resources', False)
+    resources = contents / 'Resources'
+    patch_catalog(resources)
+    if model_names:
+        rename_stock_models(resources, model_names)
+    patch_library(resources, False)
     run('/usr/bin/codesign', '--force', '--sign', '-', destination)
     return destination / EDITOR_BINARY

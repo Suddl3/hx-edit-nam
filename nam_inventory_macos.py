@@ -1,10 +1,10 @@
-"""Read the Helix LT editor interface using the libusb shipped with HX Edit."""
+"""Read the Helix editor interface using the libusb shipped with HX Edit."""
 
 import usb.backend.libusb1
 import usb.core
 import usb.util
 
-from nam_inventory import scan_link
+from nam_inventory import PRODUCT_IDS, scan_link
 
 
 class UsbLink:
@@ -14,14 +14,14 @@ class UsbLink:
         endpoints = {usb.util.endpoint_direction(ep.bEndpointAddress): ep for ep in interface
                      if usb.util.endpoint_type(ep.bmAttributes) == usb.util.ENDPOINT_TYPE_BULK}
         if interface.bInterfaceClass != 0xFF or interface.bNumEndpoints != 2 or len(endpoints) != 2:
-            raise OSError('The Helix LT editor interface has unexpected USB endpoints.')
+            raise OSError('The Helix editor interface has unexpected USB endpoints.')
         self.input = endpoints[usb.util.ENDPOINT_IN]
         self.output = endpoints[usb.util.ENDPOINT_OUT]
         self.mtu = self.input.wMaxPacketSize
 
     def write(self, data, _description):
         if self.device.write(self.output, data, timeout=2000) != len(data):
-            raise OSError('Short Helix LT USB write.')
+            raise OSError('Short Helix USB write.')
 
     def read(self, timeout_ms=100):
         try:
@@ -34,11 +34,12 @@ def scan_profiles(firmware_tools, libusb):
     backend = usb.backend.libusb1.get_backend(find_library=lambda _: str(libusb))
     if backend is None:
         raise OSError('Could not load the HX Edit libusb library.')
-    devices = list(usb.core.find(find_all=True, idVendor=0x0E41, idProduct=0x424A, backend=backend))
+    devices = [device for device in usb.core.find(find_all=True, idVendor=0x0E41, backend=backend)
+               if device.idProduct in PRODUCT_IDS]
     if not devices:
         return {}
     if len(devices) != 1:
-        raise OSError('Connect one Helix LT to scan NAM profiles.')
+        raise OSError('Connect one Helix to scan NAM profiles.')
     device = devices[0]
     try:
         link = UsbLink(device)

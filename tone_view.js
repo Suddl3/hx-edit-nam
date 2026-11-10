@@ -333,8 +333,8 @@ function installToneView() {
         applyProfile(request, saved);
       } else {
         active.previewSlot ??= namView.freeSlots()[0];
-        if (!active.previewSlot) throw new Error('No free User IR slots on Helix LT.');
-        const transfer = namView.importPreview(request.file, active.previewSlot);
+        if (!active.previewSlot) throw new Error('No free User IR slots on the Helix.');
+        const transfer = namView.importPreview(request.file, active.previewSlot, true);
         awaitImport(request, transfer, () => applyProfile(request, transfer));
       }
     } else {
@@ -353,7 +353,7 @@ function installToneView() {
       if (!Number.isInteger(slot) || slot < 1 || slot > 128 || slot === active.previewSlot) {
         throw new Error('Select a different free User IR slot.');
       }
-      const saved = namView.importPreview(trial.file, slot);
+      const saved = namView.importPreview(trial.source, slot);
       awaitImport(request, saved, () => {
         if (!namView.registerProfile(saved)) throw new Error(`Check User IR ${slot} on Helix.`);
         request.savedSlot = slot;

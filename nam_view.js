@@ -400,12 +400,13 @@ function installNamView(profiles) {
       }
       return free;
     },
-    importPreview(file, slot) {
+    importPreview(source, slot, audition = false) {
       const list = irList();
-      if (list.isNull()) throw new Error('Connect Helix LT to audition a tone.');
+      if (list.isNull()) throw new Error('Connect your Helix to audition a tone.');
       if (!namImportController.isNull()) throw new Error('Wait for the current NAM import to finish.');
-      const transfer = { controller: irController, slot, file };
+      const transfer = { controller: irController, slot, source };
       if (!this.previewSlotEmpty(transfer)) throw new Error(`User IR ${slot} is no longer free.`);
+      transfer.file = requestImport({ type: 'stageTone', file: source, audition }).file;
       toneImport = transfer;
       selectStockRow(list, slot - 1);
       namImportController = irController;
