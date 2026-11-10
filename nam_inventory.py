@@ -11,7 +11,10 @@ from uuid import UUID
 
 DEVICE_INTERFACE = UUID('fd7bdaab-7d76-b4c8-b9be-209c747294d0')
 PRODUCT_IDS = (0x424A, 0x4248)  # Helix LT and Helix Floor
-EDITOR_INTERFACES = tuple(f'vid_0e41&pid_{product:04x}&mi_00' for product in PRODUCT_IDS)
+HX_NAM_DEVICES = {
+    'stomp': (0x4246, 0x00210006),
+    'effects': (0x4245, 0x00210005),
+}
 BEGIN_EXPORT, END_EXPORT = 0xFF, 0xFE
 GET_IR_DATA, GET_IR_INFO = 0x0B, 0x0C
 
@@ -56,7 +59,13 @@ def win_api(dll, name, result, *arguments):
     return function
 
 
-def device_path():
+def require_hx_device(products, hx_nam):
+    if list(products) != [HX_NAM_DEVICES[hx_nam][0]]:
+        name = 'HX Stomp' if hx_nam == 'stomp' else 'HX Effects'
+        raise OSError(f'Connect only the {name} running NAM firmware, then restart HX Edit NAM.')
+
+
+def device_path(hx_nam=None):
     cfg = ct.WinDLL('cfgmgr32')
     guid = (ct.c_ubyte * 16).from_buffer_copy(DEVICE_INTERFACE.bytes_le)
     count = win.ULONG()
@@ -69,8 +78,15 @@ def device_path():
     paths = ct.create_unicode_buffer(count.value)
     if read(guid, None, paths, count, 0):
         raise OSError('Could not read the Line 6 WinUSB interface list.')
-    matches = [path for path in paths[:].split('\0')
-               if any(interface in path.lower() for interface in EDITOR_INTERFACES)]
+    matches = []
+    for path in paths[:].split('\0'):
+        _, marker, suffix = path.lower().partition('vid_0e41&pid_')
+        if marker and suffix[4:].startswith('&mi_00'):
+            matches.append((int(suffix[:4], 16), path))
+    if hx_nam:
+        require_hx_device((product for product, _ in matches), hx_nam)
+        return matches[0][1]
+    matches = [path for product, path in matches if product in PRODUCT_IDS]
     if len(matches) > 1:
         raise OSError('Connect one Helix to scan NAM profiles.')
     return matches[0] if matches else None
@@ -155,8 +171,8 @@ def open_link(path):
         close(file)
 
 
-def scan_profiles(firmware_tools):
-    path = device_path()
+def scan_profiles(firmware_tools, hx_nam=None):
+    path = device_path(hx_nam)
     if not path:
         return {}
     with open_link(path) as link:

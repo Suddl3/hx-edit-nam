@@ -4,7 +4,7 @@ import usb.backend.libusb1
 import usb.core
 import usb.util
 
-from nam_inventory import PRODUCT_IDS, scan_link
+from nam_inventory import PRODUCT_IDS, require_hx_device, scan_link
 
 
 class UsbLink:
@@ -30,12 +30,15 @@ class UsbLink:
             return b''
 
 
-def scan_profiles(firmware_tools, libusb):
+def scan_profiles(firmware_tools, libusb, hx_nam=None):
     backend = usb.backend.libusb1.get_backend(find_library=lambda _: str(libusb))
     if backend is None:
         raise OSError('Could not load the HX Edit libusb library.')
-    devices = [device for device in usb.core.find(find_all=True, idVendor=0x0E41, backend=backend)
-               if device.idProduct in PRODUCT_IDS]
+    devices = list(usb.core.find(find_all=True, idVendor=0x0E41, backend=backend))
+    if hx_nam:
+        require_hx_device((device.idProduct for device in devices), hx_nam)
+    else:
+        devices = [device for device in devices if device.idProduct in PRODUCT_IDS]
     if not devices:
         return {}
     if len(devices) != 1:

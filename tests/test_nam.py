@@ -10,7 +10,7 @@ import msgpack
 
 from nam_catalog import ROOT, prepare_copy
 from nam_convert import convert_batch, validate_import
-from nam_inventory import is_nam_profile
+from nam_inventory import is_nam_profile, require_hx_device
 
 
 CONVERTER = ROOT.parent / 'helix-lt-nam' / 'tools' / 'nam2ir.py'
@@ -71,6 +71,47 @@ class NamTests(unittest.TestCase):
                              ['ncop', 'npas', 'nimp', 'nexp', 'nclr'])
             self.assertEqual([button.findtext('text/label') for button in actions],
                              ['COPY', 'PASTE', 'IMPORT', 'EXPORT', 'CLEAR'])
+
+    @unittest.skipUnless(BASELINE.is_dir(), 'requires the prepared HX Edit 3.82 baseline')
+    def test_hx_nam_keeps_preset_types_and_the_stereo_fuzz(self):
+        stock_symbols = json.loads((BASELINE / 'Helix.sym').read_bytes())
+        stock_defs = msgpack.unpackb((BASELINE / 'HelixModelDefs.bin').read_bytes())
+        for device, device_id, category, folder in (
+            ('stomp', 0x210006, 'Amp\0', 'NAM\0'),
+            ('effects', 0x210005, 'Distortion\0', 'Mono\0'),
+        ):
+            with self.subTest(device=device), tempfile.TemporaryDirectory() as temp, \
+                    patch('nam_catalog.read_custom_names', return_value={}):
+                res = prepare_copy(temp, hx_nam=device).parent / 'res'
+                symbols = json.loads((res / 'Helix.sym').read_bytes())
+                self.assertEqual([i for i, s in enumerate(symbols) if s != stock_symbols[i]], [380, 555])
+                self.assertEqual(symbols[555], {**stock_symbols[555], 'symbol': 'HD2_DistNAMLite'})
+                definitions = msgpack.unpackb((res / 'HelixModelDefs.bin').read_bytes())
+                self.assertEqual(definitions[:-2], stock_defs)
+                nam = definitions[-1]
+                self.assertEqual(nam['devices\0'], [{'id\0': device_id, 'version\0': '0x03800000\0'}])
+                params = nam['params\0'][:10]
+                self.assertEqual([p['symbolicID\0'].rstrip('\0') for p in params], symbols[555]['parameters'])
+                self.assertEqual([p['valueType\0'] for p in params], [1, 1, 1, 0, 1, 1, 1, 1, 0, 1])
+                self.assertEqual(params[6]['name\0'], 'Model\0')
+                self.assertEqual(params[6]['displayType\0'], 'ir_select\0')
+                self.assertIs(type(params[6]['default\0']), float)
+                self.assertEqual((params[6]['min\0'], params[6]['max\0']), (1.0, 128.0))
+
+                catalog = msgpack.unpackb((res / 'HX_ModelCatalog.bin').read_bytes())
+                categories = {c['name\0']: c for c in catalog['categories\0']}
+                models = next(f['models\0'] for f in categories[category]['subcategories\0'] if f['name\0'] == folder)
+                self.assertEqual([m['name\0'] for m in models if m['id\0'] == 'HD2_DistNAMLite\0'], ['NAM A2 Lite\0'])
+                stereo = next(f for f in categories['Distortion\0']['subcategories\0'] if f['name\0'] == 'Stereo\0')
+                xeno = next(m for m in stereo['models\0'] if m['id\0'] == 'HD2_DistXenomorphFuzz\0')
+                self.assertEqual(xeno['name\0'], 'Xenomorph Fuzz\0')
+
+    def test_hx_nam_requires_only_the_requested_device(self):
+        require_hx_device([0x4246], 'stomp')
+        require_hx_device([0x4245], 'effects')
+        for products in ([], [0x424A], [0x4245], [0x4246, 0x424A], [0x4246, 0x4246]):
+            with self.subTest(products=products), self.assertRaisesRegex(OSError, 'Connect only the HX Stomp'):
+                require_hx_device(products, 'stomp')
 
     @unittest.skipUnless(BASELINE.is_dir(), 'requires the prepared HX Edit 3.82 baseline')
     def test_custom_names_apply_to_the_stock_definition_and_catalog(self):

@@ -1,4 +1,4 @@
-"""Build the Helix LT and Floor NAM catalog from the local HX Edit 3.82 resources."""
+"""Build the NAM catalog from the local HX Edit 3.82 resources."""
 
 import copy
 import csv
@@ -11,11 +11,15 @@ from xml.etree import ElementTree as ET
 
 import msgpack
 
+from nam_inventory import HX_NAM_DEVICES
+
 
 ROOT = Path(__file__).resolve().parent
 EXE_HASH = 'f7faac4996164f9039c9ae3ca8d85cd135c5bceae8a511c8921a1244046cab66'
 NAM_SYMBOL = 'HD2_AmpNAMLite'
 NAM_ID = 380
+HX_NAM_ID = 555
+HX_NAM_SYMBOL = 'HD2_DistNAMLite'
 DEVICE_IDS = (0x00210004, 0x00210001)  # Helix LT and Helix Floor
 
 
@@ -45,6 +49,7 @@ def read_custom_names(default_path):
                 if symbol.endswith(suffix):
                     names.setdefault(nul(symbol.removesuffix(suffix)), nul(name))
     names.pop(nul(NAM_SYMBOL), None)
+    names.pop(nul(HX_NAM_SYMBOL), None)
     return names
 
 
@@ -120,6 +125,65 @@ def patch_catalog(resources):
     catalog_path.write_bytes(msgpack.packb(catalog, use_single_float=True))
 
 
+def patch_hx_catalog(resources, hx_nam):
+    symbols_path = resources / 'Helix.sym'
+    definitions_path = resources / 'HelixModelDefs.bin'
+    catalog_path = resources / 'HX_ModelCatalog.bin'
+    controls_path = resources / 'HelixControls.json'
+    symbols = json.loads(symbols_path.read_bytes())
+    donor = symbols[HX_NAM_ID]
+    if donor['symbol'] != 'HD2_DistXenomorphFuzzMono':
+        raise ValueError('Unexpected HX Edit symbol table at model ID 555.')
+
+    definitions = msgpack.unpackb(definitions_path.read_bytes())
+    stock_id = 'HD2_DistXenomorphFuzz\0'
+    model = copy.deepcopy(next(model for model in definitions if model['symbolicID\0'] == stock_id))
+    params = model['params\0'][:10]
+    labels = ('Input', 'Treble', 'Output', 'Polarity', 'Bass', 'Mid', 'Model', 'Mid Freq', 'Q', 'High Cut')
+    defaults = (0.5, 0.5, 0.5, 0, 0.5, 0.5, 1.0, 650.0, 0, 1.0)
+    for param, label, default in zip(params, labels, defaults):
+        param['name\0'] = nul(label)
+        param['default\0'] = default
+    # ID 555 still uses the donor's parameter positions and types on the wire.
+    params[3]['displayType\0'] = 'polarity\0'
+    params[6].update({'displayType\0': 'ir_select\0', 'min\0': 1.0, 'max\0': 128.0})
+    params[7].update({'min\0': 150.0, 'max\0': 3000.0})
+    params[8]['displayType\0'] = 'nam_hx_q\0'
+    symbols[HX_NAM_ID] = {**donor, 'symbol': HX_NAM_SYMBOL}
+    model.update({
+        'name\0': 'NAM A2 Lite\0', 'symbolicID\0': nul(HX_NAM_SYMBOL), 'stereo\0': False,
+        'load\0': 22.75, 'devices\0': [{'id\0': HX_NAM_DEVICES[hx_nam][1], 'version\0': '0x03800000\0'}],
+        'params\0': params + [param for param in model['params\0'] if param['symbolicID\0'] == '@enabled\0'],
+    })
+    del model['load_stereo\0']
+    definitions.append(model)
+
+    catalog = msgpack.unpackb(catalog_path.read_bytes())
+    categories = {category['name\0']: category for category in catalog['categories\0']}
+    mono, stereo = (next(folder['models\0'] for folder in categories['Distortion\0']['subcategories\0']
+                         if folder['name\0'] == name) for name in ('Mono\0', 'Stereo\0'))
+    mono_index = next(index for index, tile in enumerate(mono) if tile['id\0'] == stock_id)
+    stereo_index = next(index for index, tile in enumerate(stereo) if tile['id\0'] == stock_id)
+    stock_tile = mono[mono_index]
+    # The stock stereo tile inherits the mono tile, which now has to stand on its own.
+    stereo[stereo_index] = stock_tile
+    nam_tile = {**stock_tile, 'id\0': nul(HX_NAM_SYMBOL), 'name\0': model['name\0'],
+                'params\0': [{p['symbolicID\0']: p['name\0']} for p in params]}
+    if hx_nam == 'stomp':
+        del mono[mono_index]
+        folder = next(folder for folder in categories['Amp\0']['subcategories\0'] if folder['name\0'] == 'NAM\0')
+        folder['models\0'] = [nam_tile]
+    else:
+        mono[mono_index] = nam_tile
+
+    controls = json.loads(controls_path.read_bytes())
+    controls['nam_hx_q'] = {'isDiscrete': True, 'controlType': 'segmented', 'format': ['0.7', '1.4', '2.8']}
+    controls_path.write_text(json.dumps(controls, indent=2) + '\n', encoding='utf-8')
+    symbols_path.write_text(json.dumps(symbols, indent=2) + '\n', encoding='utf-8')
+    definitions_path.write_bytes(msgpack.packb(definitions, use_single_float=True))
+    catalog_path.write_bytes(msgpack.packb(catalog, use_single_float=True))
+
+
 def patch_library(resources, scan_error):
     path = resources / 'librarian.xml'
     tree = ET.parse(path)
@@ -168,7 +232,7 @@ def patch_library(resources, scan_error):
     tree.write(path, encoding='utf-8')
 
 
-def prepare_copy(working_directory, scan_error=False):
+def prepare_copy(working_directory, scan_error=False, *, hx_nam=None):
     baseline = ROOT / 'build' / 'HX Edit'
     if not (baseline / 'HX Edit.exe').is_file():
         program_files = Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'))
@@ -186,6 +250,8 @@ def prepare_copy(working_directory, scan_error=False):
     (destination / source_exe.name).rename(exe)
     resources = destination / 'res'
     patch_catalog(resources)
+    if hx_nam:
+        patch_hx_catalog(resources, hx_nam)
     if names := read_custom_names(ROOT / 'custom-names.csv'):
         rename_stock_models(resources, names)
     patch_library(resources, scan_error)

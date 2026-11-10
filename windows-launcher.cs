@@ -21,6 +21,13 @@ static class WindowsLauncher
                 WorkingDirectory = root
             };
             if (Array.IndexOf(args, "--lt-nam") >= 0) start.Arguments += " --lt-nam";
+            var hx = Array.IndexOf(args, "--hx-nam");
+            if (hx >= 0)
+            {
+                if (hx + 1 >= args.Length || (args[hx + 1] != "stomp" && args[hx + 1] != "effects"))
+                    throw new ArgumentException("Use --hx-nam stomp or --hx-nam effects.");
+                start.Arguments += " --hx-nam " + args[hx + 1];
+            }
             using (Process.Start(start)) { }
         }
         catch (Exception error)

@@ -82,11 +82,12 @@ def run_editor(exe, workspace, device, profiles):
 def main():
     import frida
     from nam_catalog import prepare_copy
-    from nam_inventory import scan_profiles
+    from nam_inventory import HX_NAM_DEVICES, scan_profiles
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--lt-nam', action='store_true', help=argparse.SUPPRESS)
-    parser.parse_args()
+    parser.add_argument('--hx-nam', choices=HX_NAM_DEVICES, help='Confirm the device runs NAM A2 Lite on preset ID 555.')
+    args = parser.parse_args()
 
     device = frida.get_local_device()
     if any(p.name.lower() in {'hx edit.exe', 'hx edit nam.exe'} for p in device.enumerate_processes()):
@@ -95,15 +96,17 @@ def main():
         raise FileNotFoundError('Keep the helix-lt-nam checkout next to hx-edit-nam for the built-in converter.')
 
     try:
-        profiles = scan_profiles(CONVERTER.parent)
+        profiles = scan_profiles(CONVERTER.parent, args.hx_nam)
         scan_error = False
     except Exception as error:
+        if args.hx_nam:
+            raise
         print(f'Could not scan Helix NAM profiles: {error}')
         profiles, scan_error = {}, True
 
     (ROOT / 'build').mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='nam-', dir=ROOT / 'build', ignore_cleanup_errors=True) as workspace:
-        exe = prepare_copy(workspace, scan_error)
+        exe = prepare_copy(workspace, scan_error, hx_nam=args.hx_nam)
         run_editor(exe, workspace, device, profiles)
 
 

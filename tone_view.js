@@ -75,7 +75,7 @@ function installToneView() {
   function insertNam() {
     const controller = active.controller;
     const list = controller.add(0x58).readPointer();
-    if (list.isNull()) throw new Error('Reopen Amp → NAM to select the destination.');
+    if (list.isNull()) throw new Error('Reopen the NAM model list to select the destination.');
     for (let index = 0, count = rowCount(list); index < count; index++) {
       if (getIrRow(list, index).readUtf8String() !== nam) continue;
       clearSelection(list, 0, 0);
@@ -83,16 +83,22 @@ function installToneView() {
       modelEvent(controller, selectionEvent, list, NULL, NULL);
       return;
     }
-    throw new Error('Reopen Amp → NAM to select the destination.');
+    throw new Error('Reopen the NAM model list to select the destination.');
   }
 
   function ensureEntry(controller) {
     const list = controller.add(0x58).readPointer();
-    if (list.isNull() || rowCount(list) !== 1) return;
-    const row = getIrRow(list, 0);
-    if (row.isNull() || row.readUtf8String() !== nam) return;
-    appendRow(list, -1, label, row.add(0x104).readPointer(), 0, row.add(0x100).readS32(),
-      row.add(0x10c).readPointer(), 0, 0);
+    if (list.isNull()) return;
+    let namRow = NULL;
+    for (let index = 0, count = rowCount(list); index < count; index++) {
+      const row = getIrRow(list, index);
+      if (row.isNull()) continue;
+      const name = row.readUtf8String();
+      if (name === 'TONE3000') return;
+      if (name === nam) namRow = row;
+    }
+    if (!namRow.isNull()) appendRow(list, -1, label, namRow.add(0x104).readPointer(), 0,
+      namRow.add(0x100).readS32(), namRow.add(0x10c).readPointer(), 0, 0);
   }
 
   Interceptor.attach(base.add(0x380940), {

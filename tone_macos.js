@@ -81,11 +81,19 @@ function installToneMac(nam) {
     return NULL;
   }
 
+  function findModelRow(list, name) {
+    for (let index = 0, count = getCount(list); index < count; index++) {
+      const row = getItem(list, index);
+      if (!row.isNull() && row.readUtf8String() === name) return row;
+    }
+    return NULL;
+  }
+
   function ensureEntry(controller) {
     const list = modelList(controller);
-    if (list.isNull() || getCount(list) !== 1) return;
-    const row = getItem(list, 0);
-    if (row.isNull() || row.readUtf8String() !== 'NAM A2 Lite') return;
+    if (list.isNull() || !findModelRow(list, 'TONE3000').isNull()) return;
+    const row = findModelRow(list, 'NAM A2 Lite');
+    if (row.isNull()) return;
     append(list, -1, catalogLabel, row.add(0x108).readPointer(), 0,
       row.add(0x100).readS32(), row.add(0x118).readPointer(), 0, 1);
   }
@@ -113,7 +121,8 @@ function installToneMac(nam) {
     const window = windowNumber().toNumber();
     if (editor.isNull() || !editor.readPointer().equals(at(0xa8c978)) ||
         !window || !layout.visible || layout.w < 60 || layout.h < 60) return;
-    const namRow = getItem(sender, 0);
+    const namRow = findModelRow(sender, 'NAM A2 Lite');
+    if (namRow.isNull()) return;
     const model = namRow.add(0x118).readPointer();
     if (model.isNull()) return;
     active = {id: ++nextSession, controller, editor, panel, model, position: positionOf(controller),

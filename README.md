@@ -49,6 +49,17 @@ python .\start-hx-edit-nam.pyw
 
 Редактор проверяет все слоты пакета до записи. Занятый слот останавливает импорт целиком. Встроенный конвертер использует `helix-lt-nam/tools/nam2ir.py` и поддерживает A2 Lite с тремя каналами и 48 кГц, в том числе внутри SlimmableContainer. После перестановки профилей через **IRs** перезапустите редактор, чтобы заново сверить библиотеку NAM с устройством.
 
+### Экспериментальный режим HX Stomp и HX Effects
+
+Подключите только выбранное устройство с прошивкой `hx-stomp-nam-lite` 3.80.0, в которой NAM A2 Lite занимает ID `555`. На этой прошивке NAM занимает место Xenomorph Fuzz Mono. Флаг `--hx-nam` подтверждает, что вы запускаете редактор с этой версией NAM. Перезапустите редактор перед переключением устройства. [Прошивка и запуск Stomp из RAM](https://github.com/nocaseguy/hx-stomp-nam-lite#supported-devices)
+
+| Устройство | Аргументы запуска | NAM A2 Lite и TONE3000 |
+| --- | --- | --- |
+| HX Stomp | `--hx-nam stomp` | **Amp → NAM** |
+| HX Effects | `--hx-nam effects` | **Distortion → Mono** |
+
+На Windows передайте аргументы в `python .\start-hx-edit-nam.pyw` или в `HX Edit NAM.exe` из сборки с этой функцией. На macOS запустите `open 'HX Edit NAM.app' --args --hx-nam stomp` или укажите `effects`. В меню **Model** доступны слоты User IR 1–128. Пресеты со старыми ID блока NAM используют другую версию прошивки. [История ID блока](https://github.com/nocaseguy/hx-stomp-nam-lite#whats-new)
+
 ### Свои названия штатных моделей
 
 Если прошивка отображает другие названия штатных моделей, их можно задать и в HX Edit. Сохраните UTF-8 файл `custom-names.csv` с колонками `internal` (символ модели) и `real_name` (название для отображения). Например, строка `HD2_DistScream808,Мой овердрайв` задаёт одно имя для общей записи Mono и Stereo.
