@@ -3,6 +3,7 @@
 import argparse
 import ctypes
 import json
+import sys
 from pathlib import Path
 import tempfile
 from threading import Event
@@ -87,7 +88,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--lt-nam', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--hx-nam', choices=HX_NAM_DEVICES, help='Confirm the device runs NAM A2 Lite on preset ID 555.')
+    parser.add_argument('--floor-library', action='store_true',
+                        help='Enable the experimental Windows Helix Floor capture library and native slot verification.')
     args = parser.parse_args()
+    if args.floor_library and args.hx_nam:
+        parser.error('--floor-library is tested on Helix Floor, not the HX preset-ID-555 mode.')
 
     device = frida.get_local_device()
     if any(p.name.lower() in {'hx edit.exe', 'hx edit nam.exe'} for p in device.enumerate_processes()):
@@ -95,19 +100,29 @@ def main():
     if not CONVERTER.is_file():
         raise FileNotFoundError('Keep the helix-lt-nam checkout next to hx-edit-nam for the built-in converter.')
 
-    try:
-        profiles = scan_profiles(CONVERTER.parent, args.hx_nam)
-        scan_error = False
-    except Exception as error:
-        if args.hx_nam:
-            raise
-        print(f'Could not scan Helix NAM profiles: {error}')
+    if args.floor_library:
+        # The library verifies through the running editor's native export queue.
+        # Do not open the separate startup USB scanner before that session.
         profiles, scan_error = {}, True
+    else:
+        try:
+            profiles = scan_profiles(CONVERTER.parent, args.hx_nam)
+            scan_error = False
+        except Exception as error:
+            if args.hx_nam:
+                raise
+            print(f'Could not scan Helix NAM profiles: {error}')
+            profiles, scan_error = {}, True
 
     (ROOT / 'build').mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='nam-', dir=ROOT / 'build', ignore_cleanup_errors=True) as workspace:
         exe = prepare_copy(workspace, scan_error, hx_nam=args.hx_nam)
-        run_editor(exe, workspace, device, profiles)
+        if args.floor_library:
+            sys.path.insert(0, str(ROOT / 'floor_library'))
+            from runtime import run_library_editor
+            run_library_editor(exe, workspace, device, CONVERTER)
+        else:
+            run_editor(exe, workspace, device, profiles)
 
 
 if __name__ == '__main__':

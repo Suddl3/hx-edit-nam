@@ -21,7 +21,7 @@ PYTHON_SHA256 = '9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb3
 FIRMWARE_REV = 'c94834768546393420692794fdbb27c9cc31d718'
 APP_FILES = (
     'start-hx-edit-nam.pyw', 'nam_catalog.py', 'nam_convert.py', 'nam_import.js', 'nam_inventory.py',
-    'nam_view.js', 'tone3000.py', 'tone_browser.py', 'tone_card.html', 'tone_preview.py', 'tone_view.js',
+    'nam_view.js', 'tone3000.py', 'tone_browser.py', 'tone_browser.cs', 'tone_card.html', 'tone_preview.py', 'tone_view.js',
 )
 FIRMWARE_FILES = (
     'LICENSE', 'tools/nam2ir.py', 'tools/hx_ctl.py', 'tools/hx_dfu_reboot.py',
@@ -57,6 +57,15 @@ def package_windows(version):
         app.mkdir(parents=True)
         for name in APP_FILES:
             shutil.copyfile(ROOT / name, app / name)
+        # The library remains opt-in. Ship only source inputs, never local
+        # catalogs, captures, diagnostic sessions or compiled development files.
+        library = app / 'floor_library'
+        library.mkdir()
+        for source in (ROOT / 'floor_library').iterdir():
+            if (source.is_file() and source.suffix in {'.py', '.js', '.cs'}
+                    and not source.name.startswith('test_') and not source.name.endswith('_fixture.js')):
+                shutil.copyfile(source, library / source.name)
+        shutil.copyfile(ROOT / 'floor_library/README.md', library / 'README.md')
         shutil.copyfile(ROOT / 'README.md', stage / 'README.md')
         browser = app / 'build' / helper.parent.name
         browser.mkdir(parents=True)

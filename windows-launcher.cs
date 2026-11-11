@@ -21,6 +21,7 @@ static class WindowsLauncher
                 WorkingDirectory = root
             };
             if (Array.IndexOf(args, "--lt-nam") >= 0) start.Arguments += " --lt-nam";
+            if (Array.IndexOf(args, "--floor-library") >= 0) start.Arguments += " --floor-library";
             var hx = Array.IndexOf(args, "--hx-nam");
             if (hx >= 0)
             {

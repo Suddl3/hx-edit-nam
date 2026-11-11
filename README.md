@@ -1,5 +1,13 @@
 # HX Edit NAM
 
+## Experimental Windows Helix Floor library
+
+The optional `--floor-library` mode adds the local NAM library, automatic installed-slot
+verification, protected Clear, dedicated preview slot, and resizable sidebar described
+in [the Floor library guide](floor_library/README.md). Start it with
+`python .\start-hx-edit-nam.pyw --floor-library`, or pass `--floor-library` to the Windows
+launcher built from this source. The default launcher and macOS/HX modes are unchanged.
+
 Проект использует локальную копию оригинального HX Edit 3.82 и ресурсов Line 6. Версия для Windows проверяет SHA-256 оригинального `HX Edit.exe` при запуске, версия для macOS сверяет Mach-O при сборке. Инсталляторы и рабочие копии хранятся локально.
 
 ## Готовая сборка для macOS на Apple Silicon
