@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from queue import Empty, Queue
 from string import Template
-from threading import Thread
+from threading import Lock, Thread, current_thread
 from time import monotonic
 from urllib.parse import urlsplit
 
@@ -41,6 +41,7 @@ class TonePreview:
         self.client_id = client_id
         self.replies = Queue()
         self.thread = None
+        self.lifecycle_lock = Lock()
         self.browser = None
         self.bounds = None
         self.session = None
@@ -54,12 +55,14 @@ class TonePreview:
                 self.bounds = payload['bounds']
                 if self.browser:
                     self.browser.send('bounds', **self.bounds)
-        elif not self.thread or not self.thread.is_alive():
-            self.session = payload['session']
-            self.bounds = payload['bounds']
-            self.thread = Thread(target=self.run, args=(self.session, payload['window']), daemon=True)
-            self.thread.start()
         else:
+            with self.lifecycle_lock:
+                if not self.thread or not self.thread.is_alive():
+                    self.session = payload['session']
+                    self.bounds = payload['bounds']
+                    self.thread = Thread(target=self.run, args=(self.session, payload['window']), daemon=True)
+                    self.thread.start()
+                    return
             self.script.post({'type': 'toneCommand', 'payload': {
                 'session': payload['session'], 'action': 'close', 'id': 0}})
 
@@ -113,6 +116,12 @@ class TonePreview:
                     notice = notice or (str(error), 0x10)
             elif slot is not None:
                 notice = (f'Check User IR {slot}. The audition profile may still be on Helix.', 0x40)
+            # Device cleanup and close acknowledgement have finished. A modal
+            # notice can remain open indefinitely; it must not reject new starts.
+            # An old notice thread must never clear a newer session's ownership.
+            with self.lifecycle_lock:
+                if self.thread is current_thread():
+                    self.thread = None
             if notice:
                 self.message(*notice)
 
