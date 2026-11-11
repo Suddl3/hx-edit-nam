@@ -10,12 +10,12 @@ def audit_tab_contract():
     # Pinned x86 getter indexes the independent radio-button vector.
     anchors={0x789f33:'8b417c8b4d083b4808',
              0x789f45:'8b0488',
-             0x7bc943:'8b4154ba640000003bf20f4ed6',
-             0x7bc963:'ff75108990880000008b415489b098000000',
-             0x7bc975:'e88694ffff',
-             0x7b5e98:'8b978800000085d2',
-             0x7b5ead:'8b8798000000',
-             0x789be9:'c7065853d100'}
+             0x789be9:'c7065853d100',
+             0xcc35d8:'20745f00', # HXCustomTab vtable+0x38
+             0x5f7426:'80be1202000000', # custom-mode dispatch
+             0x5f74b8:'0faf9718020000', # layout reads visual index
+             0x5f77ec:'889712020000898718020000', # native visual-index setter
+             0x5f7829:'c20800'}
     for va,expected in anchors.items():
         if read(va,len(expected)//2).hex()!=expected:
             raise ValueError('Native tab layout contract changed at '+hex(va))
@@ -29,7 +29,12 @@ def patch_tab_view(source):
         (HERE/'library_tab_order.js').read_text()+'\nfunction installNamView(profiles, library = [])')
     source=replace_once(source,'  function resizeLibrary(width)',
         '  const libraryTabOrder=createLibraryTabOrder(createLibraryTabNativeApi(method,address,()=>libraryRoot,libraryReady));\n  function resizeLibrary(width)')
-    return replace_once(source,'    sidebar.refresh();','    sidebar.refresh();\n    libraryTabOrder.refresh();')
+    source=replace_once(source,'    sidebar.refresh();','    sidebar.refresh();\n    libraryTabOrder.refresh();')
+    # Run at completion of every native tab-selection event, including startup
+    # on Presets. Do not depend on the NAM table becoming visible first.
+    source=replace_once(source,'      if (this.tab !== 3) return;',
+        '      libraryTabOrder.refresh();\n      if (this.tab !== 3) return;')
+    return replace_once(source,'        sidebar.reset();','        sidebar.reset();\n        libraryTabOrder.reset();')
 
 def patch_tab_corners(resources):
     path=Path(resources)/'librarian.xml'

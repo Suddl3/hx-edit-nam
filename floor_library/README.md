@@ -76,7 +76,7 @@ Run the portable suite with Python and Node.js available:
 python -B -m unittest discover -s tests
 ```
 
-The combined suite contains 81 tests: 76 pass without proprietary fixtures and five
+The combined suite contains 86 tests: 81 pass without proprietary fixtures and five
 upstream fixture-dependent tests skip. Tests cover content identity, reconnect
 invalidation, atomic publication, Clear references, delayed completion, preview
 restoration, and durable imports. The local resource composition, pinned native
@@ -89,6 +89,17 @@ sidebar resizing. Audio and physical controls remained responsive in those tests
 Those hardware results are from the development build before this upstream
 reconciliation; the reconciled source has been validated offline, without another
 device session. LT, Stomp, Effects, and macOS library behavior is not claimed tested.
+
+The tab-order follow-up was verified in the connected development editor on
+November 11, 2026: **Presets → IRs → NAM → Favorites** on startup and after reopening.
+Each tab opened its correct page; widening, narrowing, and double-click resetting
+the sidebar preserved the order. The fix uses HXCustomTab's native visual index:
+ordinary X positioning is ignored by its custom layout. Native radio indexes and
+page identities are unchanged. Five additional portable regression tests cover
+startup geometry, selected-tab heights, resize widths, recreation and adapter guards.
+This was a navigation-only test with automatic exports disabled; no preset, capture,
+or firmware edits were made. Audio and physical-panel responsiveness were not
+independently checked during that unattended test.
 
 An intermittent audition failure after library selection recovered after reopening
 TONE3000 during development. Keep that limitation visible when testing broader flows.
