@@ -11,8 +11,9 @@ from urllib.parse import urlsplit
 
 import tempfile
 
-from nam_convert import convert_batch
+from nam_convert import IR_NAME_LIMIT, convert_batch
 from nam_library import render_library
+import nam_light
 from tone3000 import API_HOSTS, ORIGIN, ToneError, get_tone, prepare_model, select_tone
 from tone_browser import ToneBrowser
 
@@ -146,6 +147,8 @@ class TonePreview:
         kept = None  # the current trial's capture for Add to library / Save to Helix
         text = ''
         library = False
+        light = None  # the lighter-capture training shown on the library page
+        light_job = None
 
         def select():
             try:
@@ -164,7 +167,8 @@ class TonePreview:
             if not busy:
                 text = message
             browser.send('status', text=message, busy=busy, trial=trial if slot is not None else None,
-                         free_slots=free_slots, model=selected, keep=bool(self.library) and kept is not None and 'id' not in kept)
+                         free_slots=free_slots, model=selected, keep=bool(self.library) and kept is not None and 'id' not in kept,
+                         light=light)
 
         def show_card():
             if library:
@@ -244,7 +248,52 @@ class TonePreview:
         else:
             library = True
             show_card()
+        def start_light(identity, layers, quality):
+            nonlocal light, light_job
+            entry = self.library.entries()[identity]
+            layers, steps = int(layers), nam_light.STEPS[quality]
+            if layers not in nam_light.LAYERS:
+                raise ValueError(f'Unknown layer count: {layers}')
+            folder = Path(tempfile.mkdtemp(prefix='light-', dir=self.workspace))
+            capture = self.library.export(identity, folder)
+            suffix = f' L{layers}'
+            output = folder / 'out' / (entry['irName'][:IR_NAME_LIMIT - len(suffix)].rstrip(' .') + suffix + '.nam')
+            output.parent.mkdir()
+            light = {'running': True, 'id': identity, 'layers': layers, 'step': 0, 'steps': steps,
+                     'name': f'{entry["name"]} [{layers} layers]', 'gear': entry.get('gear', ''),
+                     'source': entry.get('source', ''), 'output': str(output)}
+            light_job = nam_light.LightJob(Path(self.converter).with_name('nam_refine.py'), capture, output, layers,
+                                           steps, lambda state: browser.actions.put({'light': state}))
+            status(f'Training a {layers}-layer version…')
+
+        def light_event(state):
+            nonlocal light, light_job
+            light.update(state)
+            if 'error' in state:
+                light['running'] = False
+                light_job = None
+                status('Training cancelled.' if state.get('cancelled') else f'Training failed: {state["error"]}')
+            elif state.get('done'):
+                light['running'] = False
+                light_job = None
+                try:
+                    light['result'] = self.library.add(light['output'], name=light['name'], gear=light['gear'],
+                                                       source=light['source'])
+                    message = f'Added "{light["name"]}" to the library. Audition it or save it to Helix.'
+                except (OSError, ValueError) as error:
+                    light['error'] = str(error)
+                    message = f'Could not add the trained capture to the library: {error}'
+                if library:
+                    show_card()  # the new row
+                status(message)
+            else:
+                status(text)
+
         while (action := browser.next_action()) is not None:
+            if isinstance(action, dict):
+                if light is not None and 'light' in action:
+                    light_event(action['light'])
+                continue
             if isinstance(action, tuple):
                 selection, error = action
                 worker = None
@@ -306,6 +355,11 @@ class TonePreview:
                         audition_local(identity)
                     elif command == 'gear':
                         self.library.update(identity, gear=value)
+                    elif command == 'light' and identity in self.library.entries() and light_job is None:
+                        layers, _, quality = value.partition(':')
+                        start_light(identity, layers, quality)
+                    elif command == 'lightCancel' and light_job is not None:
+                        light_job.cancel()
                     elif command == 'remove':
                         self.library.remove(identity)
                 except (OSError, ValueError, KeyError) as error:
@@ -326,4 +380,6 @@ class TonePreview:
                     if action[6:] == str(model['id']):
                         audition(current, index)
                         break
+        if light_job is not None:
+            light_job.cancel()
         return slot

@@ -18,14 +18,14 @@ from tone_browser import ROOT, SDK_ASSETS, browser_sdk, prepare_browser
 
 PYTHON_VERSION = '3.13.17'
 PYTHON_SHA256 = '9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38'
-FIRMWARE_REV = 'c94834768546393420692794fdbb27c9cc31d718'
+FIRMWARE_REV = 'aab2b4b85cffc3d8ff936c54796573d544e6f901'
 APP_FILES = (
     'start-hx-edit-nam.pyw', 'nam_catalog.py', 'nam_convert.py', 'nam_import.js', 'nam_inventory.py',
     'nam_view.js', 'nam_library.py', 'library_card.html', 'tone3000.py', 'tone_browser.py', 'tone_card.html',
-    'tone_preview.py', 'tone_view.js',
+    'tone_preview.py', 'tone_view.js', 'nam_light.py',
 )
 FIRMWARE_FILES = (
-    'LICENSE', 'tools/nam2ir.py', 'tools/hx_ctl.py', 'tools/hx_dfu_reboot.py',
+    'LICENSE', 'tools/nam2ir.py', 'tools/nam_refine.py', 'tools/hx_ctl.py', 'tools/hx_dfu_reboot.py',
     'tools/sharc/nam_lite.py', 'tools/sharc/nam_pack.py', 'tools/sharc/sasm.py',
     'tools/sharc/ssim.py', 'tools/sharc/recips_table.json',
 )
@@ -48,7 +48,7 @@ def add_runtime(destination):
     )
 
 
-def package_windows(version):
+def package_windows(version, worktree=False):
     build = ROOT / 'build'
     helper = prepare_browser()
     package_name = f'HX-Edit-NAM-{version}-Windows-x64'
@@ -71,10 +71,16 @@ def package_windows(version):
         for name in FIRMWARE_FILES:
             destination = stage / 'helix-lt-nam' / name
             destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(subprocess.check_output(
-                ['git', '-C', str(firmware), 'show', f'{FIRMWARE_REV}:{name}']))
+            if worktree:            # the checkout as it is, uncommitted changes included (a personal build)
+                destination.write_bytes((firmware / name).read_bytes())
+            else:
+                destination.write_bytes(subprocess.check_output(
+                    ['git', '-C', str(firmware), 'show', f'{FIRMWARE_REV}:{name}']))
+        rev = subprocess.check_output(['git', '-C', str(firmware), 'rev-parse', 'HEAD'], text=True).strip() \
+            if worktree else FIRMWARE_REV
         (stage / 'helix-lt-nam' / 'UPSTREAM.txt').write_text(
-            f'https://github.com/andreidevs/helix-lt-nam/tree/{FIRMWARE_REV}\n', encoding='ascii')
+            f'https://github.com/andreidevs/helix-lt-nam/tree/{rev}' + (' + local changes' if worktree else '') + '\n',
+            encoding='ascii')
 
         add_runtime(stage / 'runtime')
         compiler = Path(os.environ['WINDIR']) / 'Microsoft.NET/Framework/v4.0.30319/csc.exe'
@@ -92,7 +98,9 @@ def package_windows(version):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('version', help='Release version such as v0.1.0')
+    parser.add_argument('--firmware-worktree', action='store_true',
+                        help="take helix-lt-nam's tools from its checkout as it is, not from FIRMWARE_REV")
     args = parser.parse_args()
     if os.name != 'nt' or not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', args.version):
         parser.error('Run on Windows and specify a version such as v0.1.0.')
-    print(package_windows(args.version))
+    print(package_windows(args.version, args.firmware_worktree))

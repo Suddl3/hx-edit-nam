@@ -34,6 +34,12 @@ def capture():
 
 
 class NamTests(unittest.TestCase):
+    def setUp(self):
+        # the user's own settings.json (namLayers, sidebarWidth) must not change what the tests see
+        settings = patch('nam_catalog.load_settings', return_value={})
+        settings.start()
+        self.addCleanup(settings.stop)
+
     @unittest.skipUnless(BASELINE.is_dir(), 'requires the prepared HX Edit 3.82 baseline')
     def test_catalog_adds_one_nam_model_for_lt_and_floor(self):
         with tempfile.TemporaryDirectory() as temp, patch('nam_catalog.read_custom_names', return_value={}):
@@ -71,6 +77,27 @@ class NamTests(unittest.TestCase):
                              ['ncop', 'npas', 'nimp', 'nexp', 'nclr'])
             self.assertEqual([button.findtext('text/label') for button in actions],
                              ['COPY', 'PASTE', 'IMPORT', 'EXPORT', 'CLEAR'])
+
+    @unittest.skipUnless(BASELINE.is_dir(), 'requires the prepared HX Edit 3.82 baseline')
+    def test_layers_firmware_adds_three_lighter_blocks_with_their_loads(self):
+        with tempfile.TemporaryDirectory() as temp, patch('nam_catalog.read_custom_names', return_value={}), \
+                patch.dict('os.environ', {'HX_EDIT_NAM_LAYERS': '1'}):
+            res = prepare_copy(temp).parent / 'res'
+            symbols = json.loads((res / 'Helix.sym').read_bytes())
+            original = json.loads((BASELINE / 'Helix.sym').read_bytes())
+            self.assertEqual([i for i, s in enumerate(symbols) if s != original[i]], [380, 382, 516, 572])
+            definitions = msgpack.unpackb((res / 'HelixModelDefs.bin').read_bytes())
+            self.assertEqual([(m['symbolicID\0'], round(m['load\0'], 3)) for m in definitions[-4:]], [
+                ('HD2_AmpNAMLite\0', 36.5), ('HD2_AmpNAMLite20\0', 33.0),
+                ('HD2_AmpNAMLite16\0', 29.5), ('HD2_AmpNAMLite14\0', 27.7)])
+            self.assertEqual([symbols[i]['symbol'] for i in (380, 382, 516, 572)],
+                             [m['symbolicID\0'].rstrip('\0') for m in definitions[-4:]])
+            self.assertTrue(all(symbols[i]['parameters'] == symbols[380]['parameters'] for i in (382, 516, 572)))
+            catalog = msgpack.unpackb((res / 'HX_ModelCatalog.bin').read_bytes())
+            amp = next(c for c in catalog['categories\0'] if c['name\0'] == 'Amp\0')
+            folder = next(c for c in amp['subcategories\0'] if c['name\0'] == 'NAM\0')
+            self.assertEqual([t['name\0'] for t in folder['models\0']],
+                             ['NAM A2 Lite\0', 'NAM Lite 20\0', 'NAM Lite 16\0', 'NAM Lite 14\0'])
 
     @unittest.skipUnless(BASELINE.is_dir(), 'requires the prepared HX Edit 3.82 baseline')
     def test_hx_nam_keeps_preset_types_and_the_stereo_fuzz(self):

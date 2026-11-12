@@ -18,6 +18,13 @@ ROOT = Path(__file__).resolve().parent
 EXE_HASH = 'f7faac4996164f9039c9ae3ca8d85cd135c5bceae8a511c8921a1244046cab66'
 NAM_SYMBOL = 'HD2_AmpNAMLite'
 NAM_ID = 380
+# helix-lt-nam's NAM4_LAYERS firmware (lt_port.py --layers) adds three lighter NAM blocks. HX Edit sums the
+# DSP load itself, so it has to know them (load = the firmware's cost / 100) or it greys out blocks that fit.
+# On with "namLayers": true in settings.json or HX_EDIT_NAM_LAYERS=1: other firmwares lack these blocks.
+# (symbol, Helix.sym id = the firmware's preset id, name, load)
+NAM_LAYER_MODELS = (('HD2_AmpNAMLite20', 382, 'NAM Lite 20', 33.0), ('HD2_AmpNAMLite16', 516, 'NAM Lite 16', 29.5),
+                    ('HD2_AmpNAMLite14', 572, 'NAM Lite 14', 27.7))
+NAM_LAYERS_LOAD = 36.5                    # NAM A2 Lite on that firmware (3650: its layer check)
 HX_NAM_ID = 555
 HX_NAM_SYMBOL = 'HD2_DistNAMLite'
 DEVICE_IDS = (0x00210004, 0x00210001)  # Helix LT and Helix Floor
@@ -73,7 +80,11 @@ def rename_stock_models(resources, names):
     catalog_path.write_bytes(msgpack.packb(catalog, use_single_float=True))
 
 
-def patch_catalog(resources):
+def nam_layers():
+    return os.environ.get('HX_EDIT_NAM_LAYERS') == '1' or load_settings().get('namLayers') is True
+
+
+def patch_catalog(resources, layers=False):
     symbols_path = resources / 'Helix.sym'
     definitions_path = resources / 'HelixModelDefs.bin'
     catalog_path = resources / 'HX_ModelCatalog.bin'
@@ -98,17 +109,18 @@ def patch_catalog(resources):
             parameter['name\0'] = 'Input\0'
         parameters.append(parameter)
     parameters.append(polarity)
-    symbols[NAM_ID] = {
-        'symbol': NAM_SYMBOL,
-        'parameters': [p['symbolicID\0'].rstrip('\0') for p in parameters],
-    }
-    model['name\0'] = 'NAM A2 Lite\0'
-    model['symbolicID\0'] = nul(NAM_SYMBOL)
-    model['load\0'] = 36.0
     model['devices\0'] = [{'id\0': device, 'version\0': '0x03800000\0'} for device in DEVICE_IDS]
     model['params\0'] = parameters + [amp_params['@enabled\0'], amp_params['@bypassvolume\0']]
     del model['cablink\0'], model['ircablink\0']
-    definitions.append(model)
+    blocks = [(NAM_SYMBOL, NAM_ID, 'NAM A2 Lite', NAM_LAYERS_LOAD if layers else 36.0)]
+    blocks += list(NAM_LAYER_MODELS) if layers else []
+    for symbol, sym_id, name, load in blocks:
+        if sym_id != NAM_ID and not symbols[sym_id]['symbol'].startswith(('Helix', 'HD2_MikeFiller')):
+            raise ValueError(f'Unexpected HX Edit symbol table at model ID {sym_id}.')
+        symbols[sym_id] = {'symbol': symbol, 'parameters': [p['symbolicID\0'].rstrip('\0') for p in parameters]}
+        block = copy.deepcopy(model)
+        block.update({'name\0': nul(name), 'symbolicID\0': nul(symbol), 'load\0': load})
+        definitions.append(block)
 
     catalog = msgpack.unpackb(catalog_path.read_bytes())
     amp = next(c for c in catalog['categories\0'] if c['name\0'] == 'Amp\0')
@@ -116,11 +128,11 @@ def patch_catalog(resources):
     guitar = next(c for c in folders if c['name\0'] == 'Guitar\0')
     tile = next(m for m in guitar['models\0'] if m['id\0'] == 'HD2_AmpLine6Clarity\0')
     folders.append({'id\0': max(c['id\0'] for c in folders) + 1, 'name\0': 'NAM\0', 'models\0': [{
-        'id\0': nul(NAM_SYMBOL),
-        'name\0': model['name\0'],
+        'id\0': nul(symbol),
+        'name\0': nul(name),
         'image\0': tile['image\0'],
         'params\0': [{p['symbolicID\0']: p['name\0']} for p in parameters],
-    }]})
+    } for symbol, _, name, _ in blocks]})
 
     symbols_path.write_text(json.dumps(symbols, indent=2) + '\n', encoding='utf-8')
     definitions_path.write_bytes(msgpack.packb(definitions, use_single_float=True))
@@ -301,7 +313,7 @@ def prepare_copy(working_directory, scan_error=False, *, hx_nam=None):
     exe = destination / 'HX Edit NAM.exe'
     (destination / source_exe.name).rename(exe)
     resources = destination / 'res'
-    patch_catalog(resources)
+    patch_catalog(resources, nam_layers())
     if hx_nam:
         patch_hx_catalog(resources, hx_nam)
     if names := read_custom_names(ROOT / 'custom-names.csv'):

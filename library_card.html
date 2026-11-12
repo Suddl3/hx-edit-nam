@@ -30,6 +30,11 @@
   #status { flex: 1; min-width: 80px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .destination { display: flex; align-items: center; gap: 6px; }
   #save:enabled, #audition:enabled { background: #862829; border-color: #b54545; }
+  #light { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; background: #1e1e1e; border-top: 1px solid #404040; }
+  #light p { margin: 0; flex-basis: 100%; }
+  #light .note { color: #aaa; font-size: 12px; }
+  #lightTitle { font-weight: 600; flex-basis: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #lightBar { flex: 1; min-width: 80px; }
 </style>
 <header>
   <input id="search" type="search" placeholder="Search the library" aria-label="Search the library">
@@ -47,8 +52,29 @@
   </table>
   <p class="empty" hidden>No captures yet. NAM files you import and TONE3000 profiles you save or add appear here.</p>
 </div>
+<section id="light" hidden aria-label="Lighter version">
+  <span id="lightTitle"></span>
+  <label>Layers <select id="layers">
+    <option value="23">23 · ~36% DSP · refine</option>
+    <option value="20">20 · ~33% DSP</option>
+    <option value="16" selected>16 · ~29% DSP</option>
+    <option value="14">14 · ~28% DSP</option>
+  </select></label>
+  <label>Training <select id="quality">
+    <option value="quick">Quick · ~3 min</option>
+    <option value="standard" selected>Standard · ~10 min</option>
+    <option value="deep">Deep · ~30 min</option>
+  </select></label>
+  <button id="lightStart">Train</button>
+  <button id="lightCancel" hidden>Cancel</button>
+  <button id="lightHide">Hide</button>
+  <progress id="lightBar" max="1" value="0" hidden></progress>
+  <p id="lightInfo" role="status"></p>
+  <p class="note">Trains a copy that uses only the first layers of the capture's A2 Lite, against the capture's own bigger model, so the file must hold one (a TONE3000 A2 or a standard capture). DSP shares are measured for one NAM block on a Helix LT, and the saving needs firmware that skips the unused layers (NAM4_LAYERS: pick the NAM Lite block of the same size). Error is ESR against that model on held-out audio.</p>
+</section>
 <footer>
   <p id="status" role="status"></p>
+  <button id="lighter" disabled>Lighter…</button>
   <button id="remove" disabled>Remove</button>
   <button id="audition" disabled>Audition</button>
   <div class="destination" hidden>
@@ -65,7 +91,9 @@
   const body = q('tbody'), search = q('#search'), filter = q('#filter');
   const destination = q('#destination'), save = q('#save'), audition = q('#audition'), remove = q('#remove');
   let sort = { key: 'name', direction: 1 };
-  let selected = null, trial = null, busy = false;
+  let selected = null, trial = null, busy = false, light = null, lightShown = false;
+  const lighter = q('#lighter'), lightPanel = q('#light');
+  const pct = value => value == null ? '—' : (100 * value).toFixed(2) + '%';
 
   function render() {
     const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
@@ -93,7 +121,38 @@
     q('.empty').hidden = rows.length > 0;
     audition.disabled = busy || !selected;
     remove.disabled = busy || !selected;
+    lighter.disabled = !selected || !!light?.running;
+    renderLight();
   }
+
+  function renderLight() {
+    const running = !!light?.running;
+    const source = rows.find(row => row.id === (running ? light.id : selected));
+    q('#lightTitle').textContent = q('#lightTitle').title = running ? light.name : source ? 'Lighter version of ' + source.name : '';
+    q('#lightStart').disabled = running || !selected;
+    q('#layers').disabled = q('#quality').disabled = running;
+    q('#lightCancel').hidden = !running;
+    const bar = q('#lightBar');
+    bar.hidden = !running;
+    bar.value = light?.steps ? light.step / light.steps : 0;
+    let info = '';
+    if (light && running) {
+      info = light.step ? 'Step ' + light.step + ' / ' + light.steps + ' · error ' + pct(light.best) : 'Preparing the teacher model…';
+      if (light.before != null) info += ' · full A2 Lite ' + pct(light.before);
+    } else if (light?.done) {
+      info = 'Done. Error ' + (light.before != null ? pct(light.before) + ' (full A2 Lite) → ' : '') + pct(light.after) + ' (' + light.layers + ' layers).';
+    } else if (light?.error) {
+      info = light.cancelled ? 'Cancelled.' : light.error;
+    }
+    q('#lightInfo').textContent = info;
+  }
+
+  lighter.onclick = () => { lightPanel.hidden = false; renderLight(); };
+  q('#lightHide').onclick = () => { lightPanel.hidden = true; };
+  q('#lightStart').onclick = () => {
+    if (selected) host.postMessage('light:' + selected + ':' + q('#layers').value + ':' + q('#quality').value);
+  };
+  q('#lightCancel').onclick = () => host.postMessage('lightCancel');
 
   function pick() {
     if (!busy && selected) host.postMessage('pick:' + selected);
@@ -130,6 +189,9 @@
     destination.replaceChildren(...slots.map(slot => new Option('User IR ' + slot, slot)));
     destination.parentElement.hidden = trial == null;
     destination.disabled = save.disabled = busy || !slots.length;
+    light = data.light || null;
+    if (light && !lightShown) lightPanel.hidden = !(lightShown = true); // once per page: Hide stays hidden
+    if (light?.result && selected == null && rows.some(row => row.id === light.result)) selected = light.result;
     render();
   };
   host?.addEventListener?.('message', ({data}) => window.hxToneStatus(data));
