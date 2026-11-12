@@ -66,7 +66,7 @@
     <option value="deep">Deep · ~30 min</option>
   </select></label>
   <button id="lightStart">Train</button>
-  <button id="lightPedal" title="14 layers, Quick: about 1.5 min, for the NAM Lite 14 block">Pedal · fast</button>
+  <button id="lightPedal" title="16 layers, Quick: about 1.7 min, for the NAM Lite 16 block">Pedal · fast</button>
   <button id="lightCancel" hidden>Cancel</button>
   <button id="lightHide">Hide</button>
   <progress id="lightBar" max="1" value="0" hidden></progress>
@@ -153,12 +153,13 @@
   q('#lightStart').onclick = () => {
     if (selected) host.postMessage('light:' + selected + ':' + q('#layers').value + ':' + q('#quality').value);
   };
-  // A pedal capture in one click: 14 layers, Quick (Benson preamp: 1.6% error in 85 s on a laptop CPU)
+  // A pedal capture in one click: 16 layers, Quick (Benson preamp G8: 0.54% error in 99 s on a laptop CPU;
+  // 14 layers Quick was 1.6% and lost 8-11 dB above 6 kHz: too few steps for its highs)
   q('#lightPedal').onclick = () => {
     if (!selected) return;
-    q('#layers').value = '14';
+    q('#layers').value = '16';
     q('#quality').value = 'quick';
-    host.postMessage('light:' + selected + ':14:quick');
+    host.postMessage('light:' + selected + ':16:quick');
   };
   q('#lightCancel').onclick = () => host.postMessage('lightCancel');
 

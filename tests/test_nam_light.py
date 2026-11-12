@@ -83,7 +83,7 @@ class LibraryWiringTests(unittest.TestCase):
         self.assertIn('id="lighter"', page)
         self.assertIn('~29% DSP', page)
         self.assertIn('id="lightPedal"', page)
-        self.assertIn("':14:quick'", page)        # the pedal button's own job: 14 layers, Quick
+        self.assertIn("':16:quick'", page)        # the pedal button's own job: 16 layers, Quick
 
     def test_trained_capture_joins_the_library(self):
         with tempfile.TemporaryDirectory() as folder:
