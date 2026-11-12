@@ -100,6 +100,27 @@ class NamTests(unittest.TestCase):
                              ['NAM A2 Lite\0', 'NAM Lite 20\0', 'NAM Lite 16\0', 'NAM Lite 14\0'])
 
     @unittest.skipUnless(BASELINE.is_dir(), 'requires the prepared HX Edit 3.82 baseline')
+    def test_pedal_firmware_adds_the_nam_pedal_block_after_the_lighter_ones(self):
+        with tempfile.TemporaryDirectory() as temp, patch('nam_catalog.read_custom_names', return_value={}), \
+                patch.dict('os.environ', {'HX_EDIT_NAM_PEDAL': '1'}):
+            res = prepare_copy(temp).parent / 'res'
+            symbols = json.loads((res / 'Helix.sym').read_bytes())
+            original = json.loads((BASELINE / 'Helix.sym').read_bytes())
+            self.assertEqual([i for i, s in enumerate(symbols) if s != original[i]], [380, 382, 516, 572, 768])
+            self.assertEqual(symbols[768]['symbol'], 'HD2_AmpNAMPedal')
+            self.assertEqual(symbols[768]['parameters'], symbols[380]['parameters'])   # Model, the knobs
+            definitions = msgpack.unpackb((res / 'HelixModelDefs.bin').read_bytes())
+            self.assertEqual((definitions[-1]['symbolicID\0'], round(definitions[-1]['load\0'], 3)),
+                             ('HD2_AmpNAMPedal\0', 8.5))
+            catalog = msgpack.unpackb((res / 'HX_ModelCatalog.bin').read_bytes())
+            amp = next(c for c in catalog['categories\0'] if c['name\0'] == 'Amp\0')
+            folder = next(c for c in amp['subcategories\0'] if c['name\0'] == 'NAM\0')
+            self.assertEqual([t['name\0'] for t in folder['models\0']],
+                             ['NAM A2 Lite\0', 'NAM Lite 20\0', 'NAM Lite 16\0', 'NAM Lite 14\0', 'NAM Pedal\0'])
+            from nam_catalog import ir_parameters        # Clear protection knows its Model knob
+            self.assertEqual(ir_parameters(res)['HD2_AmpNAMPedal'], ir_parameters(res)['HD2_AmpNAMLite'])
+
+    @unittest.skipUnless(BASELINE.is_dir(), 'requires the prepared HX Edit 3.82 baseline')
     def test_hx_nam_keeps_preset_types_and_the_stereo_fuzz(self):
         stock_symbols = json.loads((BASELINE / 'Helix.sym').read_bytes())
         stock_defs = msgpack.unpackb((BASELINE / 'HelixModelDefs.bin').read_bytes())

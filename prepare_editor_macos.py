@@ -49,7 +49,7 @@ def editor_source(source, work):
 
 
 def prepare_editor(source, destination, work, *, model_names=None, hx_nam=None):
-    from nam_catalog import nam_layers, patch_catalog, patch_hx_catalog, patch_library, rename_stock_models
+    from nam_catalog import nam_layers, nam_pedal, patch_catalog, patch_hx_catalog, patch_library, rename_stock_models
 
     with editor_source(source, work) as original:
         exe = original / EDITOR_BINARY
@@ -69,7 +69,7 @@ def prepare_editor(source, destination, work, *, model_names=None, hx_nam=None):
     plist['CFBundleDisplayName'] = 'HX Edit NAM'
     info.write_bytes(plistlib.dumps(plist))
     resources = contents / 'Resources'
-    patch_catalog(resources, nam_layers())
+    patch_catalog(resources, nam_layers(), nam_pedal())
     if hx_nam:
         patch_hx_catalog(resources, hx_nam)
     if model_names:

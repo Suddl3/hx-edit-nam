@@ -33,9 +33,22 @@ class ClearProtectionTests(unittest.TestCase):
         self.assertEqual(run(preset(b0={'@model': 'HD2_Mystery'}))['reason'], 'unknown-model')
         self.assertEqual(run(preset(b0={'@model': 'HelixPlugin_AppDSPFlow1Input'}))['reason'], 'unknown-block')
         tree = preset(b0={'@model': 'HD2_Comp'})
-        tree['globalNodes']['snapshot0']['controllers'] = {'dsp0': {}}
+        tree['globalNodes']['snapshot0']['controllers'] = {'dsp0': {'b9': {'Level': 0.4}}}   # no such block
         self.assertEqual(run(tree)['reason'], 'unsupported-snapshot-values')
+        tree['globalNodes']['snapshot0']['controllers'] = {'dsp0': {'b0': {'Level': 0.4}}, 'dsp9': {}}
+        self.assertEqual(run(tree)['reason'], 'unsupported-snapshot-values')
+        tree['globalNodes']['snapshot0']['controllers'] = {'dsp0': {'b0': {'Level': 0.4}}}
+        tree['globalNodes']['snapshot0']['mystery'] = 1
+        self.assertEqual(run(tree)['reason'], 'unsupported-snapshot-values (mystery)')
         self.assertEqual(run(preset())['reason'], 'empty-signal-flow')
+
+    def test_snapshot_controlled_knobs_pass_and_snapshot_slots_count(self):
+        tree = preset(b0={'@model': 'HD2_AmpNAMLite', 'Index': 85, 'Bass': 0.5})
+        tree['globalNodes']['snapshot0']['controllers'] = {'dsp0': {'b0': {
+            'Bass': {'@fs_enabled': False, '@value': 0.7}, 'Index': {'@fs_enabled': False, '@value': 126}}}}
+        self.assertEqual(run(tree), {'slots': [85, 126]})
+        tree['globalNodes']['snapshot0']['controllers']['dsp0']['b0']['Index']['@value'] = 0.5
+        self.assertEqual(run(tree)['reason'], 'invalid-slot-value')
 
 
 if __name__ == '__main__':

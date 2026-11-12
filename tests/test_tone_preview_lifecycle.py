@@ -98,7 +98,7 @@ class TonePreviewLifecycleTests(unittest.TestCase):
         self.assertIs(self.preview.browser, browser)
         self.assertEqual(self.preview.session, 2)
 
-    def test_active_audition_and_unfinished_cleanup_still_reject_start(self):
+    def test_active_audition_rejects_start_and_closing_queues_it(self):
         self.with_notice = False
         self.close_release.clear()
         first = self.start(1)
@@ -106,13 +106,27 @@ class TonePreviewLifecycleTests(unittest.TestCase):
         self.assert_start_rejected()
         self.release[1].set()
         self.assertTrue(self.close_entered.wait(2))
-        self.assert_start_rejected()
+        # HX Edit has closed session 1 (a tile picked while it was open): its start waits for the cleanup.
+        self.start(2)
+        self.assertFalse(self.entered[2].is_set())
         self.close_release.set()
         first.join(timeout=2)
         self.assertFalse(first.is_alive())
-        self.start(2)
         self.assertTrue(self.entered[2].wait(2))
+        self.workers.append(self.preview.thread)
+        self.assertEqual(self.preview.session, 2)
         self.script.post.assert_not_called()
+
+    def test_dismiss_cancels_the_open_pane(self):
+        first = self.start(1)
+        self.assertTrue(self.entered[1].wait(2))
+        browser = self.preview.browser
+        self.preview.receive({'type': 'toneDismiss', 'session': 2})
+        browser.actions.put.assert_not_called()
+        self.preview.receive({'type': 'toneDismiss', 'session': 1})
+        browser.actions.put.assert_called_once_with('cancel')
+        self.release[1].set()
+        first.join(timeout=2)
 
     def test_normal_close_without_notice_can_reopen(self):
         self.with_notice = False

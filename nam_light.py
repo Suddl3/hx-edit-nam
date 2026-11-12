@@ -39,10 +39,12 @@ def python_candidates(refine):
 
 
 def training_python(refine):
-    """The first candidate Python that imports torch and nam, or None."""
+    """The first candidate Python that imports torch and has nam, or None. (Not `import nam`: the package's
+    bundled Python leaves out nam's trainer and librosa, which helix-lt-nam's tools stand in for.)"""
+    probe = 'import torch, scipy, importlib.util as u; assert u.find_spec("nam")'
     for python in python_candidates(refine):
         try:
-            found = subprocess.run([python, '-c', 'import torch, nam'], capture_output=True, timeout=180,
+            found = subprocess.run([python, '-c', probe], capture_output=True, timeout=180,
                                    creationflags=NO_WINDOW)
         except (OSError, subprocess.TimeoutExpired):
             continue

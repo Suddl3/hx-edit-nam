@@ -106,12 +106,34 @@ function presetIrSlots(tree, irParameters) {
   }
   const snapshotKeys = new Set(['@name', '@tempo', '@valid', '@custom_name', '@ledcolor', '@pedalstate']);
   const metadata = new Set(['global', 'variax', 'dt0', 'dt1', 'dtdual', 'powercab0', 'powercab1', 'powercabdual', 'footswitch']);
+  // Snapshot-controlled parameters (controllers.dsp0.block0.Bass = {@value, …}): an IR parameter's
+  // values are slots too; anything shaped otherwise fails closed.
+  function snapshotSlots(controllers) {
+    for (const [dsp, blocks] of Object.entries(controllers)) {
+      if (!['dsp0', 'dsp1'].includes(dsp) || !record(blocks)) return 'unsupported-snapshot-values';
+      for (const [name, controlled] of Object.entries(blocks)) {
+        const node = tree[dsp][name];
+        if (!record(controlled) || !record(node)) return 'unsupported-snapshot-values';
+        const parameters = irParameters[node['@model']] ?? irParameters[node['@model'].replace(/(Mono|Stereo)$/, '')];
+        for (const [parameter, control] of Object.entries(controlled)) {
+          if (!parameters.includes(parameter)) continue;
+          const slot = record(control) ? control['@value'] : control;
+          if (!Number.isInteger(slot) || slot < 1 || slot > 128) return 'invalid-slot-value';
+          slots.add(slot);
+        }
+      }
+    }
+    return null;
+  }
   for (const [name, node] of Object.entries(tree.globalNodes)) {
     if (!record(node)) return { reason: 'unsupported-global-node' };
     if (/^snapshot\d$/.test(name)) {
       for (const [key, value] of Object.entries(node)) {
-        if (snapshotKeys.has(key) ? !scalar(value) : key !== 'blocks' || !record(value)) {
-          return { reason: 'unsupported-snapshot-values' }; // e.g. a snapshot-controlled IR slot
+        if (key === 'controllers' && record(value)) {
+          const failed = snapshotSlots(value);
+          if (failed) return { reason: failed };
+        } else if (snapshotKeys.has(key) ? !scalar(value) : key !== 'blocks' || !record(value)) {
+          return { reason: `unsupported-snapshot-values (${key})` };
         }
       }
     } else if (Object.keys(node).length && (!metadata.has(name) || Object.values(node).some(value => !scalar(value)))) {
@@ -748,7 +770,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
       const list = irList();
       const free = [];
       if (list.isNull()) return free;
-      for (let slot = 1; slot < AUDITION_SLOT; slot++) {
+      for (let slot = 1; slot <= AUDITION_SLOT; slot++) {
         if (slot === excluded) continue;
         const row = getIrRow(list, slot - 1);
         if (!row.isNull() && !row.add(0x10c).readU32()) free.push(slot);
@@ -760,11 +782,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
       if (list.isNull()) throw new Error('Connect your Helix to audition a tone.');
       if (!namImportController.isNull()) throw new Error('Wait for the current NAM import to finish.');
       const transfer = { controller: irController, slot, source };
-      if (!this.previewSlotEmpty(transfer)) {
-        throw new Error(slot === AUDITION_SLOT
-          ? `Clear User IR ${slot}. It is reserved for TONE3000 auditions.`
-          : `User IR ${slot} is no longer free.`);
-      }
+      if (!this.previewSlotEmpty(transfer)) throw new Error(`User IR ${slot} is no longer free.`);
       transfer.file = requestImport({ type: 'stageTone', file: source, audition }).file;
       toneImport = transfer;
       selectStockRow(list, slot - 1);
@@ -789,16 +807,43 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
       if (hasActiveModel()) rebuildModelMenu(activeModel);
       return true;
     },
+    setSlot: slot => setModelSlot(slot),
     selectProfile(transfer) {
       return !!this.previewName(transfer) && setModelSlot(transfer.slot);
     },
     clearPreview(transfer) {
-      if (!this.previewName(transfer)) return false;
-      const librarian = irController.add(0x270).readPointer();
+      return !!this.previewName(transfer) && this.clearSlot(transfer.slot);
+    },
+    slotName(slot) {
+      const list = irList();
+      const row = list.isNull() || !slot ? NULL : getIrRow(list, slot - 1);
+      return row.isNull() || !row.add(0x10c).readU32() ? '' : row.readUtf8String();
+    },
+    slotEmpty(slot) {
+      return this.previewSlotEmpty({ controller: irController, slot });
+    },
+    auditionSlot() {
+      // 128 when free (imports leave it), else the highest free slot; 0 when every slot is taken
+      for (let slot = AUDITION_SLOT; slot >= 1; slot--) if (this.slotEmpty(slot)) return slot;
+      return 0;
+    },
+    usedSlots() {
+      const list = irList();
+      const used = [];
+      if (list.isNull()) return used;
+      for (let slot = 1; slot <= AUDITION_SLOT; slot++) {
+        const row = getIrRow(list, slot - 1);
+        if (!row.isNull() && row.add(0x10c).readU32()) used.push([slot, row.readUtf8String()]);
+      }
+      return used;
+    },
+    clearSlot(slot) {
+      // Our own audition (after Undo restored the block), or a slot the user chose to replace with one.
+      const librarian = irController.isNull() ? NULL : irController.add(0x270).readPointer();
       if (librarian.isNull()) return false;
       // Same single-slot array passed by the stock Clear confirmation handler.
       const index = Memory.alloc(4);
-      index.writeU32(transfer.slot - 1);
+      index.writeU32(slot - 1);
       const slots = Memory.alloc(24);
       slots.writePointer(address(0x8bb0dc));
       slots.add(4).writeU32(1);
@@ -806,7 +851,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
       slots.add(12).writeU32(1);
       slots.add(16).writeU32(0);
       slots.add(20).writeU32(1);
-      trustedClear = true; // our own audition slot, after Undo restored the block
+      trustedClear = true; // (no "used by the current preset" check: the user chose this slot)
       try {
         clearIrSlots(librarian, slots);
       } finally {

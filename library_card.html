@@ -27,6 +27,7 @@
   tbody tr[aria-selected="true"] { background: #4a2425; }
   td select { padding: 1px 4px; }
   .empty { padding: 16px 10px; color: #aaa; }
+  #target { padding: 2px 8px; border: 1px solid #b54545; border-radius: 10px; color: #fff; white-space: nowrap; }
   #status { flex: 1; min-width: 80px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .destination { display: flex; align-items: center; gap: 6px; }
   #save:enabled, #audition:enabled { background: #862829; border-color: #b54545; }
@@ -74,10 +75,15 @@
   <p class="note">Trains a copy that uses only the first layers of the capture's A2 Lite, against the capture's own bigger model, so the file must hold one (a TONE3000 A2 or a standard capture). DSP shares are measured for one NAM block on a Helix LT, and the saving needs firmware that skips the unused layers (NAM4_LAYERS: pick the NAM Lite block of the same size). Error is ESR against that model on held-out audio.</p>
 </section>
 <footer>
+  <span id="target" title="The NAM block this pane loads into and how the capture is converted" hidden></span>
   <p id="status" role="status"></p>
   <button id="lighter" disabled>Lighter…</button>
   <button id="remove" disabled>Remove</button>
   <button id="audition" disabled>Audition</button>
+  <div class="destination" hidden>
+    <select id="replace" aria-label="User IR slot to replace"></select>
+    <button id="replaceGo" title="Deletes the profile in that slot and auditions this capture there">Replace</button>
+  </div>
   <div class="destination" hidden>
     <select id="destination" aria-label="Free User IR slot"></select>
     <button id="save">Save to Helix</button>
@@ -189,10 +195,19 @@
   q('#catalog').onclick = () => host.postMessage('catalog');
   q('#finish').onclick = () => host.postMessage('finish');
   save.onclick = () => host.postMessage('save:' + trial + ':' + destination.value);
+  q('#replaceGo').onclick = () => host.postMessage('replace:' + q('#replace').value);
 
   window.hxToneStatus = data => {
     busy = !!data.busy;
     q('#status').textContent = q('#status').title = data.text || '';
+    q('#target').textContent = data.target || '';
+    q('#target').hidden = !data.target;
+    // Every User IR slot taken: pick one to replace with the audition (128 first, the old audition slot).
+    const taken = data.replace || [];
+    q('#replace').replaceChildren(...taken.map(([slot, name]) => new Option('User IR ' + slot + ' · ' + name, slot)));
+    if (taken.length) q('#replace').value = taken[taken.length - 1][0];
+    q('#replace').parentElement.hidden = !taken.length;
+    q('#replace').disabled = q('#replaceGo').disabled = busy;
     trial = data.trial;
     const slots = data.free_slots || [];
     destination.replaceChildren(...slots.map(slot => new Option('User IR ' + slot, slot)));

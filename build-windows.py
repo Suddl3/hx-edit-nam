@@ -18,17 +18,21 @@ from tone_browser import ROOT, SDK_ASSETS, browser_sdk, prepare_browser
 
 PYTHON_VERSION = '3.13.17'
 PYTHON_SHA256 = '9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38'
-FIRMWARE_REV = 'aab2b4b85cffc3d8ff936c54796573d544e6f901'
+FIRMWARE_REV = 'de8ea773d05ef2dd85bd61a9ad4cba3417e3da0f'
 APP_FILES = (
     'start-hx-edit-nam.pyw', 'nam_catalog.py', 'nam_convert.py', 'nam_import.js', 'nam_inventory.py',
     'nam_view.js', 'nam_library.py', 'library_card.html', 'tone3000.py', 'tone_browser.py', 'tone_card.html',
-    'tone_preview.py', 'tone_view.js', 'nam_light.py',
+    'tone_preview.py', 'tone_view.js', 'nam_light.py', 'nam_modes.py',
 )
 FIRMWARE_FILES = (
-    'LICENSE', 'tools/nam2ir.py', 'tools/nam_refine.py', 'tools/hx_ctl.py', 'tools/hx_dfu_reboot.py',
+    'LICENSE', 'tools/nam2ir.py', 'tools/nam_refine.py', 'tools/nam_pedal.py', 'tools/nam_v3_input.wav', 'tools/hx_ctl.py', 'tools/hx_dfu_reboot.py',
     'tools/sharc/nam_lite.py', 'tools/sharc/nam_pack.py', 'tools/sharc/sasm.py',
     'tools/sharc/ssim.py', 'tools/sharc/recips_table.json',
 )
+
+
+TRAINING = ('torch==2.15.0', 'numpy==2.5.4', 'scipy==1.18.1', 'pydantic==2.14.3', 'wavio==0.0.9', 'tqdm==4.70.1')
+NAM_PACKAGE = 'neural-amp-modeler==0.13.0'
 
 
 def add_runtime(destination):
@@ -46,6 +50,22 @@ def add_runtime(destination):
          'frida==17.5.2', 'msgpack==1.2.4'],
         check=True,
     )
+    # Training (Lighter…, the import modes, the pedal converter): torch on the CPU and what helix-lt-nam's
+    # nam_refine.py / nam_pedal.py use of neural-amp-modeler (its trainer and librosa are left out: nam_refine
+    # stands in empty modules for them). About 700 MB unpacked.
+    site = str(destination / 'Lib/site-packages')
+    subprocess.run(
+        [sys.executable, '-m', 'pip', 'install', '--only-binary=:all:', '--no-compile', '--platform', 'win_amd64',
+         '--python-version', '3.13', '--target', site, '--index-url', 'https://download.pytorch.org/whl/cpu',
+         '--extra-index-url', 'https://pypi.org/simple', *TRAINING],
+        check=True,
+    )
+    subprocess.run(
+        [sys.executable, '-m', 'pip', 'install', '--no-compile', '--no-deps', '--target', site, NAM_PACKAGE],
+        check=True,
+    )
+    for stray in Path(site).glob('*.whl'):          # (pip leaves a wheel it fetched for another index)
+        stray.unlink()
 
 
 def package_windows(version, worktree=False):

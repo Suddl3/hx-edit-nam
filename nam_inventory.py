@@ -23,9 +23,18 @@ def is_nam_profile(payload):
     if not isinstance(payload, bytes) or len(payload) != 8192:
         return False
     first, second, channels, scale, weights = struct.unpack_from('<5I', payload)
-    # Float32 words used by helix-lt-nam's 3-channel, 1871-weight IR format.
-    return ((first, second, channels, weights) == (0x3F000000, 0xBF000000, 0x40400000, 0x3FE9E000)
-            and 0x3F800000 <= scale <= 0x41000000 and scale & 0x007FFFFF == 0)
+    # Float32 words used by helix-lt-nam's 3-channel IR formats: an A2 Lite capture (1871 weights) or a
+    # pedal model for the NAM Pedal block (627 words, tools/nam_pedal.py).
+    return ((first, second, channels) == (0x3F000000, 0xBF000000, 0x40400000)
+            and (weights == 0x3FE9E000 or weights == PEDAL_WORDS)
+            and 0x3F800000 <= scale <= 0x42800000 and scale & 0x007FFFFF == 0)
+
+
+PEDAL_WORDS = 0x3F1CC000                  # 627 / 1024: a pedal model's word count
+
+
+def is_pedal_profile(payload):
+    return is_nam_profile(payload) and struct.unpack_from('<I', payload, 16)[0] == PEDAL_WORDS
 
 
 def read_profiles(channel):

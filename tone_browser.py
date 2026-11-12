@@ -130,9 +130,10 @@ class ToneBrowser:
             raise ToneError(self.startup_error)
         return True
 
-    def navigate(self, url):
+    def navigate(self, url, open_page=None):
+        """Open the catalog at url; open_page: a tone page to go to once the catalog has loaded."""
         callback = parse_qs(urlsplit(url).query)['redirect_uri'][0]
-        return self.send('navigate', url=url, callback=callback)
+        return self.send('navigate', url=url, callback=callback, **({'open': open_page} if open_page else {}))
 
     def next_action(self):
         while not self.is_set():

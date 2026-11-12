@@ -4,6 +4,7 @@ import base64
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
+import os
 from pathlib import Path
 import re
 import secrets
@@ -25,6 +26,42 @@ WINDOWS_DEVICE = re.compile(r'CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9]|CONIN\$|CONOUT\$
 
 class ToneError(Exception):
     pass
+
+
+# TONE3000 model ID -> the tone page it came from, so opening TONE3000 on a block whose profile was loaded
+# from there goes back to that tone. Profile names end with the model ID (prepare_model).
+LINKS = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'HX Edit NAM' / 'tone-links.json'
+
+
+def tone_url(tone):
+    """The tone's https page on TONE3000, or its standard address."""
+    url = tone.get('url') or ''
+    location = urlsplit(url)
+    return url if location.scheme == 'https' and location.netloc in API_HOSTS else f'{ORIGIN}/tones/{int(tone["id"])}'
+
+
+def remember_link(model_id, url):
+    try:
+        links = json.loads(LINKS.read_text(encoding='utf-8')) if LINKS.is_file() else {}
+        if links.get(str(int(model_id))) == url:
+            return
+        links[str(int(model_id))] = url
+        LINKS.parent.mkdir(parents=True, exist_ok=True)
+        LINKS.with_suffix('.tmp').write_text(json.dumps(links), encoding='utf-8')
+        LINKS.with_suffix('.tmp').replace(LINKS)
+    except (OSError, ValueError) as error:          # the link is a convenience: auditions go on without it
+        print(f'Could not remember the TONE3000 link: {error}')
+
+
+def tone_link(profile):
+    """The remembered tone page for a profile name ending with a TONE3000 model ID, or None."""
+    match = re.search(r' (\d+)$', profile or '')
+    try:
+        links = json.loads(LINKS.read_text(encoding='utf-8')) if match and LINKS.is_file() else {}
+    except (OSError, ValueError):
+        return None
+    url = links.get(match[1]) if match else None
+    return url if isinstance(url, str) and urlsplit(url).scheme == 'https' and urlsplit(url).netloc in API_HOSTS else None
 
 
 class NoAuthRedirect(HTTPRedirectHandler):
@@ -148,7 +185,25 @@ def get_tone(tone_id, token):
     return tone, models
 
 
-def prepare_model(model, token, workspace, converter):
+def train_capture(capture, mode, workspace, converter):
+    """nam_modes.train on one capture (its progress dialog); the trained file, or None when cancelled."""
+    import nam_modes
+    out = nam_modes.train([capture], mode, workspace, Path(converter).with_name('nam_refine.py'))
+    return out[0] if out else None
+
+
+def mode_tag(mode):
+    """What a converted profile's name says about its mode: ' PED' for a pedal model, ' L16' / ' L14' for a
+    lighter copy, nothing as it is."""
+    if mode in (None, 'original'):
+        return ''
+    return ' PED' if mode == 'pedal' else ' L' + mode.split('-')[0]
+
+
+def prepare_model(model, token, workspace, converter, mode='original', train=train_capture):
+    """Download a TONE3000 model and convert it for a User IR as `mode` (nam_modes.MODES; 'original': as it
+    is). The IR name keeps the TONE3000 ID at its end, the mode's tag before it."""
+    tag = mode_tag(mode)
     with tempfile.TemporaryDirectory(prefix='tone-download-', dir=workspace) as folder:
         # HX Edit can rewrite non-ASCII paths in the native import batch.
         ascii_name = model['name'].encode('ascii', 'ignore').decode('ascii')
@@ -159,11 +214,19 @@ def prepare_model(model, token, workspace, converter):
         number = str(int(model['id']))
         if len(number) > IR_NAME_LIMIT - len('T3K ') or number == '0' or number.startswith('-'):
             raise ToneError('TONE3000 returned an invalid profile ID.')
-        label = label[:IR_NAME_LIMIT - len(number) - 1].rstrip(' .')
-        name = f'{label} {number}' if label else f'T3K {number}'
+        label = label[:IR_NAME_LIMIT - len(number) - 1 - len(tag)].rstrip(' .')
+        name = f'{label}{tag} {number}' if label else f'T3K{tag} {number}'
         capture = Path(folder, name + '.nam')
         capture.write_bytes(read_url(model['model_url'], token=token))
-        converted = convert_batch([capture], workspace, converter)[0]
+        source = capture
+        if tag:
+            trained = train(capture, mode, workspace, converter)
+            if trained is None:
+                raise ToneError('Conversion cancelled.')
+            # the IR name: the trained file renamed to the profile's name (its own folder: no clash)
+            final = Path(tempfile.mkdtemp(prefix='tone-mode-', dir=workspace)) / (name + Path(trained).suffix)
+            source = Path(trained).replace(final)
+        converted = convert_batch([source], workspace, converter)[0]
         # Keep the original for Add to library and Save to Helix during this session.
         kept = Path(workspace, 'captures')
         kept.mkdir(exist_ok=True)

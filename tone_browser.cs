@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -35,6 +36,7 @@ sealed class ToneBrowser : Form
     Uri callback;
     bool panelVisible = true;
     string catalogPage;
+    string openAfterLoad;   // a tone page to open once the selection catalog has loaded (the block's own tone)
     bool canRetry;
     bool hasTone;
     bool library;
@@ -116,6 +118,22 @@ sealed class ToneBrowser : Form
             core.Profile.PreferredColorScheme = CoreWebView2PreferredColorScheme.Dark;
             Configure(core, false);
             core.NavigationStarting += (sender, args) => args.Cancel = !CanNavigate(args.Uri);
+            core.NavigationCompleted += (sender, args) => {
+                // Once the selection catalog (/api/v1/select?authorization_id=…, after any sign-in) is up, open
+                // the tone inside the same selection (/api/v1/select/tones/<slug>?authorization_id=…), so its
+                // Select Tone still returns here. The slug is the one of the tone's public page /tones/<slug>.
+                Uri page, tone;
+                if (openAfterLoad == null || !args.IsSuccess || !IsToneUrl(core.Source) ||
+                    !Uri.TryCreate(core.Source, UriKind.Absolute, out page) ||
+                    page.AbsolutePath.TrimEnd('/') != "/api/v1/select") return;
+                var authorization = Regex.Match(page.Query, @"[?&]authorization_id=([^&#]+)");
+                var slug = Uri.TryCreate(openAfterLoad, UriKind.Absolute, out tone)
+                    ? Regex.Match(tone.AbsolutePath, @"^/tones/([A-Za-z0-9._~-]+)/?$") : Match.Empty;
+                openAfterLoad = null;
+                if (authorization.Success && slug.Success)
+                    core.Navigate("https://www.tone3000.com/api/v1/select/tones/" + slug.Groups[1].Value +
+                        "?authorization_id=" + authorization.Groups[1].Value);
+            };
             core.NewWindowRequested += (sender, args) => {
                 args.Handled = true;
                 if (CanNavigate(args.Uri)) core.Navigate(args.Uri);
@@ -203,6 +221,8 @@ sealed class ToneBrowser : Form
                 canRetry = false;
                 catalogPage = null;
                 callback = new Uri((string)message["callback"]);
+                openAfterLoad = message.ContainsKey("open") && IsToneUrl((string)message["open"])
+                    ? (string)message["open"] : null;
                 core.Navigate((string)message["url"]);
                 UpdateCard();
                 break;

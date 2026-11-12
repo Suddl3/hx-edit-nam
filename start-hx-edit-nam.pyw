@@ -32,7 +32,47 @@ def trace(payload):
         pass
 
 
-def run_editor(exe, workspace, device, profiles):
+def ask_firmware():
+    """Ask which NAM firmware the unit runs (Enter: the last answer) and keep it in settings.json: it sets
+    the NAM blocks of HX Edit's catalog and the import modes. Cancel keeps the last answer."""
+    import nam_modes
+    from nam_catalog import nam_layers, nam_pedal, save_setting
+    current = 'pedal' if nam_pedal() else 'layers' if nam_layers() else 'plain'
+    try:
+        key = nam_modes.choose_firmware(current)
+    except OSError as error:                      # no task dialog: keep the last answer
+        print(f'Could not ask for the firmware: {error}')
+        return current
+    key = key or current
+    save_setting('namPedal', key == 'pedal')
+    save_setting('namLayers', key in ('pedal', 'layers'))
+    return key
+
+
+def choose_and_train(payload, workspace):
+    """The files to convert for an import: as chosen, or with the captures replaced by trained copies
+    (the mode chooser, on a firmware with the lighter NAM blocks and an import that asks). None: cancelled."""
+    from nam_catalog import nam_layers, nam_pedal
+    files = list(payload['files'])
+    captures = [f for f in files if f.lower().endswith('.nam')]
+    if not (payload.get('ask') and captures and nam_layers()):
+        return files
+    import nam_modes
+    owner = int(payload.get('owner') or 0)
+    key = nam_modes.choose_mode([Path(c).stem for c in captures], owner, nam_pedal())
+    if key is None:
+        return None
+    if key == 'original':
+        return files
+    trained = nam_modes.train(captures, key, workspace, CONVERTER.with_name('nam_refine.py'), owner)
+    if trained is None:
+        return None
+    swap = dict(zip(captures, trained))
+    return [swap.get(f, f) for f in files]
+
+
+def run_editor(exe, workspace, device, profiles, firmware='plain'):
+    import nam_modes
     from nam_catalog import ir_parameters, save_setting, sidebar_width
     from nam_convert import convert_batch, stage_tone_import, validate_import
     from nam_library import Library
@@ -50,7 +90,7 @@ def run_editor(exe, workspace, device, profiles):
         tone = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
         script = session.create_script(
             f"{view}\n{imports}\n{tone}\nconst namView = installNamView({json.dumps(profiles)}, {sidebar_width()}, {json.dumps(ir_parameters(exe.parent / 'res'))});"
-            "\ninstallToneView();\nsend({ type: 'ready' });"
+            f"\ninstallToneView({json.dumps(nam_modes.tiles(firmware))});\nsend({{ type: 'ready' }});"
         )
         library = Library()
         preview = TonePreview(script, workspace, CONVERTER, detached, message, library=library)
@@ -70,13 +110,15 @@ def run_editor(exe, workspace, device, profiles):
                     save_setting('sidebarWidth', int(payload['width']))
                 except (OSError, TypeError, ValueError, KeyError) as error:
                     print(f'Could not save the sidebar width: {error}')
-            if payload.get('type') in {'toneStart', 'toneBounds', 'toneReply'}:
+            if payload.get('type') in {'toneStart', 'toneBounds', 'toneReply', 'toneDismiss'}:
                 preview.receive(payload)
             if payload.get('type') in {'convert', 'validateImport', 'stageTone'}:
                 try:
                     if payload['type'] == 'convert':
-                        result = {'files': convert_batch(payload['files'], workspace, CONVERTER)}
-                        for file in payload['files']:
+                        files = choose_and_train(payload, workspace)
+                        result = {'cancelled': True} if files is None else \
+                            {'files': convert_batch(files, workspace, CONVERTER)}
+                        for file in payload['files'] if files is not None else []:
                             if file.lower().endswith('.nam'):
                                 try:
                                     library.add(file)
@@ -135,10 +177,11 @@ def main():
         print(f'Could not scan Helix NAM profiles: {error}')
         profiles, scan_error = {}, True
 
+    firmware = 'plain' if args.hx_nam else ask_firmware()
     (ROOT / 'build').mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='nam-', dir=ROOT / 'build', ignore_cleanup_errors=True) as workspace:
         exe = prepare_copy(workspace, scan_error, hx_nam=args.hx_nam)
-        run_editor(exe, workspace, device, profiles)
+        run_editor(exe, workspace, device, profiles, firmware)
 
 
 if __name__ == '__main__':

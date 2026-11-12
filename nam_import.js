@@ -287,7 +287,11 @@ Interceptor.replace(openFile, new NativeCallback(function (dialog) {
   if (!selected.some(file => /\.nam$/i.test(file))) return result;
 
   try {
-    const { files } = requestImport({ type: 'convert', files: selected });
+    // ask: the Python side may show the mode chooser (and train) before it converts; owner centres it
+    const reply = requestImport({ type: 'convert', files: selected, ask: true,
+      owner: dialog.add(fields.owner).readPointer().toUInt32() });
+    if (reply.cancelled) return 0;
+    const { files } = reply;
     const slash = files[0].lastIndexOf('\\');
     const folder = files[0].slice(0, slash);
     const names = files.map(file => file.slice(slash + 1));

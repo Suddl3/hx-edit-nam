@@ -23,6 +23,7 @@
   footer { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px;
     padding: 5px 12px; border-top: 1px solid #404040; background: #232323; }
   #status { flex: 1; min-width: 80px; }
+  #target { padding: 2px 8px; border: 1px solid #b54545; border-radius: 10px; color: #fff; white-space: nowrap; }
   .destination { display: flex; align-items: center; gap: 6px; }
   #save:enabled { background: #862829; border-color: #b54545; }
   @media (max-width: 700px), (max-height: 114px) { img { display: none; } }
@@ -41,7 +42,7 @@
   $cover
   <div class="details">
     <h1 title="$title">$title</h1>
-    <p>$author · $gear · NAM A2 Lite · $license</p>
+    <p>$author · $gear · $license</p>
   </div>
   <div class="profile">
     <label for="model">Profile</label>
@@ -49,12 +50,17 @@
   </div>
 </main>
 <footer>
+  <span id="target" title="The NAM block this pane loads into and how the profile is converted" hidden></span>
   <p id="status" role="status"></p>
   <button id="source" $hidden>View on TONE3000</button>
   <button id="back" hidden>Back to catalog</button>
   <button id="retry" hidden>Browse again</button>
   <button id="library" $library>Library</button>
   <button id="keep" hidden>Add to library</button>
+  <div class="destination" id="replaceBox" hidden>
+    <select id="replace" aria-label="User IR slot to replace"></select>
+    <button id="replaceGo" title="Deletes the profile in that slot and auditions this one there">Replace</button>
+  </div>
   <div class="destination" hidden>
     <select id="destination" aria-label="Free User IR slot"></select>
     <button id="save">Save to Helix</button>
@@ -82,10 +88,24 @@
   document.querySelector('#library').onclick = () => host.postMessage('library');
   keep.onclick = () => host.postMessage('keep:' + trial);
   save.onclick = () => host.postMessage('save:' + trial + ':' + destination.value);
+  // Every User IR slot taken: pick one to replace with the audition (128 first, the old audition slot).
+  const replace = document.querySelector('#replace');
+  document.querySelector('#replaceGo').onclick = () => host.postMessage('replace:' + replace.value);
+  function showReplace(data) {
+    const taken = data.replace || [];
+    replace.replaceChildren(...taken.map(([slot, name]) => new Option('User IR ' + slot + ' · ' + name, slot)));
+    if (taken.length) replace.value = taken[taken.length - 1][0];
+    replace.parentElement.hidden = !taken.length;
+    replace.disabled = document.querySelector('#replaceGo').disabled = !!data.busy;
+  }
   window.hxToneStatus = data => {
     model.disabled = source.disabled = !!data.busy;
     if (Number.isInteger(data.model)) model.selectedIndex = data.model;
     status.textContent = status.title = data.text || '';
+    const target = document.querySelector('#target');
+    target.textContent = data.target || '';
+    target.hidden = !data.target;
+    showReplace(data);
     source.hidden = !hasTone || data.viewing_source;
     back.hidden = !data.viewing_source;
     retry.hidden = !data.can_retry;

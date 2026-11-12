@@ -157,6 +157,94 @@ class ToneTests(unittest.TestCase):
         self.assertEqual(preview.command.call_args_list, [
             call(1, 'audition', file='first.wav'), call(1, 'audition', file='second.wav'), call(1, 'save', slot=4)])
 
+    def test_no_free_slot_lists_the_taken_ones_and_auditions_into_the_chosen_one(self):
+        browser = Mock()
+        browser.actions = Queue()
+        browser.next_action.side_effect = lambda: browser.actions.get(timeout=3)
+        browser.is_set.return_value = False
+        preview = TonePreview(None, None, None, Event(), None)
+        taken = [[7, 'Old amp'], [128, 'Old audition']]
+        preview.command = Mock(side_effect=[
+            {'error': 'No free User IR slot. Choose one to replace.', 'replace': taken, 'freeSlots': []},
+            {'slot': 128, 'freeSlots': []},
+        ])
+        shown = []
+
+        def send(kind, **data):
+            if kind != 'status' or data['busy']:
+                return
+            shown.append(data['replace'])
+            if data['replace']:
+                browser.actions.put('replace:9')      # not offered: ignored
+                browser.actions.put('replace:128')
+            elif data['trial'] == 1:
+                browser.actions.put('finish')
+                done.set()
+
+        browser.send.side_effect = send
+        tone = dict(id=42, title='Amp', user={'username': 'creator'}, gear='amp', license='t3k')
+        selections = iter([(42, 'token')])
+        done = Event()
+
+        def select(*_args, **_kwargs):                 # the catalog stays open until the test is done
+            return next(selections, None) or done.wait(3) and None
+
+        with patch('tone_preview.select_tone', side_effect=select), \
+                patch('tone_preview.get_tone', return_value=(tone, [{'id': 1, 'name': 'Amp'}])), \
+                patch('tone_preview.prepare_model', return_value='p.wav'):
+            preview.browse(browser, 1, 'key')
+        self.assertEqual(preview.command.call_args_list, [
+            call(1, 'audition', file='p.wav'), call(1, 'audition', file='p.wav', replace=128)])
+        self.assertEqual(shown[0], taken)
+        self.assertEqual(shown[-1], [])
+
+    def test_a_converting_tile_waits_for_the_profile_pick(self):
+        browser = Mock()
+        browser.actions = Queue()
+        browser.next_action.side_effect = lambda: browser.actions.get(timeout=3)
+        browser.is_set.return_value = False
+        preview = TonePreview(None, None, None, Event(), None)
+        preview.tile = {'block': 'NAM Pedal', 'modes': ['pedal']}
+        preview.command = Mock(return_value={'slot': 127, 'freeSlots': []})
+        done = Event()
+        selections = iter([(42, 'token')])
+
+        def select(*_args, **_kwargs):
+            return next(selections, None) or done.wait(3) and None
+
+        def send(kind, **data):
+            if kind != 'status' or data['busy']:
+                return
+            if data['text'].startswith('2 profiles'):
+                self.assertEqual(data['model'], -1)
+                browser.actions.put('model:2')
+            elif data['trial'] == 1:
+                browser.actions.put('finish')
+                done.set()
+
+        browser.send.side_effect = send
+        tone = dict(id=42, title='Drive', user={'username': 'creator'}, gear='pedal', license='t3k')
+        models = [{'id': 1, 'name': 'G3'}, {'id': 2, 'name': 'G9'}]
+        with patch('tone_preview.select_tone', side_effect=select), \
+                patch('tone_preview.get_tone', return_value=(tone, models)), \
+                patch('tone_preview.prepare_model', return_value='p.wav') as prepare:
+            preview.browse(browser, 1, 'key')
+        self.assertEqual([c.args[0]['id'] for c in prepare.call_args_list], [2])     # only the picked one
+        self.assertEqual(preview.command.call_args_list, [call(1, 'audition', file='p.wav')])
+
+    def test_a_profile_from_tone3000_finds_its_tone_page_again(self):
+        import tone3000
+        tone = {'id': 7, 'url': 'https://www.tone3000.com/tones/jhs-morning-glory-7'}
+        tone3000.remember_link(80474, tone3000.tone_url(tone))
+        self.assertEqual(tone3000.tone_link('JHS MG Red G9 PED 80474'), tone['url'])
+        self.assertIsNone(tone3000.tone_link('JHS MG Red G9 PED 80475'))
+        self.assertIsNone(tone3000.tone_link('My own capture'))
+        self.assertIsNone(tone3000.tone_link(''))
+        self.assertEqual(tone3000.tone_url({'id': 7, 'url': 'https://evil.example/x'}),
+                         'https://www.tone3000.com/tones/7')
+        tone3000.LINKS.write_text('{"5": "https://evil.example/x"}', encoding='utf-8')
+        self.assertIsNone(tone3000.tone_link('Amp 5'))
+
     def test_saved_names_fit_the_slot_and_are_safe_for_windows(self):
         with tempfile.TemporaryDirectory() as folder, patch('tone3000.read_url', return_value=b'capture'), \
                 patch('tone3000.convert_batch', return_value=['profile.wav']) as convert:
@@ -169,6 +257,27 @@ class ToneTests(unittest.TestCase):
                     model = dict(id=model_id, name=label, model_url=f'{API}/models/{model_id}/download')
                     prepare_model(model, 'test-token', folder, CONVERTER)
                     self.assertEqual(convert.call_args.args[0][0].stem, expected)
+
+    def test_a_converted_mode_keeps_the_id_last_and_its_tag_before_it(self):
+        model = dict(id=123456789, name='A' * 40, model_url=f'{API}/models/123456789/download')
+        with tempfile.TemporaryDirectory() as folder, patch('tone3000.read_url', return_value=b'capture'), \
+                patch('tone3000.convert_batch', side_effect=lambda files, *a: [str(files[0])]) as convert:
+            def fake_train(capture, mode, workspace, converter):
+                tag = ' PED ' if mode == 'pedal' else ' L16 '
+                self.assertEqual(capture.stem, 'A' * 17 + tag + '123456789')
+                out = Path(workspace, 'trained.wav' if mode == 'pedal' else 'trained.nam')
+                out.write_bytes(b'x')
+                return out
+            for mode, stem, suffix in (('pedal', 'A' * 17 + ' PED 123456789', '.wav'),
+                                       ('16-quick', 'A' * 17 + ' L16 123456789', '.nam')):
+                with self.subTest(mode=mode):
+                    out = Path(prepare_model(model, 'test-token', folder, CONVERTER, mode, train=fake_train))
+                    self.assertEqual((out.stem, out.suffix), (stem, suffix))
+                    self.assertLessEqual(len(out.stem), 31)
+            self.assertTrue(Path(folder, 'captures', 'A' * 17 + ' PED 123456789.nam').is_file())  # for the library
+            with self.assertRaisesRegex(ToneError, 'cancelled'):
+                prepare_model(model, 'test-token', folder, CONVERTER, 'pedal', train=lambda *a: None)
+            self.assertEqual(convert.call_count, 2)
 
     @unittest.skipUnless(CONVERTER.is_file(), 'requires the sibling helix-lt-nam checkout')
     def test_prepares_only_selected_profile_and_rejects_incompatible_data(self):

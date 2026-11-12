@@ -25,6 +25,9 @@ NAM_ID = 380
 NAM_LAYER_MODELS = (('HD2_AmpNAMLite20', 382, 'NAM Lite 20', 33.0), ('HD2_AmpNAMLite16', 516, 'NAM Lite 16', 29.5),
                     ('HD2_AmpNAMLite14', 572, 'NAM Lite 14', 27.7))
 NAM_LAYERS_LOAD = 36.5                    # NAM A2 Lite on that firmware (3650: its layer check)
+# The NAM5_PEDAL firmware (lt_port.py --pedal) adds a fifth block for pedal models (tools/nam_pedal.py).
+# On with "namPedal": true or HX_EDIT_NAM_PEDAL=1 (it implies the three lighter blocks).
+NAM_PEDAL_MODEL = ('HD2_AmpNAMPedal', 768, 'NAM Pedal', 8.5)    # the firmware's 850, from the LT meter
 HX_NAM_ID = 555
 HX_NAM_SYMBOL = 'HD2_DistNAMLite'
 DEVICE_IDS = (0x00210004, 0x00210001)  # Helix LT and Helix Floor
@@ -80,11 +83,16 @@ def rename_stock_models(resources, names):
     catalog_path.write_bytes(msgpack.packb(catalog, use_single_float=True))
 
 
+def nam_pedal():
+    return os.environ.get('HX_EDIT_NAM_PEDAL') == '1' or load_settings().get('namPedal') is True
+
+
 def nam_layers():
-    return os.environ.get('HX_EDIT_NAM_LAYERS') == '1' or load_settings().get('namLayers') is True
+    return (os.environ.get('HX_EDIT_NAM_LAYERS') == '1' or load_settings().get('namLayers') is True
+            or nam_pedal())
 
 
-def patch_catalog(resources, layers=False):
+def patch_catalog(resources, layers=False, pedal=False):
     symbols_path = resources / 'Helix.sym'
     definitions_path = resources / 'HelixModelDefs.bin'
     catalog_path = resources / 'HX_ModelCatalog.bin'
@@ -113,7 +121,8 @@ def patch_catalog(resources, layers=False):
     model['params\0'] = parameters + [amp_params['@enabled\0'], amp_params['@bypassvolume\0']]
     del model['cablink\0'], model['ircablink\0']
     blocks = [(NAM_SYMBOL, NAM_ID, 'NAM A2 Lite', NAM_LAYERS_LOAD if layers else 36.0)]
-    blocks += list(NAM_LAYER_MODELS) if layers else []
+    blocks += list(NAM_LAYER_MODELS) if layers or pedal else []
+    blocks += [NAM_PEDAL_MODEL] if pedal else []
     for symbol, sym_id, name, load in blocks:
         if sym_id != NAM_ID and not symbols[sym_id]['symbol'].startswith(('Helix', 'HD2_MikeFiller')):
             raise ValueError(f'Unexpected HX Edit symbol table at model ID {sym_id}.')
@@ -313,7 +322,7 @@ def prepare_copy(working_directory, scan_error=False, *, hx_nam=None):
     exe = destination / 'HX Edit NAM.exe'
     (destination / source_exe.name).rename(exe)
     resources = destination / 'res'
-    patch_catalog(resources, nam_layers())
+    patch_catalog(resources, nam_layers(), nam_pedal())
     if hx_nam:
         patch_hx_catalog(resources, hx_nam)
     if names := read_custom_names(ROOT / 'custom-names.csv'):

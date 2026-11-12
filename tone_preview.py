@@ -14,7 +14,8 @@ import tempfile
 from nam_convert import IR_NAME_LIMIT, convert_batch
 from nam_library import render_library
 import nam_light
-from tone3000 import API_HOSTS, ORIGIN, ToneError, get_tone, prepare_model, select_tone
+from tone3000 import (API_HOSTS, ORIGIN, ToneError, get_tone, prepare_model, remember_link, select_tone, tone_link,
+                      tone_url)
 from tone_browser import ToneBrowser
 
 
@@ -55,6 +56,10 @@ class TonePreview:
         self.browser = None
         self.bounds = None
         self.session = None
+        self.tile = None
+        self.profile = ''
+        self.closing = False
+        self.queued = None
         self.sequence = 0
 
     def receive(self, payload):
@@ -65,10 +70,20 @@ class TonePreview:
                 self.bounds = payload['bounds']
                 if self.browser:
                     self.browser.send('bounds', **self.bounds)
+        elif payload['type'] == 'toneDismiss':
+            # HX Edit picked another model or tile under the pane: close it like Close does
+            if payload['session'] == self.session and self.browser:
+                self.browser.actions.put('cancel')
         else:
             with self.lifecycle_lock:
+                if self.closing and self.thread and self.thread.is_alive():
+                    self.queued = payload       # a tile picked as the last pane closes: opens next
+                    return
                 if not self.thread or not self.thread.is_alive():
+                    self.closing = False
                     self.session = payload['session']
+                    self.tile = payload.get('tile')  # the TONE3000 tile it was opened from: its block and modes
+                    self.profile = payload.get('profile') or ''  # the block's profile name (its tone opens first)
                     self.bounds = payload['bounds']
                     self.thread = Thread(target=self.run, args=(self.session, payload['window']), daemon=True)
                     self.thread.start()
@@ -120,6 +135,7 @@ class TonePreview:
                 browser.close()
                 self.browser = None
             if not self.detached.is_set():
+                self.closing = True
                 try:
                     reply = self.command(session, 'close')
                     if reply.get('notice'):
@@ -132,8 +148,13 @@ class TonePreview:
             # notice can remain open indefinitely; it must not reject new starts.
             # An old notice thread must never clear a newer session's ownership.
             with self.lifecycle_lock:
+                queued = None
                 if self.thread is current_thread():
                     self.thread = None
+                    self.closing = False
+                    queued, self.queued = self.queued, None
+            if queued:
+                self.receive(queued)
             if notice:
                 self.message(*notice)
 
@@ -149,10 +170,18 @@ class TonePreview:
         library = False
         light = None  # the lighter-capture training shown on the library page
         light_job = None
+        tone_modes = {}  # TONE3000 tone ID -> the conversion chosen for it (nam_modes.MODES key)
+        mode_now = None  # the conversion of the profile being auditioned
+        taken = None     # every User IR slot taken: [slot, name] pairs to choose one to replace from
+        retry = None     # the audition that found no free slot, run again with the chosen slot
+
+        reopen = tone_link(self.profile)  # the block's profile came from this tone: its page opens first
 
         def select():
+            nonlocal reopen
+            page, reopen = reopen, None
             try:
-                result = select_tone(client_id, browser, open_browser=browser.navigate)
+                result = select_tone(client_id, browser, open_browser=lambda url: browser.navigate(url, page))
                 browser.actions.put((result, None))
             except (ToneError, ValueError, OSError, KeyError) as error:
                 browser.actions.put((None, str(error)))
@@ -162,13 +191,20 @@ class TonePreview:
             worker = Thread(target=select, daemon=True)
             worker.start()
 
+        def target():
+            """What the pane loads into: the tile's block, and the conversion of the current audition."""
+            import nam_modes
+            block = (self.tile or {}).get('block', 'NAM A2 Lite')
+            title = next((t for k, *_, t, _ in nam_modes.MODES if k == mode_now), None)
+            return f'{block} · {title.rpartition(" · ")[0]}' if title else block
+
         def status(message, busy=False):
             nonlocal text
             if not busy:
                 text = message
             browser.send('status', text=message, busy=busy, trial=trial if slot is not None else None,
                          free_slots=free_slots, model=selected, keep=bool(self.library) and kept is not None and 'id' not in kept,
-                         light=light)
+                         light=light, target=target(), replace=taken or [])
 
         def show_card():
             if library:
@@ -179,17 +215,23 @@ class TonePreview:
                 browser.send('card', html=render_card(library=bool(self.library)), has_tone=False)
             status(text)
 
-        def play(prepare, capture):
-            """Audition a converted profile; return the status text, or None when already reported."""
-            nonlocal slot, free_slots, trial, kept
+        def play(prepare, capture, replace=None, again=None):
+            """Audition a converted profile; return the status text, or None when already reported.
+            No free User IR slot: the card lists the taken ones, and again(slot) auditions into the chosen one."""
+            nonlocal slot, free_slots, trial, kept, taken, retry
+            taken = retry = None
             try:
                 path = prepare()
                 if browser.is_set():
                     return None
                 slot = None
-                reply = self.command(session, 'audition', file=path)
+                reply = self.command(session, 'audition', file=path, **({'replace': replace} if replace else {}))
                 slot = reply.get('slot')
                 free_slots = reply.get('freeSlots', [])
+                if reply.get('replace') and again:
+                    taken, retry = reply['replace'], again
+                    status(reply['error'])
+                    return None
                 if reply.get('error'):
                     raise ToneError(reply['error'])
                 trial += 1
@@ -204,10 +246,29 @@ class TonePreview:
                     return None
             return message
 
-        def audition(candidate, index):
+        def tone_mode(key, name):
+            """How to convert a profile for the TONE3000 tile this card was opened from: the tile's only
+            mode, or asked once per tone / library capture among its modes. None: cancelled."""
+            import nam_modes
+            nonlocal mode_now
+            keys = (self.tile or {}).get('modes') or ['original']
+            if key not in tone_modes:
+                mode = nam_modes.choose_tile_mode(name, keys)
+                if mode is None:
+                    return None
+                tone_modes[key] = mode
+            mode_now = tone_modes[key]
+            return mode_now
+
+        def audition(candidate, index, replace=None):
             nonlocal current, selected
             tone, models, token = candidate
-            status('Downloading and loading the selected profile…', busy=True)
+            mode = tone_mode(f'tone:{tone.get("id")}', tone.get('title') or 'TONE3000 profile')
+            if mode is None:
+                status('Cancelled: choose the conversion to audition this tone.')
+                return
+            status('Downloading and loading the selected profile…' if mode == 'original' else
+                   'Downloading and converting the selected profile…', busy=True)
 
             def capture(path):
                 source = tone.get('url') or f'{ORIGIN}/tones/{int(tone["id"])}'
@@ -215,7 +276,9 @@ class TonePreview:
                 return dict(path=Path(self.workspace, 'captures', Path(path).stem + '.nam'),
                             name=name, gear=tone.get('gear', ''), source=source)
 
-            message = play(lambda: prepare_model(models[index], token, self.workspace, self.converter), capture)
+            remember_link(models[index]['id'], tone_url(tone))   # the profile's name ends with this model ID
+            message = play(lambda: prepare_model(models[index], token, self.workspace, self.converter, mode), capture,
+                           replace, lambda chosen: audition(candidate, index, chosen))
             if message is None:
                 return
             if current is not candidate:
@@ -225,15 +288,28 @@ class TonePreview:
             selected = index
             status(message)
 
-        def audition_local(identity):
+        def audition_local(identity, replace=None):
             nonlocal current
+            entry = self.library.entries().get(identity, {})
+            mode = tone_mode(f'library:{identity}', entry.get('name') or 'Library capture')
+            if mode is None:
+                status('Cancelled: choose the conversion to audition this capture.')
+                return
             status('Loading the capture from the library…', busy=True)
 
             def prepare():
                 folder = tempfile.mkdtemp(prefix='library-', dir=self.workspace)
-                return convert_batch([self.library.export(identity, folder)], self.workspace, self.converter)[0]
+                capture = self.library.export(identity, folder)
+                if mode != 'original':                  # the tile's block: a pedal model or a lighter copy
+                    import nam_modes
+                    out = nam_modes.train([capture], mode, self.workspace, Path(self.converter).with_name('nam_refine.py'))
+                    if not out:
+                        raise ToneError('Conversion cancelled.')
+                    capture = out[0]
+                return convert_batch([capture], self.workspace, self.converter)[0]
 
-            message = play(prepare, lambda _path: dict(id=identity))
+            message = play(prepare, lambda _path: dict(id=identity), replace,
+                           lambda chosen: audition_local(identity, chosen))
             if message is not None:
                 current = None  # the TONE3000 card no longer describes the audition
                 status(message)
@@ -307,7 +383,16 @@ class TonePreview:
                     tone_id, token = selection
                     try:
                         tone, models = get_tone(tone_id, token)
-                        audition((tone, models, token), 0)
+                        converts = any(m != 'original' for m in (self.tile or {}).get('modes') or ['original'])
+                        if converts and len(models) > 1:
+                            # a conversion takes a while: the user picks the profile first (the card's list)
+                            current, selected = (tone, models, token), -1
+                            if not library:
+                                browser.send('card', html=render_card(tone, models, library=bool(self.library)),
+                                             has_tone=True)
+                            status(f'{len(models)} profiles in this tone. Pick one under Profile to convert it.')
+                        else:
+                            audition((tone, models, token), 0)
                     except (ToneError, ValueError, OSError) as error:
                         status(str(error))
                     continue
@@ -315,6 +400,11 @@ class TonePreview:
                 break
             if action == 'finish':
                 break
+            if action.startswith('replace:'):          # the taken User IR slot the user chose to audition in
+                chosen = action.partition(':')[2]
+                if retry and any(chosen == str(taken_slot) for taken_slot, _ in taken or []):
+                    retry(int(chosen))
+                continue
             if action.startswith('save:'):
                 if slot is None:
                     continue
