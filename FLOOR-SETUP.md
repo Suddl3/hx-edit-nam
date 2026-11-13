@@ -1,25 +1,25 @@
 # Floor editor setup and compatibility
 
-Updated November12,2026. This is the installation entry point shared by both maintainers.
+Updated November 12, 2026. This is the installation entry point shared by both maintainers.
 
 ## Which versions?
 
 | Component | Current source-preview baseline |
 | --- | --- |
-| Floor firmware | HX Unbound Floor's normal NAM A2 Lite model contract on Helix Floor3.80.0: HD2_AmpNAMLite, preset ID380 |
-| Stock desktop installation | Windows HX Edit3.82 with Line6 drivers |
+| Floor firmware | HX Unbound Floor's normal NAM A2 Lite model contract on Helix Floor 3.80.0: HD2_AmpNAMLite, preset ID 380 |
+| Stock desktop installation | Windows HX Edit 3.82 with Line 6 drivers |
 | Floor editor source | [f72e7afd9ef073ef1b890fd9ad819bc9d97d0a1e](https://github.com/Suddl3/hx-edit-nam/tree/f72e7afd9ef073ef1b890fd9ad819bc9d97d0a1e); current `floor` branch adds setup docs |
 | Converter source | [andreidevs/helix-lt-nam at c94834768546393420692794fdbb27c9cc31d718](https://github.com/andreidevs/helix-lt-nam/tree/c94834768546393420692794fdbb27c9cc31d718) — tools only; do not flash LT firmware onto a Floor |
-| Python packages | frida17.5.2 and msgpack1.2.4 in a virtual environment |
+| Python packages | frida 17.5.2 and msgpack 1.2.4 in a virtual environment |
 | Browser/helper | Microsoft Edge WebView2 Runtime and Windows .NET Framework compiler |
 
-The default Floor builder uses the free preset ID380. **Do not use this preview with the experimental NAM_555 / --e555 variants, changed parameter layouts, shortened-layer models or NAM Pedal without a separate compatibility change.** The unrelated `--hx-nam` mode is not a way to turn this Floor library into a555-compatible editor.
+The default Floor builder uses the free preset ID 380. **Do not use this preview with the experimental NAM_555 / --e555 variants, changed parameter layouts, shortened-layer models or NAM Pedal without a separate compatibility change.** The unrelated `--hx-nam` mode is not a way to turn this Floor library into a 555-compatible editor.
 
-PAIR layout, names, DSP-cost experiments and the opt-in screen mirror are firmware choices; their presence alone does not change the editor's eight-parameter contract. Keep the normal builder's defaults unless following the corresponding documented experiment. Cost3250 evidence applies to PAIR; the default cost remains3600. Close HX Edit before any direct-USB mirror or research tool.
+PAIR layout, names, DSP-cost experiments and the opt-in screen mirror are firmware choices; their presence alone does not change the editor's eight-parameter contract. Keep the normal builder's defaults unless following the corresponding documented experiment. Cost 3250 evidence applies to PAIR; the default cost remains 3600. Close HX Edit before any direct-USB mirror or research tool.
 
 ## Install from source on Windows
 
-Install official HX Edit3.82 with drivers, Python3.10+ (64-bit), Git, and WebView2 Runtime first. Close other HX Edit instances. Run the following in a new working folder:
+Install official HX Edit 3.82 with drivers, Python 3.10+ (64-bit), Git, and WebView2 Runtime first. Close other HX Edit instances. Run the following in a new working folder:
 
 ```powershell
 git clone --branch floor https://github.com/Suddl3/hx-edit-nam.git
@@ -54,9 +54,9 @@ Stock HX Edit export/backup has previously omitted NAM data. Do not overwrite a 
 
 ## What has actually been verified?
 
-- The development Candidate53 lineage passed owner checks for tabs/resizing and the earlier library, preview and Clear workflows.
-- Published reconciled source `f72e7af` passed the portable offline suite (81 passed,5 proprietary-fixture skips), composition/build checks and tab-order regressions. It was not revalidated as this exact source/firmware pair on every unit.
-- Later local navigation Candidates54–57 introduced separate regressions and are withdrawn. This setup deliberately does not point to them.
+- The development Candidate 53 lineage passed owner checks for tabs/resizing and the earlier library, preview and Clear workflows.
+- Published reconciled source `f72e7af` passed the portable offline suite (81 passed, 5 proprietary-fixture skips), composition/build checks and tab-order regressions. It was not revalidated as this exact source/firmware pair on every unit.
+- Later local navigation Candidates 54–57 introduced separate regressions and are withdrawn. This setup deliberately does not point to them.
 - Newly merged firmware source is not a request to flash it. See the [firmware status and build notes](https://github.com/Suddl3/hx-unbound-floor) for each feature's evidence.
 
 ## Updating
