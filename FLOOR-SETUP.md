@@ -55,10 +55,29 @@ $env:T3K_PUBLISHABLE_KEY = "t3k_pub_your_own_key"
 .\.venv\Scripts\python.exe .\start-hx-edit-nam.pyw --floor-reference --navigation
 ```
 
-To update an existing clone: `git fetch origin` then `git checkout floor-navigation` and `git pull`.
+### Updating an existing clone
+
+Close HX Edit first. In your `hx-edit-nam` folder:
+
+```powershell
+git fetch origin
+git checkout floor-navigation
+git pull
+$env:T3K_PUBLISHABLE_KEY = "t3k_pub_your_own_key"
+.\.venv\Scripts\python.exe .\start-hx-edit-nam.pyw --floor-reference --navigation --nam-category
+```
+
+Nothing else needs reinstalling: the launcher rebuilds its working copy of HX Edit on every start. Leave off `--nam-category` to run without the NAM categories. Your library and remembered slots in `%LOCALAPPDATA%\HX Edit NAM` are kept.
+
+### The NAM categories (`--nam-category`)
+
+![NAM categories in the block selector](docs/screenshots/nam-category.jpg)
+
+With `--nam-category` the block selector gains four categories under a thin line after Looper. Each lists the NAM A2 Lite block and the captures of that type that are on the Floor; picking one sets the block to it, and the block in the signal path takes the icon of its capture's type. A capture's type is the one shown in the NAM tab. What has been seen working and the known flaws are in [FLOOR-WORKFLOW.md](FLOOR-WORKFLOW.md#nam-categories-in-the-block-selector-opt-in---nam-category).
+
+### Notes
 
 - Launch with `--floor-reference --navigation` every time. `--floor-library` belongs to the older `floor` branch.
-- Optional experiment: add `--nam-category` to get four NAM categories in the block selector (NAM Amp, NAM Amp + cab, NAM Pedal, NAM Other), each listing the captures of that type that are on the Floor. Without the flag the block selector is unchanged. See [FLOOR-WORKFLOW.md](FLOOR-WORKFLOW.md#status-november-13).
 - The TONE3000 key is your own Publishable Key. Without it the NAM tab and local library still work; Browse TONE3000 does not.
 - The first launch builds the two helper windows with the Windows .NET Framework compiler and downloads the WebView2 SDK package it needs. The first time you open the NAM tab, every occupied User IR slot is read back once (about half a second each, with HX Edit locked). Later launches skip slots whose name has not changed.
 - **User IR 128 is the preview slot.** A preview replaces whatever is in it. Do not keep an IR of your own there.

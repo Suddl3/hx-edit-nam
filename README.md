@@ -8,6 +8,7 @@ The maintained Floor-focused editor is [Suddl3/hx-edit-nam](https://github.com/S
 
 - [Product vision and feature roadmap](PRODUCT-VISION.md): the shared product goals and current status.
 - [Setup and launch](FLOOR-SETUP.md#the-navigation-branch): how to run this branch from source.
+- [Updating an existing clone](FLOOR-SETUP.md#updating-an-existing-clone), including the new opt-in [NAM categories in the block selector](FLOOR-SETUP.md#the-nam-categories---nam-category).
 - [Workflow contract and test status](FLOOR-WORKFLOW.md): what each action does, what has run on a Floor, and what is still to test.
 - [Firmware/editor compatibility](https://github.com/Suddl3/hx-unbound-floor/blob/main/EDITOR.md): supported model and parameter contract.
 
