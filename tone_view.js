@@ -3,10 +3,34 @@
 // HX Edit 3.82 x86. Use the native model selector, IR librarian and undo manager.
 // tiles: one TONE3000 entry per NAM block a profile can go to ({label, block, modes}, nam_modes.tiles):
 // each is a copy of its block's row, so HX Edit greys it exactly when that block does not fit.
-function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', modes: ['original'] }]) {
+function floorPreviewPlan(state) {
+  if (!state.atTarget || state.deviceSaved) throw new Error('Select the original NAM block before auditioning.');
+  if (state.hasTransfer) {
+    if (!state.playing || !state.ownsPreview || state.previewSlot !== 128 ||
+        !state.origin || state.origin.structural || !Number.isInteger(state.origin.slot) ||
+        state.origin.slot < 1 || state.origin.slot > 127) {
+      throw new Error('The preview target or slot ownership changed. End this preview before trying again.');
+    }
+    return { kind: 'reuse', slot: 128, originalSlot: state.origin.slot };
+  }
+  if (state.modelSlot === 128) {
+    throw new Error('This block is still on the preview slot (User IR 128). Pick a capture for it in the NAM tab first, then preview.');
+  }
+  if (!state.sameModel || !Number.isInteger(state.modelSlot) || state.modelSlot < 1 || state.modelSlot > 127) {
+    throw new Error('Select an existing compatible NAM block using a permanent slot (1–127).');
+  }
+  // User IR 128 is the preview slot and nothing else (owner decision, November 13): a new
+  // preview always replaces whatever an earlier preview or session left in it.
+  return { kind: 'first', slot: 128, replace: !state.empty128 };
+}
+
+function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', modes: ['original'] }], profile = {}, targetBinding = null) {
+  if (profile.navigation && !targetBinding) throw new Error('Navigation requires the verified native target adapter.');
   const method = (rva, type, args) => new NativeFunction(base.add(rva), type, ['pointer', ...args], 'thiscall');
   const win = (name, type, args) => new NativeFunction(user32.getExportByName(name), type, args, 'stdcall');
   const post = win('PostMessageW', 'int', ['pointer', 'uint', 'uint', 'uint']);
+  const allowForeground = win('AllowSetForegroundWindow', 'int', ['uint']);
+  const isChild = win('IsChild', 'int', ['pointer', 'pointer']);
   const wake = win('RegisterWindowMessageW', 'uint', ['pointer'])(Memory.allocUtf16String('HX Edit NAM TONE3000'));
   const rowCount = method(0x379fb0, 'uint', []);
   const selectedRow = method(0x380780, 'pointer', []);
@@ -30,6 +54,327 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   let active = null;
   let nextSession = 0;
   let command = null;
+  let selectedController = NULL;
+  let contextVersion = 0;
+  let targetVersion = 0;
+  let connectionGeneration = -1;
+  let workflowRequest = null;
+  let nextAutomaticRequest = 0;
+  const contextEvent = /^EditBuffer_(?:TargetDeviceChanged|DevicePresetChanged|PresetChanged|PresetContentsWillChange|HelixSnapshotWillChange|HelixSignalFlowWillChange|HelixBlockAdded|HelixBlockRemoved)$/;
+  // How long automatic preview cleanup waits after a snapshot recall, or after a preset, device or
+  // signal-flow change, before it reads the edit buffer. Not measured on hardware: chosen to
+  // outlast the native change, and cleanup still polls for confirmation afterwards.
+  const SNAPSHOT_SETTLE_MS = 400, CONTEXT_SETTLE_MS = 1500;
+
+  // The preview currently on a block, kept by the supervisor on disk: which block, what it
+  // played before, and the preview's slot name. If HX Edit closes (or the session is lost)
+  // while a preview is on the block, the Floor keeps the block on User IR 128. This record is
+  // what lets the next launch put the earlier capture back (recoverLeftover).
+  function leftoverRecord(value) {
+    return value && [0, 1].includes(value.dsp) && typeof value.block === 'string' && /^block\d{1,2}$/.test(value.block) &&
+      Number.isInteger(value.originalSlot) && value.originalSlot >= 1 && value.originalSlot <= 127 &&
+      typeof value.name === 'string' && value.name.length > 0 && value.name.length <= 64 ?
+      {dsp: value.dsp, block: value.block, originalSlot: value.originalSlot, name: value.name} : null;
+  }
+  let leftover = profile.navigation ? leftoverRecord(profile.leftoverPreview) : null;
+  let leftoverCheckAt = 0;
+
+  function rememberPreview() {
+    if (!active?.navigation || !active.transfer || !active.origin || active.origin.structural) return;
+    const record = leftoverRecord({dsp: active.nativeTarget?.dsp, block: active.nativeTarget?.blockName,
+      originalSlot: active.origin.slot, name: namView.previewName(active.transfer)});
+    if (!record) return;
+    leftover = record;
+    send({type: 'tonePreviewState', state: record});
+  }
+
+  function forgetPreview(reason) {
+    if (!leftover) return;
+    leftover = null;
+    send({type: 'tonePreviewState', state: null});
+    if (reason) send({type: 'toneTrace', reason: 'leftover-preview', stage: reason});
+  }
+
+  function recoverLeftover() {
+    // UI thread, from the message hook, a few times a second while a record exists and no
+    // live session owns a preview. Restores only the recorded block, only while it is on screen
+    // and reads 128, and only while 128 still holds that very preview (by name).
+    const now = Date.now();
+    if (now < leftoverCheckAt) return;
+    leftoverCheckAt = now + 250;
+    if (active?.transfer || active?.pendingTransfer || active?.orphanTransfer || command || workflowRequest || toneImport) return;
+    if (namView.libraryReady && !namView.libraryReady()) return;
+    try {
+      if (leftover.clearUntil) {
+        // The block is back on its capture. Release the slot once the preset stops using it.
+        const outcome = namView.releaseLeftoverPreview(leftover.name);
+        if (outcome === 'cleared' || outcome === 'gone') return forgetPreview('recovered');
+        if (now >= leftover.clearUntil) return forgetPreview('restored-slot-kept'); // the next preview reuses 128
+        return;
+      }
+      // The earlier capture's slot is the sign that the IR list is loaded. Until it shows,
+      // nothing is decided: an empty list must not read as "that preview is gone".
+      if (!namView.slotName(leftover.originalSlot)) return;
+      if (namView.slotName(AUDITION_SLOT) !== leftover.name) return forgetPreview('preview-gone');
+      if (!controllerReady(selectedController)) return;
+      if (selectedController.add(0x80).readS32() !== leftover.dsp || block(selectedController) !== leftover.block ||
+          namView.modelSlot() !== AUDITION_SLOT) return;      // not this block, or not on screen yet
+      const session = active;
+      if (session) session.applying = true;
+      let accepted;
+      try { accepted = namView.setSlot(leftover.originalSlot); }
+      finally { if (session) session.applying = false; }
+      if (!accepted) return;
+      send({type: 'toneTrace', reason: 'leftover-preview', stage: 'restoring', dsp: leftover.dsp, block: leftover.block,
+        originalSlot: leftover.originalSlot});
+      leftover.clearUntil = now + 8000;
+    } catch (error) {
+      send({type: 'toneTrace', reason: 'leftover-preview', stage: 'skipped', error: String(error.message)});
+    }
+  }
+
+  function releaseTarget() {
+    if (active?.nativeTarget) targetBinding.release(active.nativeTarget);
+    if (active) active.nativeTarget = null;
+  }
+
+  function boundTargetLabel(binding, slot) {
+    // DSP and block key come from the typed edit-buffer identity. Do not infer a
+    // Path A/B position from a model list index or the current widget geometry.
+    return `DSP ${binding.dsp + 1} · ${binding.blockName} · ${namView.profileLabel?.(slot) || namView.slotName(slot) || 'NAM'} · User IR ${slot}`;
+  }
+
+  function captureTarget() {
+    const binding = targetBinding.capture(active.controller, namView.nativeModel(),
+      {context:contextVersion, slot:namView.modelSlot()});
+    releaseTarget();
+    active.nativeTarget = binding;
+    active.targetLabel = boundTargetLabel(binding, binding.originalSlot);
+  }
+
+  function connectionChanged(change) {
+    if (!profile.navigation || !Number.isInteger(change?.generation) || change.generation <= connectionGeneration) return;
+    connectionGeneration = change.generation;
+    // This callback runs on Frida's message thread. Invalidate JS state only;
+    // do not invoke native UI methods or read a widget while it is disconnecting.
+    contextVersion++;
+    selectedController = NULL;
+    if (!active || !active.navigation) return;
+    active.valid = active.bound = false;
+    active.targetVersion = ++targetVersion;
+    releaseTarget();
+    active.invalidatedBy = 'connection-changed';
+    active.quarantined = !!active.transfer || !!active.pendingTransfer || !!active.orphanTransfer;
+    send({type:'toneTarget', session:active.id, version:active.targetVersion, bound:false,
+      label:'', selected:'', canBind:false, preview:active.quarantined, quarantined:active.quarantined,
+      text:active.quarantined ? 'The device connection changed. The upload was retained; verify it before another audition.' :
+        change.present && change.ready ? 'Connection refreshed. Select a NAM block to audition.' :
+        'Device unavailable. Browsing is still available.'});
+  }
+
+  function listenConnection() {
+    recv('toneDeviceChange', message => {
+      connectionChanged(message.payload);
+      listenConnection();
+    });
+  }
+  if (profile.navigation) listenConnection();
+
+  function listenBrowserProcess() {
+    recv('toneBrowserProcess', message => {
+      const value = message.payload;
+      if (active?.navigation && value?.session === active.id && Number.isInteger(value.pid) &&
+          value.pid > 0 && value.pid <= 0xffffffff) active.browserPid = value.pid;
+      listenBrowserProcess();
+    });
+  }
+  function listenLibraryVisibility() {
+    recv('toneLibraryVisibility', message => {
+      const value = message.payload;
+      if (active?.navigation && value?.session === active.id && typeof value.visible === 'boolean') {
+        namView.setLibraryBrowsing?.(value.visible);
+      }
+      listenLibraryVisibility();
+    });
+  }
+  function abandonSession() {
+    // The supervisor has no worker or helper for this session any more (it timed out waiting for
+    // a reply, or the helper ended without a confirmed close). Drop the session so Browse TONE3000
+    // can start a new one. Nothing is edited: an unconfirmed preview stays on the device, where the
+    // next session reports User IR 128 as occupied. UI thread only.
+    const reopen = active.reopen;
+    send({type:'toneTrace', reason:'session-abandoned', session:active.id, preview:!!active.transfer,
+      pending:!!command || !!workflowRequest});
+    command = null;
+    if (workflowRequest) { workflowRequest = null; namView.setWorkflowBusy?.(false); }
+    namView.abandonPreview();
+    releaseTarget();
+    namView.setBrowserSessionActive?.(false);
+    active = null;
+    // The Browse click that revealed the dead session should still open a browser.
+    if (reopen && Date.now() - reopen.at < 3000) openBrowser(reopen.window, reopen.options);
+  }
+
+  function listenAbandon() {
+    recv('toneAbandon', message => {
+      // Frida's message thread: record the request only. The UI thread performs it on the wake
+      // message, or on the next Browse click if that message is never dispatched.
+      if (active?.navigation && active.id === message.payload?.session) {
+        active.abandoned = true;
+        post(active.window, wake, 0, 0);
+      }
+      listenAbandon();
+    });
+  }
+  if (profile.navigation) { listenBrowserProcess(); listenLibraryVisibility(); listenAbandon(); }
+
+  function controllerReady(controller) {
+    if (!controller || controller.isNull()) return false;
+    const editor = controller.add(0x34).readPointer();
+    return !editor.isNull() && editor.readPointer().add(0xdc).readPointer().equals(base.add(0x51aaf0));
+  }
+
+  function selectedTarget() {
+    try {
+      if (!controllerReady(selectedController)) return null;
+      const slot = namView.modelSlot();
+      if (!Number.isInteger(slot) || slot < 1 || slot > 128) return null;
+      const dsp = selectedController.add(0x80).readS32(), blockName = block(selectedController);
+      if (![0, 1].includes(dsp) || !/^block\d{1,2}$/.test(blockName)) return null;
+      // Navigation is enabled only for the original Floor catalog. Model/ir_select
+      // is the native NAM parameter, rather than a guessed capture-name match.
+      return { controller: selectedController, editor: selectedController.add(0x34).readPointer(),
+        position: position(selectedController), block: blockName,
+        label: boundTargetLabel({dsp, blockName}, slot),
+        slot, tile: tiles[0], context: contextVersion };
+    } catch (_) { return null; }
+  }
+
+  function publishTarget(text, force = false) {
+    if (!active || !active.navigation) return;
+    const selected = selectedTarget();
+    const bound = active.bound && !active.quarantined && atTarget();
+    const payload = { type: 'toneTarget', session: active.id, version: active.targetVersion,
+      bound: !!bound, label: bound ? active.targetLabel : '',
+      selected: selected ? selected.label : '', canBind: !!selected && !active.transfer && !active.pendingTransfer && !active.quarantined,
+      preview: !!active.transfer || !!active.orphanTransfer || !!active.pendingTransfer, quarantined: !!active.quarantined,
+      text: text || (bound ? active.transfer ? 'Auditioning in User IR 128. Input and EQ stay with this block.' :
+        active.onPreviewSlot ? 'This block is still on the preview slot (User IR 128). Pick a capture for it in the NAM tab, then preview.' :
+        'Ready to audition on this NAM block.' :
+        active.cleanupRequested ? 'Restoring the previous block and clearing its preview…' :
+        active.quarantined ? 'Preview cleanup needs attention. No new block will be changed.' :
+        'Select a NAM block to audition.') };
+    // Native control notifications often repeat without changing the target.
+    // Compare the entire visible state; a new session has no cached snapshot.
+    const snapshot = JSON.stringify(payload);
+    if (!force && snapshot === active.publishedTarget) return;
+    send(payload);
+    active.publishedTarget = snapshot;
+  }
+
+  function observeController(controller) {
+    try {
+      if (!controllerReady(controller)) return;
+      // Our synchronous restore/apply notifications are not a new user
+      // selection. In particular, restoring the old target must not replace
+      // the latest selected controller before automatic rebinding.
+      if (active?.navigation && (active.applying || active.inserting)) return;
+      selectedController = controller;
+      if (!active || !active.navigation) return;
+      if (active.bound && !active.inserting && !active.restoring && !active.applying && !atTarget()) {
+        invalidate('selection-changed');
+      }
+      autoBindSelected();
+      publishTarget();
+    } catch (_) { /* a destroyed or incomplete native view is not a target */ }
+  }
+
+  function openBrowser(window, options = {}) {
+    if (!profile.navigation || !window || window.isNull()) return false;
+    if (active?.abandoned) { active.reopen = null; abandonSession(); }
+    if (active) {
+      if (options.headless) {
+        if (active.headless || active.cleanupRequested || active.quarantined) return false;
+        send({type:'toneAction',session:active.id,action:options.libraryAction});
+        return true;
+      }
+      if (active.headless) return false; // finish the sidebar operation before opening a helper
+      // If the supervisor answers that this session is gone, this click opens a new one instead.
+      active.reopen = {window, options, at: Date.now()};
+      if (options.dockPanel && !options.dockPanel.isNull()) active.panel = options.dockPanel;
+      refreshBounds();
+      autoBindSelected();
+      publishTarget(undefined, true); // Explicit reopen gets a fresh target snapshot.
+      if (active.browserPid) allowForeground(active.browserPid);
+      send({ type: 'toneFocus', session: active.id, page: options.library ? 'library' : 'catalog' });
+      return true;
+    }
+    const panel = options.dockPanel || NULL;
+    let bounds;
+    try { bounds = panel.isNull() ? null : panelBounds(panel); } catch (_) { bounds = null; }
+    if (!options.headless && (!bounds?.visible || bounds.w < 60 || bounds.h < 60)) {
+      send({type:'toneTrace',reason:'navigation-panel-unavailable'});
+      return false;
+    }
+    active = { id: ++nextSession, navigation: true, bound: false, controller: NULL, editor: NULL,
+      window, valid: false, panel, layout: JSON.stringify(bounds), tile: tiles[0],
+      targetVersion: ++targetVersion, context: contextVersion, headless:!!options.headless };
+    namView.setBrowserSessionActive?.(true);
+    send({ type: 'toneStart', session: active.id, window: window.toUInt32(), bounds,
+      tile: tiles[0], profile: '', navigation: true, library: !!options.library,
+      headless:!!options.headless, libraryAction:options.libraryAction });
+    autoBindSelected();
+    publishTarget();
+    return true;
+  }
+
+  function bindSelectedTarget() {
+    if (active.transfer || active.pendingTransfer || active.orphanTransfer || active.quarantined) {
+      throw new Error('End the previous preview before choosing another block.');
+    }
+    const selected = selectedTarget();
+    if (!selected) throw new Error('Select a compatible NAM block to audition.');
+    Object.assign(active, selected, { valid: true, bound: true, tile: selected.tile,
+      model: selected.tile.block, targetLabel: selected.label, targetVersion: ++targetVersion,
+      deviceSaved: false, invalidatedBy: null, quarantined: false, onPreviewSlot: selected.slot === AUDITION_SLOT });
+    // A block still on User IR 128 with no record of its earlier capture: it can take Load on
+    // Floor or Use on Floor (which give it a permanent slot), but there is nothing to restore a
+    // preview to, so it gets no typed restore binding and floorPreviewPlan refuses a preview.
+    if (active.onPreviewSlot) { releaseTarget(); }
+    else {
+      try { captureTarget(); }
+      catch (error) { active.bound = active.valid = false; throw error; }
+    }
+    active.selectionUndo = undoIndex();
+    publishTarget();
+  }
+
+  function autoBindSelected() {
+    if (!active?.navigation || command || workflowRequest || active.transfer || active.pendingTransfer ||
+        active.orphanTransfer || toneImport || active.cleanupRequested || active.quarantined ||
+        active.restoring || active.applying || active.inserting) return false;
+    try {
+      if (active.bound && atTarget()) return true;
+      const selected = selectedTarget();
+      if (!selected) return false;
+      // A block that an earlier session left on the preview slot. With a record of its earlier
+      // capture it is put back first (recoverLeftover); wait for that rather than binding 128.
+      if (selected.slot === AUDITION_SLOT && leftover) return false;
+      bindSelectedTarget();
+      return true;
+    }
+    catch (_) {
+      // A partial/rebuilding native selection is not a target. The next native
+      // selection event can try again; no edit or upload has been requested.
+      publishTarget();
+      return false;
+    }
+  }
+
+  function bindSelected(request) {
+    bindSelectedTarget();
+    reply(request, { target: true, version: active.targetVersion });
+  }
 
   function parameterPanel(list) {
     // editView.xml puts PRVW beside the model selector in the same edit view.
@@ -51,6 +396,17 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       h: geometry.add(0x10).readS32() - geometry.add(8).readS32() };
   }
 
+  function refreshBounds(force = false) {
+    if (!active || active.headless) return;
+    let bounds;
+    try { bounds = active.panel.isNull() ? {visible:false} : panelBounds(active.panel); }
+    catch (_) { bounds = {visible:false}; }
+    const layout = JSON.stringify(bounds);
+    if (!force && layout === active.layout) return;
+    active.layout = layout;
+    send({type:'toneBounds', session:active.id, bounds});
+  }
+
   function stringValue(value) {
     const data = value.add(4).readPointer();
     return data.isNull() ? '' : data.add(0x10).readPointer().readUtf8String();
@@ -66,11 +422,24 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   }
 
   function atPosition() {
-    return active && active.valid && position(active.controller) === active.position;
+    return active && active.valid && controllerReady(active.controller) &&
+      (!active.navigation || active.context === contextVersion && active.controller.equals(selectedController)) &&
+      position(active.controller) === active.position;
   }
 
   function atTarget() {
     return atPosition() && block(active.controller) === active.block;
+  }
+
+  function targetOnScreen() {
+    // The bound block's own parameter view is the one on screen, so namView's Model control is
+    // this block's. Unlike atTarget() this does not need the binding to be valid for new work:
+    // a snapshot recall invalidates it while the same view stays up.
+    try {
+      return !!active && controllerReady(active.controller) && active.controller.equals(selectedController) &&
+        active.context === contextVersion && position(active.controller) === active.position &&
+        block(active.controller) === active.block;
+    } catch (_) { return false; }
   }
 
   function undoIndex() {
@@ -99,11 +468,11 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     modelEvent(controller, selectionEvent, list, NULL, NULL);
   }
 
-  function dismiss() {
+  function dismiss(reason = 'selection-changed') {
     // close the TONE3000 pane (TonePreview cancels; its close undoes the audition)
     if (!active || active.dismissed) return;
     active.dismissed = true;
-    send({ type: 'toneDismiss', session: active.id });
+    send({ type: 'toneDismiss', session: active.id, reason });
   }
 
   function targetChanged(where, text) {
@@ -123,10 +492,32 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   function invalidate(by) {
     active.invalidatedBy = active.invalidatedBy || by;
     active.valid = false;
+    if (active.navigation) {
+      send({type:'toneTrace',reason:'navigation-target-invalidated',by,
+        preview:!!active.transfer,binding:!!active.nativeTarget?.valid,sameContext:active.context === contextVersion});
+      active.bound = false;
+      active.targetVersion = ++targetVersion;
+      active.quarantined = !!active.transfer || !!toneImport;
+      if (active.transfer) {
+        // With its block still addressable the preview is restored on that block. After a preset
+        // or device change it is not: cleanup then only releases an owned, unreferenced User IR 128
+        // (releaseDetachedPreview), so leaving a preset does not leave the slot behind.
+        active.cleanupRequested = true;
+        post(active.window, wake, 0, 0); // restore after this native event has unwound
+      }
+      publishTarget();
+      return;
+    }
     dismiss();
   }
 
+  function settleCleanup(delay) {
+    // Automatic cleanup waits until the native change that requested it has been applied.
+    active.settleUntil = Math.max(active.settleUntil || 0, Date.now() + delay);
+  }
+
   function ensureEntry(controller) {
+    if (profile.navigation) return;
     const list = controller.add(0x58).readPointer();
     if (list.isNull()) return;
     const present = new Set();
@@ -153,6 +544,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
 
   Interceptor.attach(base.add(0x380940), {
     onEnter(args) {
+      if (profile.navigation) return;
       if (!this.context.ecx.readPointer().equals(base.add(0x91fcd0)) || args[1].isNull() || args[5].isNull()) return;
       const tile = tileByBlock.get(args[1].readUtf8String());
       if (tile === undefined) return;
@@ -168,6 +560,12 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   });
 
   function onModelEvent(controller, event, sender, data, flags) {
+    if (profile.navigation) {
+      modelEvent(controller, event, sender, data, flags);
+      observeController(controller);
+      if (event === selectionEvent) refreshBounds(true);
+      return;
+    }
     if (event !== selectionEvent || sender.isNull() || !sender.equals(controller.add(0x58).readPointer())) {
       modelEvent(controller, event, sender, data, flags);
       if (event === selectionEvent || event === 0x21617663) ensureEntry(controller);
@@ -201,6 +599,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     active = { id: ++nextSession, controller, editor, position: position(controller),
       block: block(controller), window, valid: true, panel, layout: JSON.stringify(bounds),
       tile, model: lastModel.has(controller.toString()) ? lastModel.get(controller.toString()) : null };
+    namView.setBrowserSessionActive?.(true);
     active.selectionUndo = undoIndex();
     send({ type: 'toneTrace', reason: 'tile', tile: tile.block, model: active.model, block: active.block });
     // the block's profile name: a TONE3000 one ends with its model ID, which TonePreview opens the tone of
@@ -221,8 +620,15 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
 
   Interceptor.attach(base.add(0x216e00), {
     onEnter() {
+      if (selectedController.equals(this.context.ecx)) selectedController = NULL;
       if (active && active.controller.equals(this.context.ecx)) {
-        active.panel = NULL;
+        if (!active.navigation) active.panel = NULL;
+        if (active.navigation) send({type:'toneTrace',reason:'navigation-controller-destroyed',
+          preview:!!active.transfer,binding:!!active.nativeTarget?.valid});
+        // A parameter view is disposable; its edit-buffer block is not. Keep
+        // the typed DSP/block binding alive so cleanup can restore that block
+        // even when selection destroys/replaces its old view controller.
+        // Preset, snapshot and device events separately invalidate the context.
         invalidate('view-closed');
       }
     },
@@ -230,24 +636,52 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
 
   Interceptor.attach(base.add(0x218a00), {
     onEnter(args) {
-      this.ours = active && active.controller.equals(this.context.ecx);
-      if (!this.ours) return;
+      this.controller = this.context.ecx;
       const event = this.event = stringValue(args[0]);
-      if (event === 'EditBuffer_PresetSavedToDevice') active.deviceSaved = true;
-      if (/^EditBuffer_(?:TargetDeviceChanged|DevicePresetChanged|PresetChanged|HelixSnapshotWillChange)$/.test(event)) {
+      this.ours = active && active.controller.equals(this.context.ecx);
+      // A save with no preview playing stores nothing of ours: it must not block the next preview.
+      if (this.ours && event === 'EditBuffer_PresetSavedToDevice') active.deviceSaved = !!active.transfer;
+      if (!contextEvent.test(event)) return;
+      if (!profile.navigation) {
+        if (this.ours) invalidate(event);
+        return;
+      }
+      if (event === 'EditBuffer_HelixSnapshotWillChange' && active?.navigation && active.transfer &&
+          active.nativeTarget?.valid && active.context === contextVersion && !active.deviceSaved) {
+        // A snapshot recall keeps the preset's blocks, so the typed DSP/block binding still
+        // addresses the previewed block. End the preview on it once the recall has settled
+        // (restore writes only while that block still reads 128) instead of stranding it.
+        settleCleanup(SNAPSHOT_SETTLE_MS);
+        invalidate('snapshot-changed');
+        return;
+      }
+      contextVersion++;
+      releaseTarget();
+      // Every open parameter view receives these. Invalidate once per change, whichever arrives.
+      if (active?.navigation && (active.bound || active.valid || (active.transfer && !active.cleanupRequested))) {
+        if (active.transfer) settleCleanup(CONTEXT_SETTLE_MS);
         invalidate(event);
       }
     },
     onLeave() {
+      if (profile.navigation) observeController(this.controller);
+      if (profile.navigation && this.event === 'EditBuffer_HelixCursorChange') refreshBounds(true);
       // (Not while inserting or restoring a block: the cell's position changes when it fills or empties.)
-      if (this.ours && active && !active.applying && !active.inserting && !active.restoring && !atTarget()) {
+      if (this.ours && active && (active.valid || active.bound) && !active.applying && !active.inserting && !active.restoring && !atTarget()) {
         invalidate(`moved after ${this.event}`);
       }
     },
   });
 
   function reply(request, result) {
-    send({ type: 'toneReply', id: request.id, ...result });
+    if (workflowRequest && workflowRequest.id === request.id && workflowRequest.session === request.session) {
+      workflowRequest = null;
+      namView.setWorkflowBusy?.(false);
+    }
+    if (active?.navigation && !result.error && ['audition', 'save', 'load', 'use'].includes(request.action)) publishTarget();
+    if (request.action === 'autoEnd') send({type:'toneTrace', reason:'automatic-preview-cleanup', ended:!!result.ended, retained:!!result.retained, error:result.error || null});
+    else send({ type: 'toneReply', id: request.id, session: request.session, ...result });
+    if ((active?.cleanupRequested || active?.queuedClose) && !workflowRequest) post(active.window, wake, 0, 0);
   }
 
   function finishTransfer(transfer) {
@@ -256,11 +690,11 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     if (namImportController.equals(transfer.controller)) namImportController = NULL;
   }
 
-  function poll(request, next, timeout = 12000) {
+  function poll(request, next, timeout = 12000, finishImport = false) {
     const deadline = Date.now() + timeout;
     function check() {
       if (!active || request.session !== active.id) return;
-      command = { request, next, deadline, check };
+      command = { request, next, deadline, check, finishImport };
       if (!post(active.window, wake, 0, 0)) {
         command = null;
         reply(request, { error: 'HX Edit closed during the TONE3000 operation.' });
@@ -270,20 +704,38 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   }
 
   function awaitImport(request, transfer, imported) {
+    if (active.navigation) active.pendingTransfer = transfer;
     poll(request, expired => {
+      const stale = active.navigation && request.targetVersion !== active.targetVersion;
       if (transfer.error) {
         finishTransfer(transfer);
+        if (active.navigation) active.pendingTransfer = null;
         throw new Error(transfer.error);
       }
       if (!namView.previewName(transfer)) {
-        if (!expired && (request.action === 'save' || atTarget())) return null;
+        if (!expired && (active.navigation || request.action === 'save' || atTarget())) return null;
         finishTransfer(transfer);
+        if (active.navigation) { active.orphanTransfer = transfer; active.pendingTransfer = null; }
         throw new Error(`HX Edit did not confirm the import. Check User IR ${transfer.slot} before retrying.`);
       }
       finishTransfer(transfer);
+      if (active.navigation) active.pendingTransfer = null;
+      if (stale) {
+        if (request.action === 'audition' && transfer.slot === 128 && active.nativeTarget?.valid && active.context === contextVersion) {
+          // Selection changed before applying a completed upload. The old block
+          // still has its original capture; clean our owned128 automatically.
+          active.transfer = transfer;
+          active.origin = active.origin || {slot:active.nativeTarget.originalSlot,structural:false};
+          active.cleanupRequested = true;
+        } else {
+          active.orphanTransfer = transfer;
+          if (active.transfer && active.nativeTarget?.valid && active.context === contextVersion) active.cleanupRequested = true;
+        }
+        throw new Error(`The target changed during upload. User IR ${transfer.slot} was retained; no block was changed.`);
+      }
       imported();
       return {};
-    });
+    }, 12000, true);
   }
 
   function applyProfile(request, transfer) {
@@ -339,6 +791,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       if (previous && previous !== transfer) namView.clearPreview(previous);
       active.model = active.tile.block;      // the block is the tile's model now
       active.undoAfter = undoIndex();
+      rememberPreview();
       return { slot: transfer.slot, freeSlots: namView.freeSlots(transfer.slot) };
     }, 3500);
   }
@@ -365,12 +818,14 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
           originPosition: position(active.controller) === origin.position,
           sameBlock: block(active.controller) === active.block, originBlock: block(active.controller) === origin.block,
           preview: !!namView.previewName(transfer) });
-        if (namView.modelSlot() !== transfer.slot) namView.clearPreview(transfer);
+        if (!active.navigation && namView.modelSlot() !== transfer.slot) namView.clearPreview(transfer);
       } catch (error) {
         state.readError = String(error.message);
       }
       send(state);
-      return afterRestore(request, {});
+      return afterRestore(request, active.navigation ? {
+        notice: 'Preview remains in User IR 128. Return to the original NAM block and choose End preview.',
+        retained: true } : {});
     };
     const clearAudition = () => {
       if (!namView.clearPreview(transfer)) return keep('clear-refused');
@@ -380,7 +835,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
           active.transfer = null;
           return afterRestore(request, {});
         }
-        return expired ? afterRestore(request, {}) : null;
+        return expired ? afterRestore(request, { retained: true,
+          notice: 'Preview cleanup was not confirmed. Check User IR128 before another audition.' }) : null;
       }, 3500);
       return {};
     };
@@ -416,7 +872,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   const dispatch = new NativeFunction(commandAddress, 'uint8', ['pointer', 'pointer'], 'thiscall');
   Interceptor.replace(commandAddress, new NativeCallback(function (app, event) {
     if (active && active.transfer && !event.isNull() && event.readU32() === 0x1b) {
-      messageBox(active.window, Memory.allocUtf16String(
+      messageBox(active.window, Memory.allocUtf16String(active.navigation ?
+        'A preview is playing from User IR 128. Choose Load on Floor to keep this capture, or End preview, before saving the preset.' :
         'Use Save to Helix in TONE3000 before saving a preset with an audition profile.'), title, 0x40);
       return 0;
     }
@@ -427,11 +884,190 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     // Close finished (or could not bring the block back, see keep): end the session.
     active.restoring = false;
     namView.stopPreview();
+    if (active.navigation && request.action !== 'close') {
+      active.cleanupRequested = false;
+      active.bound = false;
+      active.valid = false;
+      active.targetVersion = ++targetVersion;
+      active.quarantined = !!result.retained;
+      if (!result.retained) {
+        active.transfer = null;
+        active.origin = null;
+        active.undoAfter = undefined;
+        releaseTarget();
+      }
+      publishTarget(result.notice);
+      reply(request, { ...result, ended: !result.retained });
+      return {};
+    }
     const pending = active.pending;
+    if (active.navigation) releaseTarget();
+    namView.setBrowserSessionActive?.(false);
     active = null;
     reply(request, result);
     if (pending) resume(pending);
     return {};
+  }
+
+  function cleanupTrace(request, stage, observedSlot = null, reason = null) {
+    send({type:'toneTrace', reason:'preview-cleanup', stage, session:active.id,
+      action:request.action, source:request.reason || (request.action === 'autoEnd' ? active.invalidatedBy : request.action),
+      originalSlot:active.origin?.slot ?? null, previewSlot:active.transfer?.slot ?? null,
+      observedSlot, selectedSlot:atTarget() ? namView.modelSlot() : null,
+      dsp:active.nativeTarget?.dsp ?? null, block:active.nativeTarget?.blockName ?? null,
+      sameContext:active.context === contextVersion, rejection:reason});
+  }
+
+  function restoreOwnedPreview(request, completed) {
+    const {transfer, origin, nativeTarget} = active;
+    const retained = (reason, message, observed = null) => {
+      cleanupTrace(request, 'retained', observed, reason);
+      return afterRestore(request, {retained:true, notice:message,
+        ...(!['end','close','autoEnd'].includes(request.action) ? {error:message} : {})});
+    };
+    if (!transfer || !origin) return completed();
+    cleanupTrace(request, 'requested');
+    if (active.deviceSaved) {
+      return retained('preset-saved', 'The preset was saved while this preview was playing, so the saved preset uses User IR 128. Nothing was restored or cleared.');
+    }
+    if (!nativeTarget?.valid || active.context !== contextVersion) return releaseDetachedPreview(request, completed, retained);
+    if (!namView.previewName(transfer)) return retained('ownership-changed', 'Preview slot ownership changed. Nothing was overwritten or cleared.');
+    try {
+      const current = targetBinding.read(nativeTarget, {context:contextVersion});
+      cleanupTrace(request, 'observed', current.slot);
+      if (current.slot === transfer.slot) {
+        let accepted;
+        active.applying = true;
+        try {
+          // While the previewed block's own parameter view is on screen, restore through its
+          // Model control, the way the preview was applied. A typed edit-buffer write does not
+          // refresh that control: in the Candidate58 owner trial the block read its original
+          // slot again while the control stayed on 128, and cleanup gave up. Any other block is
+          // addressed by its typed binding and never through the control on screen.
+          accepted = (targetOnScreen() && namView.modelSlot() === transfer.slot && namView.setSlot(origin.slot)) ||
+            targetBinding.restore(nativeTarget, origin.slot, {context:contextVersion, expectedSlot:128});
+        } finally { active.applying = false; }
+        if (!accepted) {
+          return retained('restore-rejected', 'The previous block rejected restoration. Preview remains in User IR 128.');
+        }
+        cleanupTrace(request, 'restore-accepted', current.slot);
+      } else if (current.slot !== origin.slot) {
+        return retained('block-edited', 'The original block was edited independently. Preview remains in User IR 128 for review.', current.slot);
+      }
+    } catch (error) { return retained('native-read-or-write-failed', String(error.message)); }
+    active.restoring = true;
+    let clearing = false, refreshed = false;
+    poll(request, expired => {
+      try {
+        if (!nativeTarget.valid || active.context !== contextVersion || active.deviceSaved) {
+          return retained('context-changed', 'The target context changed during cleanup. Preview was retained.');
+        }
+        const current = targetBinding.read(nativeTarget, {context:contextVersion});
+        if (current.slot === origin.slot && !clearing && !refreshed && targetOnScreen() &&
+            namView.modelSlot() === transfer.slot) {
+          // The block is restored but its control on screen still shows the preview (it came
+          // back on screen after a typed restore). Bring the control to the same original slot.
+          refreshed = true;
+          active.applying = true;
+          try { namView.setSlot(origin.slot); }
+          finally { active.applying = false; }
+          return null;
+        }
+        if (current.slot !== origin.slot || (targetOnScreen() && namView.modelSlot() !== origin.slot)) {
+          if (!clearing && (current.slot === transfer.slot || current.slot === origin.slot) && !expired) return null;
+          return retained('restore-not-confirmed', 'The previous block did not confirm its original capture. Preview was retained.', current.slot);
+        }
+        if (!clearing) {
+          cleanupTrace(request, 'native-model-confirmed', current.slot);
+          if (!namView.previewName(transfer) || !namView.canClearPreview(transfer) || !namView.clearPreview(transfer)) {
+            return retained('clear-refused', 'User IR 128 is still referenced or could not be checked. The original block is restored; the slot was retained.', current.slot);
+          }
+          clearing = true;
+        }
+        if (!namView.previewSlotEmpty(transfer)) {
+          return expired ? retained('clear-not-confirmed', 'The original block is restored; clearing User IR 128 was not confirmed.', current.slot) : null;
+        }
+        cleanupTrace(request, 'completed', current.slot);
+        namView.stopPreview();
+        active.transfer = null;
+        active.restoring = false;
+        forgetPreview();
+        return completed();
+      } catch (error) { return retained('native-read-or-clear-failed', String(error.message)); }
+    }, 3500);
+  }
+
+  function releaseDetachedPreview(request, completed, retained) {
+    // The preset, device or signal flow changed under the preview, so the typed binding can no
+    // longer address its block. Two things remain safe:
+    //  - clear User IR 128 once it is still ours by name and the current preset does not use it
+    //    (the usual case after switching to another preset: the unsaved preview edit went with
+    //    the old one);
+    //  - on an explicit End or Close with a NAM block selected that plays 128, set that block
+    //    back to the original capture first. Only blocks that read 128 can be playing our preview.
+    const {transfer, origin} = active;
+    const explicit = request.action === 'end' || request.action === 'close';
+    const use = () => namView.previewUse ? namView.previewUse(transfer) :
+      namView.canClearPreview(transfer) ? 'unused' : 'unknown';
+    const adoptable = () => {
+      const selected = selectedTarget();
+      return explicit && !!selected && selected.slot === transfer.slot && !origin.structural &&
+        Number.isInteger(origin.slot) && origin.slot >= 1 && origin.slot <= 127;
+    };
+    let adopting = false, clearing = false;
+    active.restoring = true;
+    poll(request, expired => {
+      let finished = false;
+      try {
+        if (!namView.previewName(transfer)) {
+          if (!namView.previewSlotEmpty(transfer)) {
+            return retained('ownership-changed', 'Preview slot ownership changed. Nothing was overwritten or cleared.');
+          }
+          finished = true; // already cleared elsewhere
+        } else if (!clearing) {
+          const state = use();
+          if (state !== 'unused') {
+            if (state === 'used' && !adopting && adoptable()) {
+              cleanupTrace(request, 'restore-selected', transfer.slot);
+              active.applying = true;
+              try { adopting = namView.setSlot(origin.slot); }
+              finally { active.applying = false; }
+              if (!adopting) return retained('restore-rejected', 'The selected block rejected restoration. Preview remains in User IR 128.');
+              return null;
+            }
+            if (!expired) return null;
+            return retained(state === 'used' ? 'still-referenced' : 'clear-refused', state === 'used' ?
+              'The preset changed while this preview was playing and still uses User IR 128. Select the NAM block that plays it, then choose End preview.' :
+              'The preset changed while this preview was playing. User IR 128 could not be checked, so it was kept.');
+          }
+          if (!namView.clearPreview(transfer)) {
+            return retained('clear-refused', 'User IR 128 could not be cleared after the preset changed. It was kept.');
+          }
+          clearing = true;
+          return null;
+        } else if (!namView.previewSlotEmpty(transfer)) {
+          return expired ? retained('clear-not-confirmed', 'Clearing User IR 128 was not confirmed after the preset changed.') : null;
+        } else finished = true;
+      } catch (error) { return retained('native-read-or-clear-failed', String(error.message)); }
+      if (!finished) return null;
+      cleanupTrace(request, 'completed-detached');
+      namView.stopPreview();
+      active.transfer = null;
+      active.restoring = false;
+      forgetPreview();
+      return completed();
+    }, explicit ? 6000 : 4000);
+  }
+
+  function restoreBoundPreview(request) {
+    return restoreOwnedPreview(request, () => {
+        const permanent = active.orphanTransfer?.slot;
+        if (permanent && permanent !== 128) {
+          active.orphanTransfer = null;
+          return afterRestore(request, {notice:`Preview ended. The completed library upload remains in User IR ${permanent}.`});
+        }
+        return afterRestore(request, {});
+    });
   }
 
   function audition(request) {
@@ -442,6 +1078,64 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       const transfer = namView.importPreview(request.file, slot, true);
       awaitImport(request, transfer, () => applyProfile(request, transfer));
     };
+    if (profile.strictPreview) {
+      const previous = active.transfer;
+      const plan = floorPreviewPlan({ atTarget: atTarget(), deviceSaved: !!active.deviceSaved,
+        hasTransfer: !!previous, playing: playing(previous),
+        ownsPreview: !!previous && !!namView.previewName(previous), previewSlot: previous?.slot,
+        origin: active.origin, sameModel: active.model === active.tile.block,
+        modelSlot: namView.modelSlot(), empty128: namView.slotEmpty(AUDITION_SLOT) });
+      if (plan.kind === 'first') {
+        if (active.navigation) captureTarget();
+        if (!plan.replace) return load(plan.slot);
+        if (!namView.clearSlot(AUDITION_SLOT)) throw new Error('User IR 128 could not be cleared for the preview.');
+        poll(request, expired => {
+          if (!namView.slotEmpty(AUDITION_SLOT)) {
+            if (!expired) return null;
+            throw new Error('User IR 128 could not be cleared for the preview. Nothing was uploaded.');
+          }
+          if (!atTarget()) throw new Error('The selected NAM target changed; no preview was uploaded.');
+          load(AUDITION_SLOT);
+          return {};
+        }, 3500);
+        return;
+      }
+
+      // Release only this session's owned preview, after the selected block has
+      // returned to its permanent capture. Direct Model edits retain Input/EQ;
+      // no Undo and no unknown-slot replacement is used between auditions.
+      if (active.navigation) {
+        return restoreOwnedPreview(request, () => {
+          if (!atTarget() || request.targetVersion !== active.targetVersion) {
+            throw new Error('The selected NAM target changed; no replacement preview was uploaded.');
+          }
+          load(AUDITION_SLOT);
+          return {};
+        });
+      }
+      if (!namView.setSlot(plan.originalSlot)) throw new Error('Could not restore the original capture; preview was retained.');
+      let clearing = false;
+      poll(request, expired => {
+        if (!atTarget() || active.deviceSaved) throw targetChanged('preview-reuse', 'The target changed; preview replacement stopped.');
+        if (namView.modelSlot() !== plan.originalSlot) {
+          if (!expired) return null;
+          throw new Error('Original capture was not confirmed; preview slot was retained.');
+        }
+        if (!clearing) {
+          if (!namView.clearPreview(previous)) throw new Error('Preview ownership changed; nothing was cleared.');
+          clearing = true;
+        }
+        if (!namView.previewSlotEmpty(previous)) {
+          if (!expired) return null;
+          throw new Error('Preview cleanup was not confirmed; no new capture was uploaded.');
+        }
+        namView.stopPreview();
+        active.transfer = null;
+        load(AUDITION_SLOT);
+        return {};
+      }, 3500);
+      return;
+    }
     const free = namView.auditionSlot();
     if (free) return load(free);
     const slot = request.replace;
@@ -465,33 +1159,121 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     // Save keeps what the audition did to the block (inserted it, switched its model) and only moves it
     // from the audition slot to the saved one. No Undo: undoing the audition first could take the block
     // back out, and the re-insert after it could fail. Then the audition slot is cleared.
+    if (active.navigation && (!atTarget() || request.targetVersion !== active.targetVersion)) {
+      throw new Error(`The target changed. The saved capture remains in User IR ${saved.slot}; no block was changed.`);
+    }
     const expected = undoIndex() + 1;
     if (!namView.selectProfile(saved)) throw new Error(`Check User IR ${saved.slot} on Helix.`);
+    if (active.navigation) {
+      // Save explicitly keeps this capture. If selection changes while cleanup
+      // completes, do not restore the capture that preceded the saved preview.
+      active.origin = {slot:saved.slot,block:active.block,position:active.position,structural:false};
+    }
+    let clearing = false;
     poll(request, expired => {
       // HX Edit can update the Model widget before recording the edit for Undo.
       if (namView.modelSlot() !== saved.slot || undoIndex() < expected) {
         if (!expired) return null;
         throw new Error(`Could not switch the block to User IR ${saved.slot}. Check it on Helix.`);
       }
+      if (!clearing && !namView.clearPreview(trial)) {
+        if (active.navigation) {
+          active.quarantined = true;
+          active.origin = {slot:saved.slot,block:active.block,position:active.position,structural:false};
+          captureTarget();
+          publishTarget('Capture saved; preview slot 128 is still referenced and was retained.');
+        }
+        return {savedSlot:saved.slot, retained:true,
+          notice:'Capture saved, but preview slot 128 is still referenced or could not be checked. It was not cleared.', freeSlots:[]};
+      }
+      clearing = true;
+      if (!namView.previewSlotEmpty(trial)) {
+        if (!expired) return null;
+        throw new Error(`Capture saved in User IR ${saved.slot}, but preview cleanup was not confirmed.`);
+      }
       namView.stopPreview();
-      namView.clearPreview(trial);
       active.transfer = null;
+      forgetPreview();                         // the block is on its saved slot: nothing is left to recover
       active.origin = null;                    // the saved profile is what Close keeps from now on
       active.undoAfter = undefined;
       active.model = active.tile.block;        // the block keeps the tile's model now
       active.selectionUndo = undoIndex();
+      if (active.navigation) captureTarget();
       return { savedSlot: saved.slot, freeSlots: namView.freeSlots(trial.slot) };
     }, 3500);
   }
 
+  function applyPermanent(request, slot, transfer) {
+    if (!atTarget() || request.targetVersion !== active.targetVersion) throw new Error('The NAM target changed before applying the capture.');
+    const expectedUndo = undoIndex() + Number(namView.modelSlot() !== slot);
+    if (transfer && !namView.registerProfile(transfer)) throw new Error(`The capture remains in User IR ${slot}; registration was not confirmed.`);
+    if (!(transfer ? namView.selectProfile(transfer) : namView.setSlot(slot))) throw new Error('Could not select the capture on this NAM block.');
+    poll(request, expired => {
+      if (!atTarget()) throw new Error(`The target changed. Check User IR ${slot}; no other block was selected by the browser.`);
+      if (namView.modelSlot() !== slot || undoIndex() < expectedUndo) {
+        if (!expired) return null;
+        throw new Error(`Could not confirm Model ${slot}. Check the selected NAM block.`);
+      }
+      active.model = active.tile.block;
+      active.selectionUndo = undoIndex();
+      captureTarget();
+      active.onPreviewSlot = false; // it has a permanent slot now, so it can be previewed on
+      return transfer ? {loadedSlot:slot} : {usedSlot:slot};
+    }, 3500);
+  }
+
+  function installPermanent(request) {
+    if (active.transfer || active.pendingTransfer || active.orphanTransfer) throw new Error('End the current preview before loading a library capture.');
+    if (typeof request.identity !== 'string' || !/^[a-f0-9]{64}$/.test(request.identity)) throw new Error('Invalid library capture identity.');
+    const existing = namView.verifiedCaptureSlot(request.identity);
+    if (existing) return applyPermanent(request, existing, null);
+    if (request.action === 'use') throw new Error('The installed slot is no longer verified. Wait for verification, then try again.');
+    const slot = namView.freeSlots(AUDITION_SLOT).find(value => value >= 1 && value <= 127);
+    if (!slot) throw new Error('No empty permanent User IR slot is available. Preview slot 128 is reserved.');
+    const transfer = namView.importPreview(request.file, slot, false);
+    awaitImport(request, transfer, () => applyPermanent(request, slot, transfer));
+  }
+
   function run(request) {
+    if (active.navigation && request.action !== 'bind') {
+      workflowRequest = {id:request.id, session:request.session};
+      namView.setWorkflowBusy(true); // no new automatic export may race this operation
+      if (namView.inventoryBusy()) {
+        poll(request, expired => {
+          if (namView.inventoryBusy()) {
+            if (!expired) return null;
+            throw new Error('The current device export has not finished. No new edit was sent.');
+          }
+          run(request);
+          return {};
+        }, 12000);
+        return;
+      }
+    }
+    if (active.navigation) {
+      if (request.action === 'bind') return bindSelected(request);
+      if (request.action === 'end' || request.action === 'close' || request.action === 'autoEnd') {
+        if (active.orphanTransfer && !active.transfer && active.orphanTransfer.slot !== 128) {
+          const slot = active.orphanTransfer.slot;
+          active.orphanTransfer = null;
+          return afterRestore(request, {notice:`No preview is active. The completed library upload remains in User IR ${slot}.`});
+        }
+        if (active.orphanTransfer && !active.transfer) return afterRestore(request, { retained: true,
+          notice: `Upload retained in User IR ${active.orphanTransfer.slot} after the target changed. No new target was modified.` });
+        if (!active.transfer) return afterRestore(request, {});
+        return restoreBoundPreview(request);
+      }
+      if (!active.bound || active.quarantined || !atTarget() || request.targetVersion !== active.targetVersion) {
+        throw new Error('The selected NAM target changed. Select the tone again for the current block.');
+      }
+    }
     if (request.action === 'save') {
       const trial = active.transfer;
       if (!playing(trial) || active.deviceSaved) {
         throw new Error('The audition changed. Reopen TONE3000 on the desired block.');
       }
       const { slot } = request;
-      if (!Number.isInteger(slot) || slot < 1 || slot > AUDITION_SLOT || slot === active.previewSlot) {
+      if (!Number.isInteger(slot) || slot < 1 || slot > (profile.lastPermanentSlot || AUDITION_SLOT) || slot === active.previewSlot) {
         throw new Error('Select a different free User IR slot.');
       }
       const saved = namView.importPreview(trial.source, slot);
@@ -502,6 +1284,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       });
       return;
     }
+    if (active.navigation && (request.action === 'load' || request.action === 'use')) return installPermanent(request);
     if (request.action === 'audition') {
       if (!atTarget()) throw targetChanged('run', 'The target changed. Select TONE3000 again on the desired block.');
       return audition(request);         // the next tone replaces the current audition: nothing is undone
@@ -511,19 +1294,49 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
 
   Interceptor.attach(user32.getExportByName('DispatchMessageW'), {
     onEnter(args) {
-      if (!active || !args[0].readPointer().equals(active.window)) return;
+      if (leftover) recoverLeftover();
+      if (!active) return;
+      const hwnd = args[0].readPointer();
       const event = args[0].add(4).readU32();
+      // Keyboard focus can remain in HX Edit while a docked browser is visible.
+      // Observe only Escape dispatched to this editor or one of its children;
+      // never hook global input or intercept another application's keys.
+      if (active.navigation && event === 0x100 && args[0].add(8).readU32() === 0x1b &&
+          (hwnd.equals(active.window) || isChild(active.window, hwnd))) dismiss('escape-native');
+      if (!hwnd.equals(active.window)) return;
+      if (event === wake && active.abandoned) return abandonSession();
       if (event === 5 || event === 0xf || event === 0x47 || event === 0x202 || event === wake) {
         this.layoutSession = active.id;
+        this.forceLayout = event === 5 || event === 0x47 || event === 0x202;
+      }
+      if (!command && !workflowRequest && event === wake && active.queuedClose) {
+        // A Close that arrived during another workflow. It performs the same restoration as the
+        // automatic cleanup and then ends the session, so it replaces a pending automatic one.
+        command = {request: active.queuedClose};
+        active.queuedClose = null;
+      }
+      if (!command && !workflowRequest && event === wake && active.cleanupRequested) {
+        if (Date.now() >= (active.settleUntil || 0)) {
+          command = {request:{session:active.id,id:--nextAutomaticRequest,action:'autoEnd'}};
+        } else if (!active.settling) {
+          const session = active;
+          session.settling = true;
+          setTimeout(() => {
+            session.settling = false;
+            if (active === session) post(session.window, wake, 0, 0);
+          }, 100);
+        }
       }
       if (!command || event !== wake) return;
-      const { request, next, deadline, check } = command;
+      const { request, next, deadline, check, finishImport } = command;
       command = null;
       try {
         if (!next) return run(request);
+        if (active.navigation && !finishImport && !['close', 'end', 'bind', 'autoEnd'].includes(request.action) &&
+            request.targetVersion !== active.targetVersion) throw new Error('The NAM target changed; pending work was stopped. Check User IR128.');
         const result = next(Date.now() >= deadline);
         if (result === null) setTimeout(check, 75);
-        else if ('slot' in result || 'savedSlot' in result) reply(request, result);
+        else if ('slot' in result || 'savedSlot' in result || 'loadedSlot' in result || 'usedSlot' in result) reply(request, result);
       } catch (error) {
         const result = { error: String(error.message) };
         if (error.replace) result.replace = error.replace;
@@ -532,29 +1345,48 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
           if (playing(transfer)) result.slot = transfer.slot;
           result.freeSlots = namView.freeSlots(active.previewSlot);
           if (request.savedSlot) result.savedSlot = request.savedSlot;
+          if (active.navigation) {
+            if (request.action === 'autoEnd') active.cleanupRequested = false;
+            active.quarantined = !!active.transfer || !!active.orphanTransfer || !!toneImport;
+            publishTarget(result.error);
+          }
+        } else if (active.navigation) {
+          // The helper has closed. Do not leave an active ID pointing at a dead
+          // browser, or execute cleanup through a busy native export queue.
+          namView.abandonPreview();
+          releaseTarget();
+          namView.setBrowserSessionActive?.(false);
+          active = null;
+          result.notice = result.error + ' Any unconfirmed preview was retained; check User IR 128 before auditioning again.';
+          delete result.error;
         }
         reply(request, result);
       }
     },
     onLeave() {
       if (!active || active.id !== this.layoutSession) return;
-      const bounds = active.panel.isNull() ? { visible: false } : panelBounds(active.panel);
-      const layout = JSON.stringify(bounds);
-      if (layout === active.layout) return;
-      active.layout = layout;
-      send({ type: 'toneBounds', session: active.id, bounds });
+      autoBindSelected();
+      refreshBounds(this.forceLayout === true);
     },
   });
 
   function listen() {
     recv('toneCommand', message => {
       const request = message.payload;
-      if (active && active.id === request.session && !command) {
+      const current = active && active.id === request.session;
+      if (current && !command && (!active.navigation || !workflowRequest)) {
         command = { request };
         if (!post(active.window, wake, 0, 0)) {
           command = null;
           reply(request, { error: 'The HX Edit window is unavailable.' });
         }
+      } else if (current && active.navigation && request.action === 'close' && !active.queuedClose) {
+        // Escape/Close during another workflow (for example the automatic cleanup after a block
+        // change). Rejecting it would end the supervisor's session while this one stays open, and
+        // Browse TONE3000 would then do nothing. Run it as soon as that workflow has replied.
+        active.queuedClose = request;
+      } else if (current && active.navigation) {
+        reply(request, { error: 'HX Edit is still finishing the previous preview step. Try again in a moment.' });
       } else {
         reply(request, { error: 'This TONE3000 selection is no longer active.' });
       }
@@ -562,4 +1394,5 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     });
   }
   listen();
+  return { openBrowser };
 }

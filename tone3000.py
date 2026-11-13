@@ -227,8 +227,10 @@ def prepare_model(model, token, workspace, converter, mode='original', train=tra
             final = Path(tempfile.mkdtemp(prefix='tone-mode-', dir=workspace)) / (name + Path(trained).suffix)
             source = Path(trained).replace(final)
         converted = convert_batch([source], workspace, converter)[0]
-        # Keep the original for Add to library and Save to Helix during this session.
+        # Keep the original for Save to PC and Save to PC + Floor during this session, under the converted
+        # profile's own name: convert_batch renames brackets (import_name), and the preview finds this
+        # file again from that converted name.
         kept = Path(workspace, 'captures')
         kept.mkdir(exist_ok=True)
-        capture.replace(kept / capture.name)
+        capture.replace(kept / (Path(converted).stem + '.nam'))
         return converted

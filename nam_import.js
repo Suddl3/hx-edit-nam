@@ -1,5 +1,28 @@
 'use strict';
 
+function writeToneImportFile(buffer, capacity, file) {
+  if (buffer.isNull() || typeof file !== 'string' || file.includes('\0') || file.length + 2 > capacity) {
+    throw new Error('The TONE3000 file path does not fit the import dialog.');
+  }
+  // HX Edit scans a double-NUL-terminated list even for one selected file.
+  // Frida stops writeUtf16String at the first embedded NUL; appending '\0'
+  // leaves the second word dirty and can turn old buffer data into a filename.
+  buffer.writeUtf16String(file);
+  buffer.add((file.length + 1) * 2).writeU16(0);
+}
+
+function checkToneImport(files, transfer) {
+  const supplied = transfer.supplied === true;
+  const exact = files.length === 1 && typeof files[0] === 'string' && typeof transfer.file === 'string' &&
+    files[0].toLowerCase() === transfer.file.toLowerCase();
+  const reason = files.length !== 1 ? 'file-count' : !supplied ? 'dialog-not-supplied' :
+    !exact ? 'file-path-mismatch' : 'accepted';
+  // Structural diagnostics only: no filenames, paths, URLs, or capture content.
+  send({type: 'toneTrace', phase: 'import-batch-check', reason,
+    fileCount: files.length, dialogSupplied: supplied, pathMatches: exact});
+  if (reason !== 'accepted') throw new Error('HX Edit returned a different file for the TONE3000 import.');
+}
+
 // OPENFILENAMEW is the 32-bit Windows layout used by HX Edit 3.82.
 const fields = { owner: 4, filter: 12, file: 28, capacity: 32, title: 36,
   titleCapacity: 40, fileOffset: 56, extensionOffset: 58 };
@@ -100,10 +123,7 @@ Interceptor.replace(importAddress, new NativeCallback(function (controller, batc
       throw new Error('HX Edit received the original .nam files instead of the converted ones. ' +
         'Import fewer files at once or use the NAM tab Import.');
     }
-    if (namOnly && toneImport && (files.length !== 1 || !toneImport.supplied ||
-        files[0].toLowerCase() !== toneImport.file.toLowerCase())) {
-      throw new Error('HX Edit returned a different file for the TONE3000 import.');
-    }
+    if (namOnly && toneImport) checkToneImport(files, toneImport);
     const { profiles } = requestImport({ type: 'validateImport', files, firstSlot: first + 1, occupied, namOnly });
     if (namOnly && toneImport) {
       toneImport.name = profiles[first + 1];
@@ -248,12 +268,13 @@ Interceptor.replace(openFile, new NativeCallback(function (dialog) {
   const titleCapacity = dialog.add(fields.titleCapacity).readU32();
   if (nam && toneImport && !toneImport.supplied) {
     const file = toneImport.file;
-    if (buffer.isNull() || file.length + 2 > capacity) {
-      toneImport.error = 'The TONE3000 file path is too long for HX Edit.';
+    try {
+      writeToneImportFile(buffer, capacity, file);
+    } catch (error) {
+      toneImport.error = String(error.message);
       return 0;
     }
     const offset = file.lastIndexOf('\\') + 1;
-    buffer.writeUtf16String(file + '\0');
     dialog.add(fields.fileOffset).writeU16(offset);
     dialog.add(fields.extensionOffset).writeU16(file.length - 3);
     if (!title.isNull() && file.length - offset < titleCapacity) title.writeUtf16String(file.slice(offset));

@@ -143,7 +143,45 @@ function presetIrSlots(tree, irParameters) {
   return { slots };
 }
 
-function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
+function previewSlotUnused(preset, slot) {
+  // A preview is owned by its session, but another block or snapshot can still
+  // reference it. Ownership alone never authorizes destroying its samples.
+  return Number.isInteger(slot) && slot >= 1 && slot <= 128 &&
+    preset?.slots instanceof Set && !preset.slots.has(slot);
+}
+
+function friendlyNamCaption(slot, original, physicalName, title) {
+  if (!Number.isInteger(slot) || slot < 1 || slot > 128 ||
+      typeof original !== 'string' || typeof physicalName !== 'string' || !physicalName ||
+      typeof title !== 'string' || !title) return original;
+  // Always lead with the User IR slot number: the friendly name alone does not say which slot
+  // the block uses, and the same capture can be installed in more than one.
+  let prefix = `${slot}: `;
+  if (original !== '' && original !== physicalName) {
+    const match = original.match(/^(\d+:\s*)(.*)$/);
+    if (!match || Number(match[1].split(':')[0]) !== slot || match[2] !== physicalName) return original;
+    prefix = match[1];
+  }
+  // The Model control is right-aligned and shows only the end of a long caption, which cut the
+  // slot number and the start of the name off. Library names read "tone title – profile name":
+  // prefer the profile name, which tells one tone's captures apart, then shorten from the end.
+  const limit = 26;
+  let name = title;
+  if ((prefix + name).length > limit) {
+    const profile = name.split(' – ').pop().trim();
+    if (profile) name = profile;
+    if ((prefix + name).length > limit) name = name.slice(0, Math.max(1, limit - prefix.length - 1)).trimEnd() + '…';
+  }
+  const result = prefix + name;
+  let bytes = 0;
+  for (const ch of result) {
+    const code = ch.codePointAt(0);
+    bytes += code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
+  }
+  return bytes <= 255 && !result.includes('\0') ? result : original;
+}
+
+function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, profile = {}) {
   const base = Process.mainModule.base;
   const address = rva => base.add(rva);
   const method = (rva, type, args) => new NativeFunction(address(rva), type, ['pointer', ...args], 'thiscall');
@@ -190,6 +228,202 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
   let buttons = {};
   let tab = 0;
   let libraryRoot = NULL;
+  let sidebarSink = null, sidebarChildReady = false, sidebarChildFailed = false, sidebarHost = NULL, sidebarPumping = false;
+  const sidebarActions = [];
+  const sidebarPoint = Memory.alloc(8);
+  let libraryOpener = null, allCapturesButton = NULL;
+  let libraryUiThread = 0, discoveryLocked = false, discoveryStatus = 'inactive';
+  let discoveryChecked = 0, discoveryTotal = 0, discoveryCountedAt = -1;
+  // slot -> {name, contentId}: what each permanent slot held when this PC last read it back
+  // (contentId null: something that is not a library capture). Seeded from the supervisor's
+  // file, kept current here, and used only while the device still shows the same slot name.
+  const rememberedSlots = new Map();
+  for (const entry of Array.isArray(profile.rememberedSlots) ? profile.rememberedSlots : []) {
+    if (Array.isArray(entry) && Number.isInteger(entry[0]) && entry[0] >= 1 && entry[0] <= 127 &&
+        typeof entry[1] === 'string' && entry[1] &&
+        (entry[2] === null || (typeof entry[2] === 'string' && /^[0-9a-f]{64}$/.test(entry[2])))) {
+      rememberedSlots.set(entry[0], {name: entry[1], contentId: entry[2]});
+    }
+  }
+  // slot -> the slot's own name, read on the UI thread whenever the slot check takes a snapshot.
+  // The check's change signature (readCString(256)) is the name followed by whatever bytes come
+  // after it in the row; it is stable within a session but not a name. In the first Candidate62
+  // session that made 25 of 27 "names" too long to store, and none comparable on the next launch.
+  const slotNames = new Map();
+  function forgetRememberedSlot(slot) {
+    if (rememberedSlots.delete(slot)) send({type: 'slotMemory', slot, forget: true});
+  }
+  let exportPending = false, workflowBusy = false;
+  let discoveryPause = null, discoveryControls = null, libraryInputDepth = 0, libraryBrowsing = false;
+  const slotLedger = typeof createLibrarySlotLedger === 'function' ? createLibrarySlotLedger() : null;
+  let inventoryDirty = false, inventoryState = 'unverified', inventoryFlushing = false, inventoryRetryAt = 0;
+  let payloadMetadata = profile.payloadMetadata || {};
+  let displayRefreshing = false, lastModelAlias = null;
+
+  // Proven Candidate53 text-only ABI. Guard the call-site but do not attach
+  // inside the formatter: it already has an entry/onLeave interceptor below.
+  const displaySite = address(0x26bfed);
+  const displayBytes = [0x8b,0x8b,0x44,0x01,0x00,0x00,0x8d,0x95,0xf0,0xfe,0xff,0xff];
+  if (!displayBytes.every((value, index) => displaySite.add(index).readU8() === value)) {
+    throw new Error('The NAM display formatter does not match the reviewed HX Edit build.');
+  }
+
+  function libraryReady() {
+    return libraryUiThread !== 0 && Process.getCurrentThreadId() === libraryUiThread;
+  }
+
+  function emitInventory() {
+    if (slotLedger) send({ type: 'floorInventory', epoch: slotLedger.epoch(), state: inventoryState,
+      entries: slotLedger.displayEntries(), verified: slotLedger.entries() });
+  }
+
+  function requestLibraryVerification() {
+    discoveryControls?.requestVerification({allowWhileBrowsing:true});
+  }
+
+  function slotsChanged(slots) {
+    // Exact native destinations only. Slot128 is preview storage, not a
+    // permanent-library change; the coordinator filters it out.
+    discoveryControls?.slotsChanged(slots);
+  }
+
+  function profileLabel(slot) {
+    const content = slotLedger?.contentFor(slot);
+    return content && payloadMetadata[content]?.name || profiles[slot];
+  }
+
+  function refreshDisplayedModelName() {
+    if (displayRefreshing || !hasActiveModel()) return;
+    displayRefreshing = true;
+    try {
+      const slider = activeModel;
+      const label = slider.add(0x7c).readPointer(), format = slider.add(0x98).readPointer();
+      if (label.isNull() || format.isNull()) return;
+      const labelText = label.add(0x7c).readPointer(), displayType = format.add(0x10).readPointer();
+      if (labelText.isNull() || displayType.isNull() || labelText.readCString() !== 'Model' ||
+          displayType.readCString() !== 'ir_select') return;
+      const slot = getValue(slider) + 1, list = irList();
+      if (!Number.isInteger(slot) || slot < 1 || slot > 128 || list.isNull()) return;
+      const row = getIrRow(list, slot - 1);
+      if (row.isNull() || !row.add(0x10c).readU32()) return;
+      const physicalName = row.readCString(), title = profileLabel(slot);
+      const menu = slider.add(0x144).readPointer();
+      if (menu.isNull()) return;
+      const table = menu.readPointer(), setter = table.add(0x1b8).readPointer(), getter = table.add(0x1bc).readPointer();
+      const end = base.add(Process.mainModule.size);
+      if ([setter, getter].some(fn => fn.compare(base) < 0 || fn.compare(end) >= 0)) return;
+      const readText = new NativeFunction(getter, 'pointer', ['pointer'], 'thiscall');
+      const text = readText(menu);
+      if (text.isNull()) return;
+      const original = text.readCString(), previous = lastModelAlias;
+      const source = previous && previous.menu.equals(menu) && previous.slot === slot &&
+        previous.physicalName === physicalName && previous.text === original ? previous.source : original;
+      const replacement = friendlyNamCaption(slot, source, physicalName, title || physicalName);
+      if (replacement === original) return;
+      const setText = new NativeFunction(setter, 'void', ['pointer', 'pointer', 'int'], 'thiscall');
+      setText(menu, Memory.allocUtf8String(replacement), 0);
+      lastModelAlias = {menu, slot, physicalName, source, text:replacement};
+      redraw(menu);
+    } catch (error) {
+      send({type:'toneTrace', phase:'model-display-refresh-skipped', reason:String(error)});
+    } finally { displayRefreshing = false; }
+  }
+
+  function flushInventoryPresentation() {
+    if (!inventoryDirty || inventoryFlushing || Date.now() < inventoryRetryAt || !libraryReady() || irController.isNull() ||
+        discoveryLocked || exportPending || workflowBusy || audition ||
+        !namImportController.isNull() || toneImport) return;
+    const list = irList(), manager = irController.add(0x270).readPointer();
+    if (list.isNull() || manager.isNull() || manager.add(0x40).readU8() !== 0) {
+      // Preserve the dirty commit while native storage is unavailable/busy.
+      // Only the UI wake reads these pointers; timer-side retries are bounded.
+      inventoryRetryAt = Date.now() + 1000;
+      return;
+    }
+    inventoryFlushing = true;
+    try {
+      inventoryRetryAt = 0;
+      inventoryDirty = false;
+      if (profile.nativeDiscovery && slotLedger) {
+        const display = new Set(slotLedger.displayEntries().map(([slot]) => slot));
+        for (const slot of Object.keys(profiles).map(Number)) {
+          if (!display.has(slot) && !slotLedger.importCurrent(slot)) delete profiles[slot];
+        }
+        if (!list.isNull()) for (const [slot] of slotLedger.displayEntries()) {
+          const row = getIrRow(list, slot - 1);
+          if (!row.isNull() && row.add(0x10c).readU32()) profiles[slot] = row.readUtf8String();
+        }
+      }
+      renderProfiles();
+      if (hasActiveModel()) rebuildModelMenu(activeModel);
+      refreshDisplayedModelName();
+      send({type:'floorInventoryPresentation',epoch:slotLedger?.epoch() || 0,
+        profileRows:slots.length,displayedSlots:slotLedger?.displayEntries().length || 0,
+        verifiedSlots:slotLedger?.entries().length || 0,nativeListReady:!namList.isNull(),
+        nativeListHandle:namList.toString(),selectedTab:tab,
+        listVisible:!namList.isNull() && !!isVisible(namList,1),uiThreadReady:true});
+    } finally { inventoryFlushing = false; }
+  }
+
+  function needsInventoryPresentation() {
+    // Timer-side scheduling only: cached state, no native widget access.
+    return inventoryDirty && !inventoryFlushing && Date.now() >= inventoryRetryAt && !irController.isNull() && !discoveryLocked && !exportPending &&
+      !workflowBusy && !audition && namImportController.isNull() && !toneImport;
+  }
+
+  const discoveryCount = method(0x379fb0, 'uint', []);
+  const discoverySubmit = method(0x3f5f40, 'void', ['pointer', 'pointer', 'uint8']);
+  const discoveryString = method(0x1a1640, 'pointer', ['pointer', 'int']);
+  const discoveryStringDestroy = method(0x1a0120, 'void', []);
+
+  function discoverySnapshot(revision) {
+    if (!libraryReady() || irController.isNull()) return null;
+    if (discoveryLocked || exportPending || workflowBusy || audition ||
+        !namImportController.isNull() || toneImport) return null;
+    flushInventoryPresentation();
+    const list = irList(), manager = irController.add(0x270).readPointer();
+    if (list.isNull() || manager.isNull() || discoveryCount(list) !== 128) return null;
+    if (manager.add(0x40).readU8() !== 0) return null;
+    const device = manager.add(0x44).readU32();
+    if (device !== 0x210001) return null;
+    const occupied = [], names = [];
+    let excluded = 0;
+    for (let i = 0; i < 127; i++) {
+      const row = getIrRow(list, i);
+      if (row.isNull()) return null;
+      if (!row.add(0x10c).readU32()) { slotNames.delete(i + 1); continue; }
+      if (row.add(0x114).readU32() & 0x10) { excluded++; continue; }
+      occupied.push(i + 1); names.push([i + 1, row.readCString(256)]);
+      try { slotNames.set(i + 1, row.readUtf8String()); } catch (_) { slotNames.delete(i + 1); }
+    }
+    return { device, revision, identity: irController + ':' + manager, slots: occupied,
+      excluded, signature: JSON.stringify(names), slotSignatures: names, busy: false };
+  }
+
+  function exportDiscoverySlot(request, expected, observeSubmission) {
+    if (typeof observeSubmission !== 'function') return false;
+    const current = discoverySnapshot(expected.revision);
+    if (!current || current.busy || current.identity !== expected.identity ||
+        current.signature !== expected.signature || !current.slots.includes(request.slot) ||
+        current.device !== request.device || current.revision !== request.revision ||
+        typeof request.path !== 'string' || !/^[A-Za-z]:\\[^\0]+\.wav$/i.test(request.path)) return false;
+    const index = Memory.alloc(4); index.writeU32(request.slot - 1);
+    const path = Memory.alloc(8), text = Memory.allocUtf8String(request.path);
+    function vector(vtable, data) {
+      const result = Memory.alloc(24);
+      result.writePointer(address(vtable)); result.add(4).writeU32(1);
+      result.add(8).writePointer(data); result.add(12).writeU32(1);
+      result.add(16).writeU32(0); result.add(20).writeU32(1);
+      return result;
+    }
+    discoveryString(path, text, 1);
+    try {
+      const indices = vector(0x8bb0dc, index), paths = vector(0x8b42ac, path);
+      const manager = irController.add(0x270).readPointer();
+      return observeSubmission(request, manager, [indices, paths],
+        () => discoverySubmit(manager, indices, paths, 0)) === true;
+    } finally { discoveryStringDestroy(path); }
+  }
 
   // HXCustomTab lays tabs out by its own visual index, not by X or radio index.
   // Show NAM before Favorites; native tab indexes and controllers stay unchanged.
@@ -199,7 +433,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
     const favorites = getRadioButton(radio, 2);
     const nam = getRadioButton(radio, 3);
     if ([favorites, nam].some(tab => tab.isNull() || !tab.readPointer().equals(address(0x8c35a0)))) return;
-    if (nam.add(0x218).readS32() === 2) return;
+    if (nam.add(0x218).readS32() === 2 && favorites.add(0x218).readS32() === 3) return;
     for (const [tab, index] of [[favorites, 3], [nam, 2]]) {
       configureTab(tab, 1, index);
       layoutTab(tab);
@@ -216,7 +450,10 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
   const winApi = (name, type, args) => new NativeFunction(user32.getExportByName(name), type, args, 'stdcall');
   const getClientRect = winApi('GetClientRect', 'int', ['pointer', 'pointer']);
   const getAncestor = winApi('GetAncestor', 'pointer', ['pointer', 'uint']);
+  const getWindowOwner = winApi('GetWindowThreadProcessId', 'uint', ['pointer', 'pointer']);
+  const windowOwner = Memory.alloc(4);
   const setCapture = winApi('SetCapture', 'pointer', ['pointer']);
+  const getCapture = winApi('GetCapture', 'pointer', []);
   const releaseCapture = winApi('ReleaseCapture', 'int', []);
   const setCursor = winApi('SetCursor', 'pointer', ['pointer']);
   const resizeCursor = winApi('LoadCursorW', 'pointer', ['pointer', 'pointer'])(NULL, ptr(32644)); // IDC_SIZEWE
@@ -282,13 +519,108 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
     return near ? { view, left } : null;
   }
 
+  function libraryWindow() {
+    const hwnd = getActiveWindow(), view = sidebar();
+    if (!view || hwnd.isNull() || !getAncestor(hwnd, 2).equals(hwnd) || !getClientRect(hwnd, clientRect)) return NULL;
+    windowOwner.writeU32(0); getWindowOwner(hwnd, windowOwner);
+    if (windowOwner.readU32() !== Process.id || clientRect.add(8).readS32() < view.parent.w ||
+        clientRect.add(12).readS32() < view.side.y + view.side.h) return NULL;
+    return hwnd;
+  }
+
+  // Local child-pane geometry only: never exports a slot or touches the device.
+  function sidebarPresentation() {
+    if (!libraryReady()) return null;
+    const view = sidebar();
+    if (!view || namPanel.isNull() || sidebarHost.isNull()) return {visible:false};
+    const visible = tab === 3 && !!isVisible(namPanel, 1);
+    if (!visible) return {visible:false};
+    if (sidebarChildReady || sidebarChildFailed) {
+      for (const widget of [namList, findWidget(namPanel, 0x6e626172, 1),
+          findWidget(namPanel, 0x6e6d7367, 1), allCapturesButton]) {
+        if (!widget.isNull() && isVisible(widget, 0)) setVisible(widget, 0, 1);
+      }
+      const error = findWidget(namPanel, 0x6e657272, 1); // nerr
+      if (!error.isNull() && !!isVisible(error,0) !== sidebarChildFailed) setVisible(error,Number(sidebarChildFailed),1);
+    }
+    if (discoveryStatus === 'verifying' && discoveryCountedAt !== discoveryChecked) {
+      // Permanent slots that hold something: what this pass has to read. Counted once per step.
+      discoveryCountedAt = discoveryChecked;
+      const list = irList();
+      let total = 0;
+      if (!list.isNull()) for (let slot = 1; slot < AUDITION_SLOT; slot++) {
+        const row = getIrRow(list, slot - 1);
+        if (!row.isNull() && row.add(0x10c).readU32()) total++;
+      }
+      discoveryTotal = total;
+    }
+    widgetOrigin(namPanel, sidebarPoint);
+    const geometry = box(namPanel);
+    return {visible:true, bounds:{x:sidebarPoint.readS32(), y:sidebarPoint.add(4).readS32(), w:geometry.w, h:geometry.h},
+      sidebarWidth:view.side.w, resizeAvailable:true, busy:workflowBusy || discoveryLocked || exportPending,
+      targetReady:!!hasActiveModel(), discoveryStatus, discoveryChecked, discoveryTotal,
+      slotEpoch:slotLedger?.epoch() || 0};
+  }
+
+  function pumpSidebarPresentation(hwnd = NULL) {
+    if (!libraryReady() || sidebarPumping) return;
+    sidebarPumping = true;
+    try {
+      if (!hwnd.isNull()) {
+        const root = getAncestor(hwnd, 2), view = sidebar();
+        windowOwner.writeU32(0);getWindowOwner(root, windowOwner);
+        if (view && windowOwner.readU32() === Process.id && getClientRect(root, clientRect) &&
+            clientRect.add(8).readS32() >= view.parent.w && clientRect.add(12).readS32() >= view.side.y + view.side.h)
+          sidebarHost = root;
+      }
+      for (let i=0;i<8 && sidebarActions.length;i++) sidebarActions.shift()(sidebarHost);
+      if (sidebarSink && !sidebarHost.isNull()) sidebarSink(sidebarPresentation(), sidebarHost);
+    } finally { sidebarPumping = false; }
+  }
+
+  function endSidebarDrag(saveWidth = false) {
+    const previous = drag;
+    drag = null; // ReleaseCapture can synchronously notify native window code.
+    if (!previous) return;
+    if (getCapture().equals(previous.hwnd)) releaseCapture();
+    if (saveWidth) {
+      const view = sidebar();
+      if (view) {
+        sidebarWidth = view.side.w;
+        send({ type: 'sidebarWidth', width: sidebarWidth });
+      }
+    }
+  }
+
   Interceptor.attach(user32.getExportByName('DispatchMessageW'), {
     onEnter(args) {
+      if (!libraryReady()) return;
+      this.sidebarUi = true;
       const msg = args[0];
       const event = msg.add(4).readU32();
       this.event = event;
-      if (event !== 0x200 && event !== 0x201 && event !== 0x202 && event !== 0x203) return;
+      // Only an actual native mouse/key dispatch can open the NAM tab for
+      // verification. Constructor restoration and transfer progress also call
+      // the tab function, and must never arm a scan by themselves.
+      if ([0x100, 0x201, 0x202].includes(event)) {
+        this.libraryInput = true;
+        libraryInputDepth++;
+      }
       const hwnd = msg.readPointer();
+      this.sidebarHwnd = hwnd;
+      if (drag) {
+        // Capture/focus notifications may be sent directly to WindowProc and
+        // never pass DispatchMessage. Check ownership on every UI message too.
+        const cancelled = hwnd.equals(drag.hwnd) && ([0x215, 0x1f, 8, 2, 0x82].includes(event)
+          || event === 6 && (msg.add(8).readU32() & 0xffff) === 0
+          || event === 0x1c && msg.add(8).readU32() === 0);
+        const released = event === 0x200 && (msg.add(8).readU32() & 1) === 0;
+        if (cancelled || released || !getCapture().equals(drag.hwnd)) {
+          endSidebarDrag();
+          return;
+        }
+      }
+      if (event !== 0x200 && event !== 0x201 && event !== 0x202 && event !== 0x203) return;
       const position = msg.add(12).readU32();
       const x = (position << 16) >> 16;
       const y = position >> 16;
@@ -297,15 +629,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
         msg.add(4).writeU32(0); // WM_NULL: the editor never sees the drag
         const view = sidebar();
         if (view) resizeSidebar(view, x - drag.left);
-        if (event === 0x202) {
-          drag = null;
-          releaseCapture();
-          const view = sidebar();
-          if (view) {
-            sidebarWidth = view.side.w;
-            send({ type: 'sidebarWidth', width: sidebarWidth });
-          }
-        }
+        if (event === 0x202) endSidebarDrag(true);
         setCursor(resizeCursor);
         return;
       }
@@ -313,9 +637,12 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
       if (!edge) return;
       this.cursor = true;
       if (event === 0x201) {
+        const captured = getCapture();
+        if (!captured.isNull() && !captured.equals(hwnd)) return;
+        setCapture(hwnd);
+        if (!getCapture().equals(hwnd)) return;
         msg.add(4).writeU32(0);
         drag = { hwnd, left: edge.left };
-        setCapture(hwnd);
       } else if (event === 0x203) {
         msg.add(4).writeU32(0);
         resizeSidebar(edge.view, sidebarLimits.minimum);
@@ -324,8 +651,11 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
       }
     },
     onLeave() {
+      if (this.libraryInput) libraryInputDepth--;
+      if (!this.sidebarUi) return;
       if (this.cursor) setCursor(resizeCursor);
       if (this.event === 5 || this.event === 0xf || this.event === 0x202) syncSidebar(); // size, paint, button up
+      pumpSidebarPresentation(this.sidebarHwnd || NULL);
     },
   });
 
@@ -340,6 +670,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
 
   function hasProfile(list, slot) {
     if (list.isNull() || !Object.hasOwn(profiles, slot)) return false;
+    if (profile.nativeDiscovery && slotLedger && !slotLedger.contentFor(slot) && !slotLedger.importCurrent(slot)) return false;
     const row = getIrRow(list, slot - 1);
     return !row.isNull() && !!row.add(0x10c).readU32() && row.readUtf8String() === profiles[slot];
   }
@@ -405,7 +736,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
     const previous = selectedSlot();
     clearRows(namList, 0);
     for (const slot of slots) {
-      appendRow(namList, -1, Memory.allocUtf8String(profiles[slot]), NULL, 0, slot - 1, 1, 0, 0);
+      appendRow(namList, -1, Memory.allocUtf8String(profileLabel(slot)), NULL, 0, slot - 1, 1, 0, 0);
     }
     const message = findWidget(namPanel, 0x6e6d7367, 1); // nmsg
     if (!message.isNull()) setVisible(message, Number(slots.length === 0), 1);
@@ -427,11 +758,16 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
       if (row.isNull()) continue;
       const name = row.readUtf8String();
       if (!row.add(0x10c).readU32()) {
+        if (slotLedger?.forget(slot)) emitInventory();
         if (Object.hasOwn(profiles, slot)) {
           delete profiles[slot];
           changed = true;
         }
         continue;
+      }
+      if (Object.hasOwn(profiles, slot) && profiles[slot] !== name) {
+        if (slotLedger?.forget(slot)) emitInventory();
+        delete profiles[slot]; changed = true;
       }
       const expected = pending.get(slot);
       if (expected && name && (name === expected || expected.startsWith(name) && name.length >= 31)) {
@@ -449,7 +785,10 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
 
   function hasActiveModel() {
     // HX Edit caches the parameter widgets after detaching them from the editor.
-    return !activeModel.isNull() && !getParent(activeModel).isNull() && isVisible(activeModel, 1);
+    // A strict boolean: isVisible returns the native 0/1, and the sidebar bridge compares its
+    // targetReady flag with true. The number made every Load/Use on Floor in the NAM tab
+    // unavailable ("Select a NAM block…") while a NAM block was selected.
+    return !activeModel.isNull() && !getParent(activeModel).isNull() && !!isVisible(activeModel, 1);
   }
 
   function setModelSlot(slot) {
@@ -466,6 +805,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
   }
 
   function syncSelection() {
+    refreshDisplayedModelName();
     if (namList.isNull()) return;
     const row = hasActiveModel() ? slots.indexOf(getValue(activeModel) + 1) : -1;
     if (row < 0) clearSelection(namList, 0, 1);
@@ -476,7 +816,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
   renderProfiles();
 
   Interceptor.attach(address(0x20c3f0), {
-    onEnter() { this.controller = this.context.ecx; },
+    onEnter() { libraryUiThread = Process.getCurrentThreadId(); this.controller = this.context.ecx; },
     onLeave() { refreshProfiles(this.controller); },
   });
 
@@ -527,15 +867,22 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
       const event = args[0].toUInt32();
       this.selection = event === 0x216c6273 && sender.equals(namList); // sbl!
       if (event === 0x2162705f) { // _pb!
+        this.allCaptures = !allCapturesButton.isNull() && sender.equals(allCapturesButton);
         this.action = Object.keys(buttons).find(action => sender.equals(buttons[action]));
       }
     },
     onLeave() {
+      if (this.allCaptures) {
+        requestLibraryVerification();
+        const window = libraryWindow();
+        if (libraryOpener && !window.isNull()) libraryOpener(window);
+        return;
+      }
       if (this.action) runAction(this.action);
       if (!this.selection) return;
       refreshButtons();
       const slot = selectedSlot();
-      if (slot) setModelSlot(slot);
+      if (slot && hasProfile(irList(), slot)) setModelSlot(slot);
     },
   });
 
@@ -559,6 +906,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
 
   Interceptor.attach(address(0x2156a0), {
     onEnter(args) {
+      libraryUiThread = Process.getCurrentThreadId();
       this.library = this.context.ecx.add(0x10).readPointer();
       irController = this.context.ecx.add(0x5c).readPointer();
       // The stock constructor replaces XML button IDs with generated IDs.
@@ -568,17 +916,21 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
         args[0] = ptr(3);
       }
       this.tab = args[0].toUInt32();
+      this.requestVerification = this.tab === 3 && tab !== 3 && libraryInputDepth > 0 &&
+        !this.returnAddress.equals(address(0x2153b4));
       tab = this.tab;
     },
     onLeave() {
       if (this.library.isNull() || this.tab >= libraryViews.length) return;
       libraryRoot = this.library;
+      allCapturesButton = findWidget(libraryRoot, 0x6e616c6c, 1); // nall
       orderTabs();
       for (const [index, id] of libraryViews.entries()) {
         const panel = findWidget(this.library, id, 1);
         if (!panel.isNull()) setVisible(panel, Number(this.tab === index), 1);
       }
       if (this.tab !== 3) return;
+      if (this.requestVerification) requestLibraryVerification();
       if (namList.isNull()) {
         namList = findWidget(this.library, namListId, 1);
         if (namList.isNull()) return;
@@ -590,6 +942,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
       }
       refreshProfiles(irController);
       if (hasActiveModel()) syncSelection();
+      pumpSidebarPresentation();
     },
   });
 
@@ -714,14 +1067,20 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
   }
 
   const clearIrSlotsOriginal = new NativeFunction(address(0x3da2b0), 'void', ['pointer', 'pointer'], 'thiscall');
+  function submitClear(librarian, vector, selected) {
+    // Invalidate at the accepted submission boundary, before native async work
+    // can make a receipt stale. Blocked Clear never changes the ledger.
+    slotsChanged(selected || []);
+    return clearIrSlotsOriginal(librarian, vector);
+  }
   Interceptor.replace(address(0x3da2b0), new NativeCallback(function (librarian, vector) {
-    if (trustedClear) return clearIrSlotsOriginal(librarian, vector);
+    if (trustedClear) return submitClear(librarian, vector, selectedClearSlots(vector));
     let text;
     try {
       const selected = selectedClearSlots(vector);
       const preset = readCurrentPreset();
       const used = selected && preset.slots ? selected.filter(slot => preset.slots.has(slot)) : [];
-      if (selected && preset.slots && !used.length) return clearIrSlotsOriginal(librarian, vector);
+      if (selected && preset.slots && !used.length) return submitClear(librarian, vector, selected);
       text = used.length
         ? `User IR ${used.join(', ')} ${used.length === 1 ? 'is' : 'are'} used by the current preset.\n\n` +
           'Switch to a preset that does not use these slots, then try Clear again.'
@@ -740,8 +1099,10 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
     const state = constructing.get(this.threadId);
     if (!state || !menu.equals(state.menu)) return append(menu, index, label, id, options, disabled);
     const parts = label.readCString().match(/^(\d+): (.+)$/);
-    if (parts && Object.hasOwn(profiles, parts[1]) && profiles[parts[1]] === parts[2]) {
-      return append(menu, index, label, id, options, disabled);
+    if (parts && Object.hasOwn(profiles, parts[1]) && profiles[parts[1]] === parts[2]
+        && hasProfile(irList(), Number(parts[1]))) {
+      const friendly = profileLabel(Number(parts[1]));
+      return append(menu, index, friendly === parts[2] ? label : Memory.allocUtf8String(`${parts[1]}: ${friendly}`), id, options, disabled);
     }
     if (parts && audition && audition.slider.equals(state.slider) && Number(parts[1]) === audition.slot
         && parts[2] === audition.name) return append(menu, index, label, id, options, disabled);
@@ -753,7 +1114,123 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
 
   return {
     refreshProfiles,
+    setSidebarSink(callback) { sidebarSink = typeof callback === 'function' ? callback : null; },
+    setSidebarChildReady(value) { sidebarChildReady = value === true; sidebarChildFailed = !sidebarChildReady; },
+    queueSidebarAction(callback) {
+      if (typeof callback !== 'function' || sidebarActions.length >= 8) return false;
+      sidebarActions.push(callback);
+      if (!sidebarHost.isNull()) winApi('PostMessageW','int',['pointer','uint','pointer','pointer'])(sidebarHost,0,NULL,NULL);
+      return true;
+    },
+    resizeSidebarFromChild(width) {
+      if (!libraryReady() || !Number.isInteger(width) || width < 300 || width > 600) return false;
+      const view = sidebar(); if (!view) return false;
+      sidebarWidth=width;resizeSidebar(view,width);send({type:'sidebarWidth',width});return true;
+    },
+    openExpandedLibrary(window) { if (libraryOpener && !window.isNull()) libraryOpener(window); },
+    setLibraryOpener(callback) { libraryOpener = typeof callback === 'function' ? callback : null; },
+    libraryReady, discoverySnapshot, exportDiscoverySlot, profileLabel,
+    flushInventoryPresentation, needsInventoryPresentation,
+    slotEpoch: () => slotLedger?.epoch() || 0,
+    acceptRememberedSlot(slot) {
+      // From the slot check's UI-thread tick, right after its snapshot. True: this slot needs
+      // no read-back.
+      const memory = rememberedSlots.get(slot), name = slotNames.get(slot);
+      if (!memory || !slotLedger) return false;
+      if (typeof name !== 'string' || !name || memory.name !== name) { forgetRememberedSlot(slot); return false; }
+      if (memory.contentId === null) return true;
+      if (!slotLedger.accept(slotLedger.epoch(), slot, memory.contentId)) return false;
+      inventoryDirty = true;
+      return true;
+    },
+    rememberSlot(slot, status, _signature, contentId) {
+      // What a read-back found. No native access: this can run on Frida's message thread, so
+      // the name is the one the last snapshot read.
+      const name = slotNames.get(slot);
+      if (!Number.isInteger(slot) || slot < 1 || slot > 127 || typeof name !== 'string' || !name ||
+          name.length > 64) return;
+      let entry = null;
+      if (status === 'matched' && typeof contentId === 'string' && /^[0-9a-f]{64}$/.test(contentId)) entry = {name, contentId};
+      else if (status === 'ir' || status === 'unmatched-nam') entry = {name, contentId: null};
+      if (!entry) return;
+      const previous = rememberedSlots.get(slot);
+      if (previous && previous.name === entry.name && previous.contentId === entry.contentId) return;
+      rememberedSlots.set(slot, entry);
+      send({type: 'slotMemory', slot, name: entry.name, contentId: entry.contentId});
+    },
+    invalidateVerifiedSlots(preserveDisplay = true, changedSlots = null) {
+      // A slot the device reports as changed, deleted or renamed is read back again.
+      if (Array.isArray(changedSlots)) for (const slot of changedSlots) forgetRememberedSlot(slot);
+      if (!slotLedger) return;
+      if (Array.isArray(changedSlots)) slotLedger.invalidateSlots(changedSlots);
+      else slotLedger.invalidate(preserveDisplay);
+      inventoryState = preserveDisplay ? 'refreshing' : 'unverified';
+      inventoryDirty = true; emitInventory();
+    },
+    forgetVerifiedSlot(slot) {
+      if (slotLedger?.forget(slot, inventoryState === 'refreshing')) inventoryDirty = true;
+    },
+    recordVerifiedSlot(epoch, slot, contentId) {
+      const accepted = slotLedger?.accept(epoch, slot, contentId) === true;
+      if (accepted) inventoryDirty = true;
+      return accepted;
+    },
+    setDiscoveryLocked(value) { discoveryLocked = value === true; },
+    setExportPending(value) { exportPending = value === true; },
+    inventoryBusy: () => exportPending || discoveryLocked,
+    setWorkflowBusy(value) {
+      const busy = value === true;
+      const wasBusy = workflowBusy;
+      if (busy && !workflowBusy && discoveryPause) discoveryPause();
+      workflowBusy = busy;
+      if (!busy && wasBusy && libraryBrowsing) discoveryControls?.resumeRequestedVerification({allowWhileBrowsing:true});
+    },
+    setDiscoveryPause(callback) { discoveryPause = typeof callback === 'function' ? callback : null; },
+    setDiscoveryControls(controls) { discoveryControls = controls; },
+    setBrowserSessionActive(value) {
+      libraryBrowsing = false;
+      discoveryControls?.setSessionActive(value === true);
+    },
+    setLibraryBrowsing(value) {
+      if (libraryBrowsing === value) return;
+      libraryBrowsing = value;
+      if (value) requestLibraryVerification();
+      else discoveryControls?.setSessionActive(true);
+    },
+    setDiscoveryStatus(value, checked) {
+      discoveryStatus = value;
+      // For the sidebar's "Checking Floor slots… 7 of 26": how many slots this pass has read,
+      // out of the permanent slots that hold something. Presentation only.
+      // (The total is counted in sidebarPresentation, on the UI thread: this setter can run on
+      // Frida's message thread and must not read native lists.)
+      discoveryChecked = Number.isInteger(checked) && checked >= 0 ? checked : 0;
+      if (value === 'complete' || value === 'complete-partial') {
+        slotLedger?.commitDisplay(); inventoryState = value === 'complete' ? 'verified' : 'partial';
+        inventoryDirty = true; emitInventory();
+      }
+    },
+    setPayloadMetadata(value) {
+      payloadMetadata = value || {}; inventoryDirty = true;
+    },
+    inventorySnapshot() {
+      return { epoch: slotLedger?.epoch() || 0, state: inventoryState,
+        entries: slotLedger?.displayEntries() || [], verified: slotLedger?.entries() || [] };
+    },
+    verifiedCaptureSlot(identity, requestedSlot) {
+      if (!slotLedger || typeof identity !== 'string' || !/^[0-9a-f]{64}$/.test(identity)) return null;
+      const list = irList();
+      if (list.isNull()) return null;
+      for (const [slot, contentId] of slotLedger.entries()) {
+        if (requestedSlot !== undefined && slot !== requestedSlot) continue;
+        if (payloadMetadata[contentId]?.id !== identity || slot === AUDITION_SLOT) continue;
+        // Current accepted epoch + the native occupied row, never display history.
+        const row = getIrRow(list, slot - 1);
+        if (!row.isNull() && row.add(0x10c).readU32()) return slot;
+      }
+      return null;
+    },
     modelSlot: () => hasActiveModel() ? getValue(activeModel) + 1 : null,
+    nativeModel: () => hasActiveModel() ? activeModel : NULL,
     playPreview(transfer) {
       const name = this.previewName(transfer);
       if (!name || !hasActiveModel()) return false;
@@ -766,11 +1243,12 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
       audition = null;
       if (hasActiveModel()) rebuildModelMenu(activeModel);
     },
+    abandonPreview() { audition = null; }, // bookkeeping only; retain device samples and settings
     freeSlots(excluded) {
       const list = irList();
       const free = [];
       if (list.isNull()) return free;
-      for (let slot = 1; slot <= AUDITION_SLOT; slot++) {
+      for (let slot = 1; slot <= (profile.lastPermanentSlot || AUDITION_SLOT); slot++) {
         if (slot === excluded) continue;
         const row = getIrRow(list, slot - 1);
         if (!row.isNull() && !row.add(0x10c).readU32()) free.push(slot);
@@ -778,6 +1256,10 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
       return free;
     },
     importPreview(source, slot, audition = false) {
+      if (profile.strictPreview && ((audition && slot !== AUDITION_SLOT) ||
+          (!audition && slot === AUDITION_SLOT))) {
+        throw new Error('User IR 128 is reserved for previews. Install captures in slots 1–127.');
+      }
       const list = irList();
       if (list.isNull()) throw new Error('Connect your Helix to audition a tone.');
       if (!namImportController.isNull()) throw new Error('Wait for the current NAM import to finish.');
@@ -803,6 +1285,8 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
       const name = this.previewName(transfer);
       if (!name) return false;
       profiles[transfer.slot] = name;
+      slotsChanged([transfer.slot]);
+      slotLedger?.imported(transfer.slot);
       renderProfiles();
       if (hasActiveModel()) rebuildModelMenu(activeModel);
       return true;
@@ -811,8 +1295,30 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
     selectProfile(transfer) {
       return !!this.previewName(transfer) && setModelSlot(transfer.slot);
     },
+    canClearPreview(transfer) {
+      return !!transfer && !!this.previewName(transfer) && previewSlotUnused(readCurrentPreset(), transfer.slot);
+    },
+    previewUse(transfer) {
+      // Whether the current preset references this session's preview slot: 'unused' (safe to
+      // clear), 'used', or 'unknown' when the slot is not ours by name or the preset cannot be
+      // read right now (busy, changing, or a shape presetIrSlots does not support).
+      if (!transfer || !this.previewName(transfer)) return 'unknown';
+      const preset = readCurrentPreset();
+      if (!(preset?.slots instanceof Set)) return 'unknown';
+      return preset.slots.has(transfer.slot) ? 'used' : 'unused';
+    },
+    releaseLeftoverPreview(name) {
+      // A preview left in User IR 128 by a session that ended without cleanup, known only by
+      // its slot name. Cleared once the current preset no longer references the slot.
+      // 'gone': 128 no longer holds it; 'used' / 'unknown': not yet; 'cleared': clear submitted.
+      if (typeof name !== 'string' || !name || this.slotName(AUDITION_SLOT) !== name) return 'gone';
+      const preset = readCurrentPreset();
+      if (!(preset?.slots instanceof Set)) return 'unknown';
+      if (preset.slots.has(AUDITION_SLOT)) return 'used';
+      return this.clearSlot(AUDITION_SLOT) ? 'cleared' : 'unknown';
+    },
     clearPreview(transfer) {
-      return !!this.previewName(transfer) && this.clearSlot(transfer.slot);
+      return this.canClearPreview(transfer) && this.clearSlot(transfer.slot);
     },
     slotName(slot) {
       const list = irList();
@@ -823,6 +1329,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
       return this.previewSlotEmpty({ controller: irController, slot });
     },
     auditionSlot() {
+      if (profile.strictPreview) return this.slotEmpty(AUDITION_SLOT) ? AUDITION_SLOT : 0;
       // 128 when free (imports leave it), else the highest free slot; 0 when every slot is taken
       for (let slot = AUDITION_SLOT; slot >= 1; slot--) if (this.slotEmpty(slot)) return slot;
       return 0;
@@ -867,6 +1374,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}) {
       return !row.isNull() && !row.add(0x10c).readU32();
     },
     trackImport(first, count, imported) {
+      slotsChanged(Array.from({length: count}, (_, index) => first + index));
       for (let slot = first; slot < first + count; slot++) pending.delete(slot);
       for (const [slot, name] of Object.entries(imported)) pending.set(Number(slot), name);
     },

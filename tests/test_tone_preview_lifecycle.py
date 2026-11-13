@@ -3,7 +3,7 @@ from threading import Event
 import unittest
 from unittest.mock import Mock
 
-from tone_preview import TonePreview
+from tone_preview import ToneError, TonePreview
 
 
 class TonePreviewLifecycleTests(unittest.TestCase):
@@ -39,7 +39,7 @@ class TonePreviewLifecycleTests(unittest.TestCase):
         self.entered[session].set()
         self.wait(self.release[session], 'browse')
 
-    def command(self, session, action):
+    def command(self, session, action, **values):
         if session == 1:
             self.close_entered.set()
             self.wait(self.close_release, 'close')
@@ -80,7 +80,7 @@ class TonePreviewLifecycleTests(unittest.TestCase):
         self.assertTrue(self.entered[1].wait(2))
         self.release[1].set()
         self.assertTrue(self.notice_entered.wait(2))
-        self.preview.command.assert_called_once_with(1, 'close')
+        self.preview.command.assert_called_once_with(1, 'close', reason='helper-disconnected')
 
         # The notice is deliberately still blocked when a new toneStart arrives.
         second = self.start(2)
@@ -124,9 +124,34 @@ class TonePreviewLifecycleTests(unittest.TestCase):
         self.preview.receive({'type': 'toneDismiss', 'session': 2})
         browser.actions.put.assert_not_called()
         self.preview.receive({'type': 'toneDismiss', 'session': 1})
-        browser.actions.put.assert_called_once_with('cancel')
+        browser.actions.put.assert_called_once_with({'close':'selection-changed'})
         self.release[1].set()
         first.join(timeout=2)
+
+    def test_a_session_hx_edit_still_holds_is_released_when_it_has_no_worker_here(self):
+        # Browse TONE3000 (toneFocus) or a sidebar action for a session whose worker has gone used to
+        # be dropped, so the button did nothing until HX Edit restarted.
+        self.preview.receive({'type': 'toneFocus', 'session': 1})
+        self.script.post.assert_called_once_with({'type': 'toneAbandon', 'payload': {'session': 1}})
+        self.script.post.reset_mock()
+        self.with_notice = False
+        first = self.start(1)
+        self.assertTrue(self.entered[1].wait(2))
+        self.preview.receive({'type': 'toneFocus', 'session': 1})      # the running session: only focus
+        self.preview.receive({'type': 'toneAction', 'session': 1, 'action': 'use:x'})
+        self.script.post.assert_not_called()
+        self.preview.receive({'type': 'toneAction', 'session': 9, 'action': 'use:x'})
+        self.script.post.assert_called_once_with({'type': 'toneAbandon', 'payload': {'session': 9}})
+        self.release[1].set()
+        first.join(timeout=2)
+
+    def test_an_unconfirmed_close_releases_the_session_in_hx_edit(self):
+        self.preview.command = Mock(side_effect=ToneError('HX Edit did not confirm the operation.'))
+        self.start(1)
+        self.assertTrue(self.entered[1].wait(2))
+        self.release[1].set()
+        self.assertTrue(self.notice_entered.wait(2))
+        self.script.post.assert_called_once_with({'type': 'toneAbandon', 'payload': {'session': 1}})
 
     def test_normal_close_without_notice_can_reopen(self):
         self.with_notice = False

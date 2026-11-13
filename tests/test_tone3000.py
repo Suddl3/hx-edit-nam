@@ -258,6 +258,24 @@ class ToneTests(unittest.TestCase):
                     prepare_model(model, 'test-token', folder, CONVERTER)
                     self.assertEqual(convert.call_args.args[0][0].stem, expected)
 
+    def test_the_kept_original_is_found_again_from_the_converted_profile_name(self):
+        # convert_batch renames brackets for HX Edit's import. Keep on PC looks the original up from
+        # the converted file's name, so the original is stored under that same name.
+        from nam_convert import import_name
+        model = dict(id=42, name='JCM800 [SM57] {dark}', model_url=f'{API}/models/42/download')
+
+        def convert(files, workspace, _converter):
+            out = Path(workspace, import_name(Path(files[0])))
+            out.write_bytes(b'wav')
+            return [str(out)]
+
+        with tempfile.TemporaryDirectory() as folder, patch('tone3000.read_url', return_value=b'capture'), \
+                patch('tone3000.convert_batch', side_effect=convert):
+            converted = Path(prepare_model(model, 'test-token', folder, CONVERTER))
+            self.assertEqual(converted.stem, 'JCM800 (SM57) (dark) 42')
+            kept = Path(folder, 'captures', converted.stem + '.nam')   # tone_preview's lookup
+            self.assertEqual(kept.read_bytes(), b'capture')
+
     def test_a_converted_mode_keeps_the_id_last_and_its_tag_before_it(self):
         model = dict(id=123456789, name='A' * 40, model_url=f'{API}/models/123456789/download')
         with tempfile.TemporaryDirectory() as folder, patch('tone3000.read_url', return_value=b'capture'), \

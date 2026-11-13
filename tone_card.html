@@ -3,7 +3,7 @@
 <meta charset="utf-8">
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
-<title>TONE3000 audition</title>
+<title>TONE3000 preview</title>
 <style>
   :root { color-scheme: dark; font: 14px 'Segoe UI', sans-serif; background: #171717; color: #f0f0f0; }
   body { margin: 0; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
@@ -23,6 +23,9 @@
   footer { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px;
     padding: 5px 12px; border-top: 1px solid #404040; background: #232323; }
   #status { flex: 1; min-width: 80px; }
+  .group { display: flex; align-items: center; gap: 6px; }
+  .go button { background: transparent; border-color: #454545; color: #c7c7c7; }
+  .keepers { padding: 3px 6px; border: 1px solid #5a3b3b; border-radius: 6px; background: #2b2222; }
   #target { padding: 2px 8px; border: 1px solid #b54545; border-radius: 10px; color: #fff; white-space: nowrap; }
   .destination { display: flex; align-items: center; gap: 6px; }
   #save:enabled { background: #862829; border-color: #b54545; }
@@ -51,21 +54,31 @@
 </main>
 <footer>
   <span id="target" title="The NAM block this pane loads into and how the profile is converted" hidden></span>
+  <!-- Where to look: quieter buttons, kept apart from what happens to the capture. -->
+  <div class="group go">
+    <button id="source" title="Open this tone's page on TONE3000" $hidden>View on TONE3000</button>
+    <button id="back" hidden>Browse TONE3000</button>
+    <button id="retry" hidden>Browse TONE3000</button>
+    <button id="library" title="Your kept captures, in a larger view than the NAM tab" $library>NAM library</button>
+  </div>
   <p id="status" role="status"></p>
-  <button id="source" $hidden>View on TONE3000</button>
-  <button id="back" hidden>Back to catalog</button>
-  <button id="retry" hidden>Browse again</button>
-  <button id="library" $library>Library</button>
-  <button id="keep" hidden>Add to library</button>
+  <!-- Shown only while this tone is not the one playing: selected without a NAM block, or after its preview ended. -->
+  <button id="auditionSelected" title="Temporarily preview this capture on the selected NAM block" hidden>Preview</button>
   <div class="destination" id="replaceBox" hidden>
     <select id="replace" aria-label="User IR slot to replace"></select>
     <button id="replaceGo" title="Deletes the profile in that slot and auditions this one there">Replace</button>
   </div>
-  <div class="destination" hidden>
-    <select id="destination" aria-label="Free User IR slot"></select>
-    <button id="save">Save to Helix</button>
+  <!-- The two ways to keep what is playing, side by side: both save it to this PC, the second
+       also puts it on the Floor. The slot is always the lowest free one; the owner found a slot
+       picker beside an automatic choice confusing, and its list was cut off by the window. -->
+  <div class="group keepers" id="keepers" hidden>
+    <button id="keep" title="Save this capture to your NAM library on this PC without installing a permanent Floor copy. Nothing changes on the Floor." hidden>Save to PC</button>
+    <div class="destination" hidden>
+      <select id="destination" aria-label="Free User IR slot"></select>
+      <button id="save" title="Save it to this PC, install it in the lowest free User IR slot on the Floor and use it on this block; preset Save is separate.">Save to PC + Floor</button>
+    </div>
   </div>
-  <button id="finish">Close</button>
+  <button id="finish" title="End the preview, put the original capture back on the block and close this pane">Close</button>
 </footer>
 <script>
   const model = document.querySelector('#model');
@@ -87,6 +100,8 @@
   const keep = document.querySelector('#keep');
   document.querySelector('#library').onclick = () => host.postMessage('library');
   keep.onclick = () => host.postMessage('keep:' + trial);
+  const auditionSelected = document.querySelector('#auditionSelected');
+  auditionSelected.onclick = () => host.postMessage('auditionSelected');
   save.onclick = () => host.postMessage('save:' + trial + ':' + destination.value);
   // Every User IR slot taken: pick one to replace with the audition (128 first, the old audition slot).
   const replace = document.querySelector('#replace');
@@ -104,7 +119,11 @@
     status.textContent = status.title = data.text || '';
     const target = document.querySelector('#target');
     target.textContent = data.target || '';
-    target.hidden = !data.target;
+    target.hidden = !data.target || !!data.navigation;
+    // A tone that is already playing needs no Preview button: data.trial is set for as long
+    // as this pane's preview is on the block. Nor does one that was just loaded on the Floor.
+    auditionSelected.hidden = !data.navigation || !hasTone || data.trial != null || !!data.installed;
+    auditionSelected.disabled = !!data.busy || !data.can_audition;
     showReplace(data);
     source.hidden = !hasTone || data.viewing_source;
     back.hidden = !data.viewing_source;
@@ -114,10 +133,18 @@
     const previous = destination.value;
     destination.replaceChildren(...slots.map(slot => new Option('User IR ' + slot, slot)));
     if (slots.includes(Number(previous))) destination.value = previous;
+    // In the Floor workflow the capture always goes to the lowest free slot, as in the NAM tab.
+    destination.hidden = !!data.navigation;
+    if (data.navigation && slots.length) {
+      destination.value = Math.min(...slots);
+      save.title = save.title.replace(/in (the lowest free User IR slot|User IR \d+ \(the lowest free slot\))/,
+        'in User IR ' + destination.value + ' (the lowest free slot)');
+    }
     destination.parentElement.hidden = trial == null;
     keep.hidden = trial == null || !data.keep;
     keep.disabled = !!data.busy;
-    destination.disabled = save.disabled = !!data.busy || !slots.length;
+    document.querySelector('#keepers').hidden = trial == null;
+    destination.disabled = save.disabled = !!data.busy || !slots.length || (data.navigation && !data.can_audition);
   };
   host?.addEventListener?.('message', ({data}) => window.hxToneStatus(data));
 </script>

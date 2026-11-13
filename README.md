@@ -1,181 +1,24 @@
-# HX Edit NAM
+# HX Edit NAM — HX Unbound Floor companion
 
-HX Edit NAM — редактор для прошивок с NAM из [helix-lt-nam](https://github.com/andreidevs/helix-lt-nam). Без него штатный HX Edit не знает блоков NAM и неверно считает загрузку DSP. [Как устроены NAM Pedal и облегчённые захваты](https://github.com/andreidevs/helix-lt-nam/blob/dev/docs/light-nam.ru.md)
+The maintained Floor-focused editor is [Suddl3/hx-edit-nam](https://github.com/Suddl3/hx-edit-nam/tree/floor), paired with [HX Unbound Floor firmware](https://github.com/Suddl3/hx-unbound-floor).
 
-Проект использует локальную копию оригинального HX Edit 3.82 и ресурсов Line 6. Версия для Windows проверяет SHA-256 оригинального `HX Edit.exe` при запуске, версия для macOS сверяет Mach-O при сборке. Инсталляторы и рабочие копии хранятся локально.
+**This is the `floor-navigation` branch: newer than the `floor` source preview, and still a test build.** It adds the Browse TONE3000 banner button, the rich NAM tab, previews on User IR 128 that put the original capture back, and remembered slots. It has been exercised on one Helix Floor by one maintainer; see [what has and has not been tested](FLOOR-WORKFLOW.md#status-november-13).
 
-## Готовая сборка для macOS на Apple Silicon
+## Start here
 
-Распакуйте macOS ARM64 ZIP из [релизов](https://github.com/andreidevs/hx-edit-nam/releases), закройте штатный HX Edit и откройте **HX Edit NAM.app**. Лаунчер подготовит рабочую копию из установленного `/Applications/Line6/HX Edit.app` или из официального `~/Downloads/HXEdit.dmg`. Нужна версия Line 6 HX Edit 3.82 и устройство с подходящей NAM-прошивкой из раздела «HX Edit с NAM». [Line 6 HX Edit 3.82](https://line6.com/software/readeula.html?rid=12926)
+- [Product vision and feature roadmap](PRODUCT-VISION.md): the shared product goals and current status.
+- [Setup and launch](FLOOR-SETUP.md#the-navigation-branch): how to run this branch from source.
+- [Workflow contract and test status](FLOOR-WORKFLOW.md): what each action does, what has run on a Floor, and what is still to test.
+- [Firmware/editor compatibility](https://github.com/Suddl3/hx-unbound-floor/blob/main/EDITOR.md): supported model and parameter contract.
 
-Для другого пути запустите `open 'HX Edit NAM.app' --args --hx-edit-source '/путь/к/HXEdit.dmg'`. Можно указать `.app`, `.pkg` или `.dmg`. Приложение подписано локальной подписью ad hoc. На первом запуске macOS может попросить подтверждение в настройках безопасности. [Справка Apple](https://support.apple.com/ru-ru/102445)
+Our fork controls the Floor workflow. Useful upstream improvements are reviewed and selectively integrated, with attribution retained and reusable fixes offered back. `origin` is our repository; `upstream` is andreidevs/hx-edit-nam. No automatic upstream merge is configured.
 
-В версии для macOS есть **NAM A2 Lite**, вкладка **NAM**, фильтр профилей в меню **Model**, импорт `.nam` и встроенный каталог **TONE3000** на WebKit.
+## Current milestone
 
-## Сборка для macOS из исходников
+One NAM collection across the NAM tab and its expanded view, full HX Edit controls, and consistent TONE3000 browsing, preview and save actions. Next: a NAM category in the block selector, then storage and DSP display.
 
-Для сборки нужны `uv`, Git, инструменты командной строки Xcode и Python 3.11 или новее.
+Volume leveling remains an isolated offline prototype; it is not live preset normalization. Optional optimization and new runtime models require separately verified Floor compatibility. Read PRODUCT-VISION.md before broadening scope.
 
-```sh
-python3 -B build-macos.py --release-version v0.3.0
-# Или соберите локальное приложение с рабочей копией HX Edit внутри.
-python3 -B build-macos.py ~/Downloads/HXEdit.dmg
-```
+## Attribution
 
-Готовые файлы лежат в `build`. В обе сборки входят Python, [Frida 17.5.2](https://github.com/frida/frida/tree/17.5.2) и конвертер NAM. Релизный ZIP берёт оригинальные файлы HX Edit при запуске с компьютера пользователя.
-
-## Готовая сборка для Windows
-
-Скачайте Windows x64 ZIP из релиза v0.6.0, распакуйте всю папку и запустите **HX Edit NAM.exe**. В архиве есть Python с torch для обучения, конвертеры NAM и педалей и скомпилированная панель TONE3000. Лаунчер подготовит рабочую копию из установленного HX Edit 3.82. Для другой папки установки задайте переменную `HX_EDIT_SOURCE_DIRECTORY`. [Релиз v0.6.0](https://github.com/andreidevs/hx-edit-nam/releases/tag/v0.6.0)
-
-На компьютере нужны установленный HX Edit 3.82 с драйверами Line 6 и устройство с подходящей NAM-прошивкой. Для каталога TONE3000 также нужны WebView2 Runtime и ваш ключ `T3K_PUBLISHABLE_KEY`. Для настройки ключа используйте раздел TONE3000 ниже.
-
-## HX Edit с NAM
-
-Сборки из текущих исходников поддерживают **Helix LT** с `helix-lt-nam` и **Helix Floor** с `helix-floor-nam-lite`. Обе прошивки основаны на версии 3.80.0 и используют один формат профилей, поэтому для Floor подходит тот же конвертер `helix-lt-nam/tools/nam2ir.py`. [NAM-прошивка для Helix Floor](https://github.com/savedadodo/helix-floor-nam-lite)
-
-Для запуска из исходников нужны Python 3.10 или новее и соседние каталоги `hx-edit-nam` и `helix-lt-nam`. Лаунчер использует подготовленную локальную копию HX Edit 3.82 или его установленную версию.
-
-```powershell
-python -m pip install frida==17.5.2 msgpack==1.2.4
-python .\start-hx-edit-nam.pyw
-```
-
-Закройте открытый HX Edit перед запуском. Можно также открыть `start-hx-edit-nam.pyw` двойным щелчком. Лаунчер готовит рабочую копию в `build`, включает каталог NAM и обслуживает конвертер, пока редактор открыт. Windows x64 ZIP собирается командой `python -B build-windows.py v0.6.0`.
-
-**NAM** и кабинетные IR используют общие 128 слотов User IR. Вкладка **IRs** показывает физические слоты, а **NAM** и меню **Model** показывают только распознанные профили A2 Lite с их реальными номерами.
-
-- **Import** во вкладке **NAM** принимает `.nam` и готовые NAM-профили в `.wav`. Редактор ищет первый подходящий ряд свободных слотов. Для выбора конкретного слота используйте **IRs → Import** или перетащите файлы `.nam` из Проводника на нужную строку списка **IRs**. Перед отпусканием редактор конвертирует их, поэтому курсор может на пару секунд задержаться. Диалог и перетаскивание также принимают кабинетные `.wav` и `.hir`.
-- **Copy** и **Paste** создают копию выбранного профиля в первом свободном слоте. **Export** сохраняет профиль как `.wav` для повторного импорта. **Clear** освобождает выбранный слот после подтверждения.
-- **Clear** во вкладках **NAM** и **IRs** не удаляет слот, который использует текущий пресет. Если пресет ещё загружается или редактор не смог его прочитать, очистка тоже отменяется. Проверяется только текущий пресет, а не все сохранённые.
-- Пробы TONE3000 занимают свободный слот User IR: сначала 128 (импорт и **Paste** используют 1–127 и его не трогают), иначе самый верхний свободный. Если свободных нет, панель предлагает выбрать слот на замену: его профиль удаляется, и проба идёт туда.
-- В пресете выберите **Amp → NAM → NAM A2 Lite**, затем щёлкните по профилю во вкладке **NAM** или выберите его в меню **Model**.
-- На Windows вкладка **NAM** стоит перед **Favorites**. Границу между библиотекой и редактором можно перетащить мышью: ширина от 220 до 600 пикселей сохраняется в `%LOCALAPPDATA%\HX Edit NAM\settings.json`.
-
-Редактор проверяет все слоты пакета до записи. Занятый слот останавливает импорт целиком. Встроенный конвертер использует `helix-lt-nam/tools/nam2ir.py` и поддерживает A2 Lite с тремя каналами и 48 кГц, в том числе внутри SlimmableContainer. После перестановки профилей через **IRs** перезапустите редактор, чтобы заново сверить библиотеку NAM с устройством.
-
-### Четыре блока NAM (прошивка NAM4_LAYERS)
-
-Прошивка Helix LT, собранная `helix-lt-nam/helix-lt/lt_port.py --layers`, добавляет к **NAM A2 Lite** блоки **NAM Lite 20**, **NAM Lite 16** и **NAM Lite 14**, у каждого своя цена в DSP. HX Edit сам считает загрузку DSP по своему каталогу, поэтому должен знать эти блоки: иначе он не даёт поставить блоки, которые на самом деле помещаются. Включите их один раз и перезапустите HX Edit NAM:
-
-```powershell
-setx HX_EDIT_NAM_LAYERS 1
-```
-
-Или добавьте `"namLayers": true` в `%LOCALAPPDATA%\HX Edit NAM\settings.json`. Каталог получает ID пресетов `382`, `516` и `572` с загрузкой 33,0%, 29,5% и 27,7%, а NAM A2 Lite — 36,5%, как в этой прошивке. С прошивкой, где есть только NAM A2 Lite, настройку не включайте.
-
-### Блок NAM Pedal (прошивка NAM5_PEDAL)
-
-Прошивка, собранная `lt_port.py --pedal`, добавляет к четырём блокам пятый, **NAM Pedal**: 850 единиц из 9000, по замеру на Helix LT 7,7% DSP ([как устроен блок и конвертер](https://github.com/andreidevs/helix-lt-nam/blob/dev/docs/light-nam.ru.md)). Он играет не нейросеть, а педальную модель: компактную схему из четырёх фильтров и трёх кривых, подогнанную под захват педали за ~25 секунд (`helix-lt-nam/tools/nam_pedal.py`: синтетическая гитара и живая игра из стандартного реамп-файла NAM, затем сверка АЧХ с захватом). Для перегрузов, дисторшнов и фузов; для захватов усилителя с кабинетом берите блоки NAM (на AC30 педальная схема ошибается на 10–18%). Прошивку HX Edit NAM спрашивает при запуске (см. ниже); вместо этого можно включить блок вручную и перезапустить HX Edit NAM:
-
-```powershell
-setx HX_EDIT_NAM_PEDAL 1
-```
-
-Или `"namPedal": true` в `settings.json`. Каталог получает ID `768` с загрузкой 8,5% (замер на LT: 7,7% вызова DSP, 8,2% у 99% вызовов). Педальная модель — такой же `.wav` в слоте User IR, как профиль NAM: она видна во вкладке **NAM** и в меню **Model**, импортируется и перетаскивается так же. Блоки NAM её не играют, а NAM Pedal не играет обычные захваты: в чужом блоке слот молчит.
-
-### Какая прошивка стоит
-
-При запуске HX Edit NAM спрашивает, какая прошивка NAM стоит на приборе: **NAM5_PEDAL** (пять блоков), **NAM4_LAYERS** (четыре) или прошивка с одним NAM A2 Lite. Enter выбирает прошлый ответ, Cancel оставляет его. От ответа зависят блоки NAM в каталоге HX Edit и режимы импорта; он хранится в `settings.json` (`namPedal`, `namLayers`). С `--hx-nam` (HX Stomp, HX Effects) вопроса нет.
-
-### Импорт с выбором режима
-
-С прошивкой NAM4_LAYERS или NAM5_PEDAL кнопка **Import** (вкладки **NAM** и **IRs**) перед импортом `.nam` спрашивает, в каком виде отправить захваты:
-
-| Режим | Время | Блок | Ошибка на Benson Preamp |
-| --- | --- | --- | --- |
-| Как есть | сразу | NAM A2 Lite | исходная |
-| Педаль (только NAM5_PEDAL) | ~25 с | NAM Pedal | 0,4–1,7% (13 педалей TONE3000: 0,4–6%) |
-| 16 слоёв · быстро | ~2 мин | NAM Lite 16 | 0,54% |
-| 16 слоёв · качество | ~6 мин | NAM Lite 16 | 0,36% |
-| 14 слоёв · качество | ~5 мин | NAM Lite 14 | 0,60% |
-
-Обучение идёт с окном прогресса и кнопкой **Cancel**, после него HX Edit импортирует результат. 14 слоёв в быстром режиме нет: на верхах он терял 8–11 дБ. Перетаскивание `.nam` на список **IRs** импортирует захват как есть. В TONE3000 конвертацию задаёт плитка, из которой открыт каталог (раздел TONE3000 ниже): у плитки с несколькими режимами выбор спрашивается один раз на звук (смена модели внутри звука его не спрашивает). **Audition** и **Save to Helix** используют выбранную конвертацию; в имени профиля перед ID TONE3000 стоит метка режима (`PED`, `L16`, `L14`). Результаты конвертации сохраняются в `%LOCALAPPDATA%\HX Edit NAM\Converted`: тот же захват в том же режиме (из импорта, TONE3000 или библиотеки) второй раз берётся оттуда сразу, без обучения. После обновления конвертера удалите эту папку. Для обучения нужен Python с `torch` и `neural-amp-modeler` (см. **Lighter…** ниже).
-
-### Экспериментальный режим HX Stomp и HX Effects
-
-Подключите только выбранное устройство с прошивкой `hx-stomp-nam-lite` 3.80.0, в которой NAM A2 Lite занимает ID `555`. На этой прошивке NAM занимает место Xenomorph Fuzz Mono. Флаг `--hx-nam` подтверждает, что вы запускаете редактор с этой версией NAM. Перезапустите редактор перед переключением устройства. [Прошивка и запуск Stomp из RAM](https://github.com/nocaseguy/hx-stomp-nam-lite#supported-devices)
-
-| Устройство | Аргументы запуска | NAM A2 Lite и TONE3000 |
-| --- | --- | --- |
-| HX Stomp | `--hx-nam stomp` | **Amp → NAM** |
-| HX Effects | `--hx-nam effects` | **Distortion → Mono** |
-
-На Windows передайте аргументы в `python .\start-hx-edit-nam.pyw` или в `HX Edit NAM.exe` из сборки с этой функцией. На macOS запустите `open 'HX Edit NAM.app' --args --hx-nam stomp` или укажите `effects`. В меню **Model** доступны слоты User IR 1–128. Пресеты со старыми ID блока NAM используют другую версию прошивки. [История ID блока](https://github.com/nocaseguy/hx-stomp-nam-lite#whats-new)
-
-### Свои названия штатных моделей
-
-Если прошивка отображает другие названия штатных моделей, их можно задать и в HX Edit. Сохраните UTF-8 файл `custom-names.csv` с колонками `internal` (символ модели) и `real_name` (название для отображения). Например, строка `HD2_DistScream808,Мой овердрайв` задаёт одно имя для общей записи Mono и Stereo.
-
-На Windows положите CSV в корень репозитория при запуске из исходников или в папку `app` распакованной сборки. На macOS используйте `~/Library/Application Support/HX Edit NAM/custom-names.csv`. На обеих платформах можно указать другой файл через `HX_EDIT_NAM_NAMES`. Перезапустите редактор после изменения CSV. Настройка меняет только отображаемые имена в редакторе.
-
-## TONE3000
-
-Скопируйте **Publishable Key** (`t3k_pub_…`) в настройках TONE3000. На macOS сохраните его одной строкой в файле `~/Library/Application Support/HX Edit NAM/tone3000-publishable-key`. При запуске из терминала также можно задать `T3K_PUBLISHABLE_KEY`. [Настройка ключа TONE3000](https://www.tone3000.com/api#authentication)
-
-На Windows задайте пользовательскую переменную `T3K_PUBLISHABLE_KEY`. Встроенному браузеру нужен Microsoft Edge WebView2 Runtime. При запуске из исходников панель собирается при первом открытии каталога с помощью SDK WebView2 из NuGet.
-
-```powershell
-$env:T3K_PUBLISHABLE_KEY = 't3k_pub_...'
-python .\start-hx-edit-nam.pyw
-```
-
-1. Выберите позицию в цепочке и откройте **Amp → NAM → TONE3000**. В правой панели HX Edit войдите в TONE3000 и выберите тон. Вход сохраняется в профиле встроенного браузера HX Edit NAM.
-
-   С прошивкой с несколькими NAM-блоками в списке есть плитка TONE3000 на каждый блок: **TONE3000 A2** (NAM A2 Lite, как есть), **TONE3000 Lite 16** и **TONE3000 Lite 14** (обучение облегчённой копии), **TONE3000 Pedal** (NAM Pedal, ~25 с). Плитка — копия строки своего блока, поэтому HX Edit делает её серой, когда этот блок не помещается в DSP. Проба переключает блок на модель плитки, **Close** возвращает прежнюю. Если при открытом каталоге выбрать в списке другую модель или плитку, каталог закрывается, проба отменяется и выбирается то, что вы нажали.
-2. После **Select Tone** первый вариант автоматически загружается в выбранный блок, а каталог открывается снова в той же панели. Продолжайте выбирать усилители и педали или переключайте варианты в карточке под каталогом. **View on TONE3000** открывает страницу тона, **Back to catalog** возвращает к выбору. Для пробы нужен профиль, совместимый с блоком плитки.
-3. Проба идёт в свободный слот User IR, обычно 128 (см. выше). Выберите другую свободную ячейку рядом с **Save to Helix** и нажмите эту кнопку, чтобы сохранить копию в **NAM** и переключить блок на неё. Каталог остаётся открытым для следующей пробы. **Close** возвращает параметры **NAM A2 Lite** и отменяет несохранённую пробу. Штатная **Save** сохраняет пресет. При потере связи или изменении пресета редактор сообщит номер слота, который нужно проверить.
-
-### Библиотека NAM на компьютере
-
-На Windows кнопка **Library** в панели TONE3000 открывает библиотеку капчеров на этом компьютере. В неё попадают `.nam`, импортированные через HX Edit NAM, и профили TONE3000 после **Save to Helix** или **Add to library**. В библиотеке есть поиск, сортировка по столбцам, фильтр по типу (усилитель, усилитель с кабинетом, педаль, внешний прибор), ручная смена типа и дата добавления. **Audition** пробует капчер в свободном слоте, **Save to Helix** сохраняет его в свободный слот, **TONE3000** возвращает к каталогу. Библиотека работает и без ключа TONE3000.
-
-**Lighter…** в библиотеке обучает облегчённую копию выбранного капчера: 23, 20, 16 или 14 слоёв A2 Lite (доля DSP Helix LT для одного блока, замер на прошивке NAM4_LAYERS: ~36%, ~33%, ~29%, ~28%) и длительность Quick, Standard или Deep. Капчер должен содержать большую модель, например A2 с TONE3000 (Full + Lite) или стандартный WaveNet. Панель показывает ход обучения и ошибку ESR полной A2 Lite и результата, **Cancel** останавливает обучение. **Pedal · fast** запускает облегчение педали одним щелчком: 16 слоёв, Quick, меньше двух минут на ноутбучном процессоре (захват Benson Preamp G8: ошибка 0,54% против 0,41% у полной A2 Lite), результат ставится в блок NAM Lite 16. 14 слоёв в режиме Quick не успевают выучить верха (−8…−11 дБ выше 6 кГц на том же захвате): для NAM Lite 14 берите Standard. Результат появляется в библиотеке как `<имя> [N layers]`, его можно прослушать через **Audition** или записать через **Save to Helix**. Конвертер записывает число слоёв в профиль, а экономия DSP требует прошивки, которая пропускает неиспользуемые слои: на Helix LT это NAM4_LAYERS, где облегчённый капчер ставится в блок NAM Lite своего размера. Для обучения нужен Python с `torch` и `neural-amp-modeler`: `helix-lt-nam\.venv` из раздела NAM Studio или путь к `python.exe` в переменной `HX_EDIT_NAM_TRAIN_PYTHON`. Без них панель сообщит, что установить.
-
-Файлы и `catalog.json` лежат в `%LOCALAPPDATA%\HX Edit NAM\NAM Library`. Скопируйте эту папку, чтобы перенести библиотеку на другой компьютер.
-
-При сохранении профиль получает имя и ID модели TONE3000 в конце. Если имя длинное, редактор сокращает его, чтобы вместить ID в лимит User IR в 31 символ.
-
-Powered by [TONE3000](https://www.tone3000.com/).
-
-## Подготовка исходной копии
-
-Выполните команды в PowerShell из корня репозитория.
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\prepare-hx-edit.ps1
-& '.\build\HX Edit\HX Edit.exe'
-```
-
-Скрипт по умолчанию читает `C:\Program Files (x86)\Line6\HX Edit`. Если приложение установлено в другой папке, передайте её через `-SourceDirectory`. При повторном запуске скрипт сохраняет существующую копию. Запускайте по одному экземпляру редактора. Оба используют настройки `%APPDATA%\Line 6\HX Edit\HX Edit.prefs`.
-
-## Проверки
-
-- Сверено 590 файлов. Оригинал и копия открывают окно `HX Edit - (No device connected)` и отвечают на сообщения Windows.
-- С подключённым Helix LT оба экземпляра по очереди открыли окно `HX Edit - Helix LT`. Для копии подтверждены путь запущенного файла и завершённые чтения и передачи через WinUSB.
-- REA распознал оригинальный `HX Edit.exe` как PE32 x86. Трассировка REA через Frida подтвердила, что копия открывает `HX_ModelCatalog.bin`, `HelixModelDefs.bin`, `Helix.sym`, `main.xml`, `librarian.xml` и `editor.xml` из своей папки `res`.
-- `HX_ModelCatalog.bin` и `HelixModelDefs.bin` декодируются как MessagePack со строками, оканчивающимися нулевым байтом. Символа `HD2_AmpNAMLite` в этих ресурсах нет. Чтение `HX_ModelCatalog.json` при запуске не наблюдалось.
-- На Helix LT с `helix-lt-nam` редактор прочитал NAM A2 Lite из существующего пресета и импортировал `.nam` в User IR 16. Вкладка NAM и меню Model показали четыре распознанных слота (16, 85, 86 и 87). В меню выбран слот 16, затем Undo вернул слот 85.
-- На подключённом Helix LT щелчок по строке NAM выбрал слот 16, а Undo вернул Model и выделение к слоту 85. Щелчок при выбранном Kinky Comp не менял Model.
-- При проверке TONE3000 пробные профили переиспользовали User IR 82. **Save to Helix** сохранила EVH 5150III Stealth Green в User IR 91. После перезапуска HX Edit и после выключения и включения самого Helix LT тестовый пресет **22A EVH 91 Test** загрузил этот профиль из слота 91.
-
-Автоматические проверки запускаются через `python -m unittest discover -s tests -v`.
-
-## NAM в Helix LT
-
-В `helix-lt-nam/helix-lt/build/Helix_LT_v3.80.0_NAM2_PERSONAL.hxf` с MD5 `8330973f8b445050b826c093eb4c48b4` запись `HD2_AmpNAMLite` имеет ID `380` в пресете и ID `863` в базе моделей прошивки. В штатном `Helix.sym` индекс `380` занят `HelixPlugin_AppDSPFlow1Input`.
-
-| Позиция | Имя в прошивке | Параметр | Тип | Диапазон | По умолчанию |
-| --- | --- | --- | --- | --- | --- |
-| 1 | `Index` | Model | целое | 1–128 | 1 |
-| 2 | `Drive` | Input | float | 0–1 | 0,5 |
-| 3 | `Bass` | Bass | float | 0–1 | 0,5 |
-| 4 | `Mid` | Mid | float | 0–1 | 0,5 |
-| 5 | `Treble` | Treble | float | 0–1 | 0,5 |
-| 6 | `Presence` | Presence | float | 0–1 | 0,5 |
-| 7 | `ChVol` | Ch Vol | float | 0–1 | 0,5 |
-| 8 | `Polarity` | Polarity | bool | Normal / Inverted | Normal |
-
-Прошивка берёт профиль из слота User IR, выбранного параметром Model. Конвертер упаковывает веса A2 Lite из `.nam` в `.wav` для загрузки в этот слот.
-
-Отдельная проверка переноса блока и полной перезаписи пресета на LT остаётся открытой. В `helix-lt-nam/docs/research/HX_EDIT_DROPS_NAM.md` зафиксировано, как штатный HX Edit на HX Stomp отправил команду `0x15` без NAM-блоков после переноса.
+This work builds on [andreidevs/hx-edit-nam](https://github.com/andreidevs/hx-edit-nam) and the NAM/converter projects it credits. The prior README is preserved in [README_UPSTREAM.md](README_UPSTREAM.md) as upstream reference, not the current Floor setup guide. This documentation change does not change licensing. Stock HX Edit, firmware, personal captures and credentials are not distributed here.

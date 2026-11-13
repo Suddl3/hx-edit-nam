@@ -14,6 +14,7 @@ from urllib.request import urlopen
 from zipfile import ZipFile
 
 from tone_browser import ROOT, SDK_ASSETS, browser_sdk, prepare_browser
+from nam_sidebar import prepare_sidebar
 
 
 PYTHON_VERSION = '3.13.17'
@@ -23,6 +24,11 @@ APP_FILES = (
     'start-hx-edit-nam.pyw', 'nam_catalog.py', 'nam_convert.py', 'nam_import.js', 'nam_inventory.py',
     'nam_view.js', 'nam_library.py', 'library_card.html', 'tone3000.py', 'tone_browser.py', 'tone_card.html',
     'tone_preview.py', 'tone_view.js', 'nam_light.py', 'nam_modes.py',
+    'floor_reference.py', 'floor_capture.py', 'nam_navigation.py',
+    'navigation_host.py', 'floor_inventory.py', 'device_connection_watch.py',
+    'library_slot_state.js', 'automatic_slot_discovery.js', 'native_export_observer.js',
+    'nav_resources.py', 'nav_banner.js', 'target_binding.js',
+    'nam_sidebar.py', 'nam_sidebar.js', 'NamLibrary.cs', 'floor_memory.py',
 )
 FIRMWARE_FILES = (
     'LICENSE', 'tools/nam2ir.py', 'tools/nam_refine.py', 'tools/nam_pedal.py', 'tools/nam_v3_input.wav', 'tools/hx_ctl.py', 'tools/hx_dfu_reboot.py',
@@ -71,6 +77,7 @@ def add_runtime(destination):
 def package_windows(version, worktree=False):
     build = ROOT / 'build'
     helper = prepare_browser()
+    sidebar = prepare_sidebar()
     package_name = f'HX-Edit-NAM-{version}-Windows-x64'
     with TemporaryDirectory(prefix='release-', dir=build) as folder:
         stage = Path(folder) / package_name
@@ -78,6 +85,8 @@ def package_windows(version, worktree=False):
         app.mkdir(parents=True)
         for name in APP_FILES:
             shutil.copyfile(ROOT / name, app / name)
+        shutil.copyfile(sidebar, app / sidebar.name)
+        shutil.copyfile(sidebar.with_suffix('.exe.sha256'), app / (sidebar.name + '.sha256'))
         shutil.copyfile(ROOT / 'README.md', stage / 'README.md')
         browser = app / 'build' / helper.parent.name
         browser.mkdir(parents=True)

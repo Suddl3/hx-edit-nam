@@ -106,12 +106,18 @@ def convert_batch(files, workspace, converter):
             # Use the same case-sensitive extension and UTF-8 mode as the firmware tools expect.
             capture = destination.with_suffix('.nam')
             shutil.copyfile(source, capture)
-            completed = subprocess.run(
-                [sys.executable, '-B', '-X', 'utf8', str(converter), str(capture), '-o', str(destination)],
-                capture_output=True, encoding='utf-8', errors='replace', timeout=30,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-            )
-            capture.unlink()
+            try:
+                completed = subprocess.run(
+                    [sys.executable, '-B', '-X', 'utf8', str(converter), str(capture), '-o', str(destination)],
+                    capture_output=True, encoding='utf-8', errors='replace', timeout=30,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+                )
+            except subprocess.TimeoutExpired:
+                # A ValueError like every other unsupported capture: callers report it for this one
+                # capture instead of ending the browser session or stopping the launch.
+                raise ValueError(f'{source.name}\n\nThe conversion did not finish in 30 seconds.') from None
+            finally:
+                capture.unlink(missing_ok=True)
             if completed.returncode:
                 errors = completed.stderr.strip().splitlines()
                 detail = errors[-1].replace(str(capture), source.name) if errors else 'Unsupported capture.'

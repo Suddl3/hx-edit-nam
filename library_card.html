@@ -20,12 +20,16 @@
   table { width: 100%; border-collapse: collapse; }
   th { position: sticky; top: 0; background: #1e1e1e; text-align: left; font-weight: 600; }
   th button { all: unset; cursor: pointer; display: block; padding: 5px 8px; }
+  th:nth-child(3) { min-width: 62px; white-space: nowrap; }
   td { padding: 3px 8px; border-bottom: 1px solid #262626; white-space: nowrap; }
   td.name { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; }
   tbody tr { cursor: pointer; }
   tbody tr:hover { background: #262626; }
   tbody tr[aria-selected="true"] { background: #4a2425; }
   td select { padding: 1px 4px; }
+  td.slots { color: #9edb9c; font-variant-numeric: tabular-nums; }
+  td.slots[data-state="refreshing"] { color: inherit; }
+  .slot-pending { color: #f2bc57; }
   .empty { padding: 16px 10px; color: #aaa; }
   #target { padding: 2px 8px; border: 1px solid #b54545; border-radius: 10px; color: #fff; white-space: nowrap; }
   #status { flex: 1; min-width: 80px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -40,14 +44,14 @@
 <header>
   <input id="search" type="search" placeholder="Search the library" aria-label="Search the library">
   <select id="filter" aria-label="Type"><option value="*">All types</option>$gears</select>
-  <button id="catalog">TONE3000</button>
 </header>
 <div class="rows">
   <table>
     <thead><tr>
       <th aria-sort="ascending"><button data-key="name">Name</button></th>
       <th><button data-key="gear">Type</button></th>
-      <th><button data-key="added">Added</button></th>
+      <th><button data-key="irSlots">IR slot</button></th>
+      <th><button data-key="added">Date</button></th>
     </tr></thead>
     <tbody></tbody>
   </table>
@@ -79,33 +83,36 @@
   <p id="status" role="status"></p>
   <button id="lighter" disabled>Lighter…</button>
   <button id="remove" disabled>Remove</button>
-  <button id="audition" disabled>Audition</button>
+  <button id="audition" disabled>Preview</button>
+  <button id="install" disabled>Load on Floor</button>
   <div class="destination" hidden>
     <select id="replace" aria-label="User IR slot to replace"></select>
     <button id="replaceGo" title="Deletes the profile in that slot and auditions this capture there">Replace</button>
   </div>
   <div class="destination" hidden>
     <select id="destination" aria-label="Free User IR slot"></select>
-    <button id="save">Save to Helix</button>
+    <button id="save">Load on Floor</button>
   </div>
+  <button id="catalog">Browse TONE3000</button>
   <button id="finish">Close</button>
 </footer>
 <template id="gears">$gears</template>
 <script>
   const rows = $rows;
+  const initialView = $view;
   const host = window.chrome?.webview;
   const q = selector => document.querySelector(selector);
   const body = q('tbody'), search = q('#search'), filter = q('#filter');
   const destination = q('#destination'), save = q('#save'), audition = q('#audition'), remove = q('#remove');
   let sort = { key: 'name', direction: 1 };
-  let selected = null, trial = null, busy = false, light = null, lightShown = false;
+  let selected = null, trial = null, busy = false, light = null, lightShown = false, canInstall = false, canTrain = true;
   const lighter = q('#lighter'), lightPanel = q('#light');
   const pct = value => value == null ? '—' : (100 * value).toFixed(2) + '%';
 
   function render() {
     const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
     const shown = rows.filter(row => (filter.value === '*' || row.gear === filter.value) &&
-      words.every(word => row.name.toLowerCase().includes(word)));
+      words.every(word => [row.name, row.gearLabel || row.gear, ...(row.aliases || [])].join(' ').toLowerCase().includes(word)));
     shown.sort((a, b) => sort.direction * String(a[sort.key]).localeCompare(String(b[sort.key]), undefined, { numeric: true }));
     body.replaceChildren(...shown.map(row => {
       const tr = document.createElement('tr');
@@ -120,15 +127,45 @@
       gear.onclick = event => event.stopPropagation();
       gear.onchange = () => { row.gear = gear.value; host.postMessage('gear:' + row.id + ':' + gear.value); render(); };
       tr.insertCell().append(gear);
+      const installed = tr.insertCell();
+      installed.className = 'slots';
+      installed.dataset.state = row.slotState || 'unverified';
+      const pendingSlots = row.pendingSlots || [];
+      const slotNumbers = [...new Set([...(row.irSlots || []), ...pendingSlots])].sort((a,b) => a-b);
+      for (const [index, slot] of slotNumbers.entries()) {
+        if (index) installed.append(document.createTextNode(', '));
+        const label = document.createElement('span');
+        label.textContent = slot;
+        if (pendingSlots.includes(slot)) {
+          label.className = 'slot-pending';
+          label.title = 'Loaded into User IR ' + slot + '; verifying capture content';
+        }
+        installed.append(label);
+      }
+      installed.title = row.slotState === 'refreshing' ? 'Previous verified slots; checking in the background' :
+        (row.irSlots?.length ? 'Capture content verified on this connection' :
+          row.slotState === 'verified' ? 'Not found in the verified slots' : 'Not verified on this connection');
       tr.insertCell().textContent = row.added;
-      tr.onclick = () => { selected = row.id; render(); };
-      tr.ondblclick = () => { selected = row.id; pick(); };
+      tr.onclick = () => { selected = row.id; render(); publishView(); };
+      tr.ondblclick = () => { selected = row.id; publishView(); pick(); };
       return tr;
     }));
-    q('.empty').hidden = rows.length > 0;
+    q('.empty').hidden = shown.length > 0;
+    q('.empty').textContent = rows.length ? 'No captures match this search or type.' :
+      'No captures kept on this PC. Browse TONE3000 and choose Save to PC, or import a NAM capture.';
     audition.disabled = busy || !selected;
+    const capture = rows.find(row => row.id === selected);
+    const verified = capture && ['verified', 'partial'].includes(capture.slotState) && capture.irSlots?.length;
+    q('#install').textContent = verified ? 'Use on Floor' : 'Load on Floor';
+    q('#install').disabled = busy || !canInstall || !capture || capture.slotState === 'refreshing' || !!capture.pendingSlots?.length;
+    q('#install').title = verified ? 'Use the content-verified installed capture on the selected NAM block' :
+      'Install in the lowest empty permanent IR slot and use it on the selected NAM block';
     remove.disabled = busy || !selected;
-    lighter.disabled = !selected || !!light?.running;
+    lighter.hidden = !canTrain;
+    if (!canTrain) lightPanel.hidden = true;
+    lighter.disabled = !canTrain || !selected || rows.find(row => row.id === selected)?.canTrain === false || !!light?.running;
+    lighter.title = rows.find(row => row.id === selected)?.canTrain === false ?
+      'This kept capture is a converted WAV. Its original .nam file is needed to train a lighter version.' : '';
     renderLight();
   }
 
@@ -154,15 +191,15 @@
     q('#lightInfo').textContent = info;
   }
 
-  lighter.onclick = () => { lightPanel.hidden = false; renderLight(); };
+  lighter.onclick = () => { if (canTrain) { lightPanel.hidden = false; renderLight(); } };
   q('#lightHide').onclick = () => { lightPanel.hidden = true; };
   q('#lightStart').onclick = () => {
-    if (selected) host.postMessage('light:' + selected + ':' + q('#layers').value + ':' + q('#quality').value);
+    if (canTrain && selected) host.postMessage('light:' + selected + ':' + q('#layers').value + ':' + q('#quality').value);
   };
   // A pedal capture in one click: 16 layers, Quick (Benson preamp G8: 0.54% error in 99 s on a laptop CPU;
   // 14 layers Quick was 1.6% and lost 8-11 dB above 6 kHz: too few steps for its highs)
   q('#lightPedal').onclick = () => {
-    if (!selected) return;
+    if (!canTrain || !selected) return;
     q('#layers').value = '16';
     q('#quality').value = 'quick';
     host.postMessage('light:' + selected + ':16:quick');
@@ -173,6 +210,23 @@
     if (!busy && selected) host.postMessage('pick:' + selected);
   }
 
+  function publishView() {
+    host?.postMessage('libraryView:' + JSON.stringify({selected, query: search.value,
+      filter: filter.value, sortKey: sort.key, sortDirection: sort.direction}));
+  }
+  function applyView(view) {
+    if (!view || typeof view !== 'object') return;
+    selected = view.selected || null;
+    search.value = typeof view.query === 'string' ? view.query : '';
+    filter.value = typeof view.filter === 'string' ? view.filter : '*';
+    if (['name','gear','irSlots','added'].includes(view.sortKey)) sort.key = view.sortKey;
+    if (view.sortDirection === -1 || view.sortDirection === 1) sort.direction = view.sortDirection;
+    for (const button of document.querySelectorAll('th button')) {
+      button.parentElement.removeAttribute('aria-sort');
+      if (button.dataset.key === sort.key) button.parentElement.setAttribute('aria-sort',sort.direction > 0 ? 'ascending' : 'descending');
+    }
+  }
+
   for (const button of document.querySelectorAll('th button')) {
     button.onclick = () => {
       const key = button.dataset.key;
@@ -180,10 +234,17 @@
       for (const th of document.querySelectorAll('th')) th.removeAttribute('aria-sort');
       button.parentElement.setAttribute('aria-sort', sort.direction > 0 ? 'ascending' : 'descending');
       render();
+      publishView();
     };
   }
-  search.oninput = filter.onchange = render;
+  search.oninput = filter.onchange = () => { render(); publishView(); };
   audition.onclick = pick;
+  q('#install').onclick = () => {
+    const capture = rows.find(row => row.id === selected);
+    if (!capture || q('#install').disabled) return;
+    const installed = ['verified', 'partial'].includes(capture.slotState) && capture.irSlots?.length;
+    host.postMessage((installed ? 'use:' : 'load:') + selected);
+  };
   remove.onclick = () => {
     const index = rows.findIndex(row => row.id === selected);
     if (index < 0 || !confirm('Remove "' + rows[index].name + '" from the library on this PC?')) return;
@@ -191,6 +252,7 @@
     rows.splice(index, 1);
     selected = null;
     render();
+    publishView();
   };
   q('#catalog').onclick = () => host.postMessage('catalog');
   q('#finish').onclick = () => host.postMessage('finish');
@@ -198,10 +260,21 @@
   q('#replaceGo').onclick = () => host.postMessage('replace:' + q('#replace').value);
 
   window.hxToneStatus = data => {
+    if (data.libraryView) applyView(data.libraryView);
+    if (data.inventory && Array.isArray(data.inventory.rows)) {
+      for (const row of rows) {
+        const update = data.inventory.rows.find(item => item.id === row.id);
+        row.irSlots = update?.irSlots || [];
+        row.pendingSlots = update?.pendingSlots || [];
+        row.slotState = data.inventory.state || update?.slotState || 'unverified';
+      }
+    }
     busy = !!data.busy;
+    canInstall = data.can_install === true;
+    canTrain = data.can_train !== false;
     q('#status').textContent = q('#status').title = data.text || '';
     q('#target').textContent = data.target || '';
-    q('#target').hidden = !data.target;
+    q('#target').hidden = !data.target || !!data.navigation;
     // Every User IR slot taken: pick one to replace with the audition (128 first, the old audition slot).
     const taken = data.replace || [];
     q('#replace').replaceChildren(...taken.map(([slot, name]) => new Option('User IR ' + slot + ' · ' + name, slot)));
@@ -211,7 +284,10 @@
     trial = data.trial;
     const slots = data.free_slots || [];
     destination.replaceChildren(...slots.map(slot => new Option('User IR ' + slot, slot)));
-    destination.parentElement.hidden = trial == null;
+    // A library action always refers to the selected row. Keep the current
+    // preview's permanent destination on its tone card, avoiding two competing
+    // Load on Floor buttons for different captures in this view.
+    destination.parentElement.hidden = !!data.navigation || trial == null;
     destination.disabled = save.disabled = busy || !slots.length;
     light = data.light || null;
     if (light && !lightShown) lightPanel.hidden = !(lightShown = true); // once per page: Hide stays hidden
@@ -219,6 +295,7 @@
     render();
   };
   host?.addEventListener?.('message', ({data}) => window.hxToneStatus(data));
+  applyView(initialView);
   render();
 </script>
 </html>
