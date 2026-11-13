@@ -148,6 +148,70 @@ def patch_catalog(resources, layers=False, pedal=False):
     catalog_path.write_bytes(msgpack.packb(catalog, use_single_float=True))
 
 
+# The NAM block categories, in list order: (name, icon file, the block row's trailing spaces).
+# Each is a top-level category of its own, so a capture type is one click, with no dropdown. The
+# block row in category n is the model name followed by n spaces; tone_view.js (captureGroup)
+# maps a capture's type to the same number and lists that type's captures under the row.
+NAM_CATEGORY_GROUPS = (('NAM Amp', 'FX_HX_Category_NAM_Amp.png'), ('NAM Amp + cab', 'FX_HX_Category_NAM_AmpCab.png'),
+                       ('NAM Pedal', 'FX_HX_Category_NAM_Pedal.png'), ('NAM Other', 'FX_HX_Category_NAM_Other.png'))
+NAM_CATEGORY_COLOR = '0xB070E0'
+NAM_CATEGORY_ICONS = ROOT / 'nam_category_icons'
+# The row after which the NAM categories start. tone_view.js asks HX Edit to draw its own
+# one-pixel separator along the bottom of this row (list item flag bit 1), so the divider costs
+# no row of its own and cannot be hovered or chosen.
+NAM_SECTION_AFTER = 'Looper'
+
+
+def nam_category_rows(index, models):
+    """The NAM A2 Lite block row(s) for category `index`, marked by `index` trailing spaces."""
+    rows = copy.deepcopy(models)
+    for row in rows:
+        row['name\0'] = row['name\0'].rstrip('\0') + ' ' * index + '\0'
+    return rows
+
+
+def patch_nam_category(resources):
+    """Experiment: NAM capture categories in the block selector, under their own heading.
+
+    Run after patch_catalog on a prepared copy. HX Edit lists catalog categories it does not
+    know (experiments of November 13: a "NAM" category showed after IR, was usable, and the block
+    took its colour; capture rows under it worked; a heading or divider row of its own showed but
+    took a full row and highlighted on hover). The list is laid out as:
+
+        None, Favorites, Distortion ... Looper     stock, unchanged; a thin line under Looper
+        NAM Amp / NAM Amp + cab / NAM Pedal / NAM Other
+
+    Each NAM category holds the NAM A2 Lite block row directly (no subcategory, so no dropdown).
+    The Amp > NAM subcategory that patch_catalog adds is removed, so the stock section is stock.
+    No model, parameter or firmware identity changes. Only with the launcher's --nam-category.
+    """
+    catalog_path = resources / 'HX_ModelCatalog.bin'
+    catalog = msgpack.unpackb(catalog_path.read_bytes())
+    categories = catalog['categories\0']
+    if any(category['name\0'] == nul(NAM_CATEGORY_GROUPS[0][0]) for category in categories):
+        return
+    amp = next(category for category in categories if category['name\0'] == 'Amp\0')
+    folder = next(folder for folder in amp['subcategories\0'] if folder['name\0'] == 'NAM\0')
+    models = folder['models\0']
+    amp['subcategories\0'].remove(folder)
+
+    icons = resources / 'icons_category'
+    for _, name in NAM_CATEGORY_GROUPS:
+        shutil.copyfile(NAM_CATEGORY_ICONS / name, icons / name)
+
+    identifier = max(category['id\0'] for category in categories)
+    after_stock = next(index for index, category in enumerate(categories)
+                       if category['name\0'] == nul(NAM_SECTION_AFTER)) + 1
+    section = []
+    for index, (name, icon) in enumerate(NAM_CATEGORY_GROUPS, 1):
+        section.append({'id\0': identifier + index, 'name\0': nul(name), 'shortName\0': 'NAM\0',
+                        'image\0': nul(icon), 'color\0': nul(NAM_CATEGORY_COLOR),
+                        'models\0': nam_category_rows(index, models)})
+    categories[after_stock:after_stock] = section
+    catalog_path.write_bytes(msgpack.packb(catalog, use_single_float=True))
+
+
+
 def patch_hx_catalog(resources, hx_nam):
     symbols_path = resources / 'Helix.sym'
     definitions_path = resources / 'HelixModelDefs.bin'

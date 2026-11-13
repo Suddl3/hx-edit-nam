@@ -175,7 +175,21 @@ function installTargetBinding(options = {}) {
     if (binding) { binding.valid = false; bindings.delete(binding); }
     // No native pointers to temporary strings are retained between calls.
   }
-  return { capture, read, restore, release };
+  function peekSlot(editor, dsp, blockName) {
+    // The capture slot of any NAM block, read from the edit buffer. Read-only and unbound: for
+    // presentation (which icon a block shows), never for an edit. null when it is not a NAM block
+    // or cannot be read on this thread.
+    try {
+      if (!editorReady(editor) || ![0, 1].includes(dsp) || !/^block\d{1,2}$/.test(blockName)) return null;
+      const state = {editor, dsp, blockName, parameter: 'Index'};
+      const model = parameter(state, '@model');
+      if (model.type !== 10 || !engines.has(model.value)) return null;
+      const value = parameter(state, 'Index');
+      return [4, 5, 8].includes(value.type) && Number.isInteger(value.value) && value.value >= 1 && value.value <= 128 ?
+        value.value : null;
+    } catch (_) { return null; }
+  }
+  return { capture, read, restore, release, peekSlot };
 }
 
 if (typeof module !== 'undefined' && module.exports) {

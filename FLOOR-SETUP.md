@@ -58,6 +58,7 @@ $env:T3K_PUBLISHABLE_KEY = "t3k_pub_your_own_key"
 To update an existing clone: `git fetch origin` then `git checkout floor-navigation` and `git pull`.
 
 - Launch with `--floor-reference --navigation` every time. `--floor-library` belongs to the older `floor` branch.
+- Optional experiment: add `--nam-category` to get four NAM categories in the block selector (NAM Amp, NAM Amp + cab, NAM Pedal, NAM Other), each listing the captures of that type that are on the Floor. Without the flag the block selector is unchanged. See [FLOOR-WORKFLOW.md](FLOOR-WORKFLOW.md#status-november-13).
 - The TONE3000 key is your own Publishable Key. Without it the NAM tab and local library still work; Browse TONE3000 does not.
 - The first launch builds the two helper windows with the Windows .NET Framework compiler and downloads the WebView2 SDK package it needs. The first time you open the NAM tab, every occupied User IR slot is read back once (about half a second each, with HX Edit locked). Later launches skip slots whose name has not changed.
 - **User IR 128 is the preview slot.** A preview replaces whatever is in it. Do not keep an IR of your own there.

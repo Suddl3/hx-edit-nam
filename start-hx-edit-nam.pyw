@@ -118,6 +118,10 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             from floor_memory import FloorMemory
             memory = FloorMemory(library.folder)
             options.update(leftoverPreview=memory.preview(), rememberedSlots=memory.slots())
+            # The NAM block category exists in this copy's catalog (nam_catalog.patch_nam_category).
+            options.update(namCategory=(exe.parent / 'res' / 'icons_category' / 'FX_HX_Category_NAM_Amp.png').is_file())
+            # Read-only research probes: only in a copy prepared with this marker file.
+            options.update(namProbe=(exe.parent / 'res' / 'nam-probe.flag').is_file())
             before = '\n'.join((ROOT / name).read_text(encoding='utf-8') for name in
                 ('library_slot_state.js', 'automatic_slot_discovery.js', 'native_export_observer.js',
                  'nav_banner.js', 'target_binding.js', 'nam_sidebar.js')) + '\n'
@@ -263,10 +267,14 @@ def main():
                         help='TONE3000 browser presentation; floating leaves the native controls visible.')
     parser.add_argument('--navigation', action='store_true',
                         help='Experimental Floor header browser and verified native slot discovery.')
+    parser.add_argument('--nam-category', action='store_true',
+                        help='Experimental: NAM Amp / Amp + cab / Pedal / Other categories in the block selector.')
     args = parser.parse_args()
 
     if args.navigation and not args.floor_reference:
         parser.error('--navigation requires --floor-reference')
+    if args.nam_category and not args.navigation:
+        parser.error('--nam-category requires --navigation')
 
     if args.floor_reference:
         from nam_catalog import nam_layers, nam_pedal
@@ -291,6 +299,9 @@ def main():
             from nav_resources import patch_navigation_resources, patch_library_navigation
             patch_navigation_resources(exe.parent)
             patch_library_navigation(exe.parent)
+        if args.nam_category:
+            from nam_catalog import patch_nam_category
+            patch_nam_category(exe.parent / 'res')
         run_editor(exe, workspace, device, profiles, firmware, floor_reference=args.floor_reference,
                    tone_window=args.tone_window, navigation=args.navigation)
 

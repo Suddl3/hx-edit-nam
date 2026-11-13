@@ -21,7 +21,26 @@ tab; Save to PC + Floor from the tone card; a preview replacing the content of
 User IR 128; recovery of a preview left on a block when the editor was closed;
 and a launch that reads no slots back because they were remembered.
 
-The offline suite is 246 tests. It is not a substitute for the checks below.
+The offline suite is 249 tests. It is not a substitute for the checks below.
+
+### NAM categories in the block selector (opt-in, `--nam-category`)
+
+An experiment added after Candidate63, off unless the launcher is given
+`--nam-category`. With it:
+
+- the block selector gains four categories after Looper (NAM Amp, NAM Amp + cab,
+  NAM Pedal, NAM Other), under a thin line; Amp > NAM is removed;
+- each lists the NAM A2 Lite block and the captures of that type that are on the
+  Floor; picking a capture sets the block to it;
+- the block in the signal path shows the icon of its capture's type.
+
+Seen on one Floor: the categories, picking a capture, the line under Looper and
+the path icon. Known flaws: just after launch the selector still highlights NAM
+Other until a block is selected again; the capture list highlights the NAM A2
+Lite row instead of the loaded capture; a capture that is not in the PC library,
+and a preview on User IR 128, show as NAM Other. The Model control can still be
+changed by hand afterwards (a lock is planned). The icons are placeholders drawn
+for this project.
 
 ### Still to test on the Floor
 
@@ -38,7 +57,7 @@ The offline suite is 246 tests. It is not a substitute for the checks below.
   until the next preview replaces it.
 - Notices can open behind HX Edit.
 - Remembered slots are trusted by slot name, and one Floor is assumed.
-- No NAM category in the block selector, no storage or DSP counters yet.
+- The NAM categories are an opt-in experiment (above). No storage or DSP counters yet.
 
 This is one owner's testing on one unit, not a release.
 

@@ -542,9 +542,355 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     });
   }
 
+  // --- NAM category -----------------------------------------------------------------------
+  // With the catalog's NAM category (profile.namCategory), the model column lists the captures
+  // that are on the Floor under the NAM A2 Lite block row of each group. Picking one puts that
+  // capture on the selected block: directly when it is already a NAM block, otherwise by
+  // choosing the NAM block row first and setting the capture when its Model control appears.
+  const captureRows = new Map();   // row label -> {slot, header}
+  const captureLabels = new Map(); // row label -> its native string, kept alive for HX Edit
+  let pendingCapture = null;
+
+  function captureGroup(gear) {
+    // nam_catalog.NAM_CATEGORY_GROUPS: 1 Amp, 2 Amp + cab, 3 Pedal, 4 Other.
+    return gear === 'amp' || gear === 'preamp' ? 1 : gear === 'amp-cab' || gear === 'amp-pedal-cab' ? 2 :
+      gear === 'pedal' || gear === 'pedal-amp' ? 3 : 4;
+  }
+
+  function captureRowLabel(capture) {
+    const name = String(capture.name).split(' – ').pop().trim() || 'Capture';
+    return `${capture.slot}: ${name.length > 28 ? name.slice(0, 27).trimEnd() + '…' : name}`;
+  }
+
+  function capturesUnder(header) {
+    // header: the block row's text. Its trailing spaces name the group; none (Amp > NAM, or an
+    // HX Edit that trims names) lists every capture.
+    const group = header.length - header.trimEnd().length;
+    return namView.installedCaptures()
+      .filter(capture => group === 0 || captureGroup(capture.gear) === group)
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)) || a.slot - b.slot);
+  }
+
+  function appendCaptureRows(frame) {
+    try {
+      namView.requestSlotCheck?.();          // remembered slots make this immediate after the first run
+      for (const capture of capturesUnder(frame.header)) {
+        const label = captureRowLabel(capture);
+        if (!captureLabels.has(label)) captureLabels.set(label, Memory.allocUtf8String(label));
+        captureRows.set(label, {slot: capture.slot, header: frame.header});
+        appendRow(frame.list, -1, captureLabels.get(label), frame.image, 0, frame.index, frame.model, 0, 0);
+      }
+    } catch (error) {
+      send({type: 'toneTrace', reason: 'nam-category', stage: 'rows-skipped', error: String(error.message)});
+    }
+  }
+
+  function chooseCapture(controller, list, entry) {
+    // A capture row was clicked. Never forwarded to HX Edit as a model choice.
+    clearSelection(list, 0, 0);
+    if (active?.transfer || active?.pendingTransfer || command || workflowRequest || toneImport) {
+      send({type: 'toneTrace', reason: 'nam-category', stage: 'ignored-busy', slot: entry.slot});
+      return;
+    }
+    const session = active;
+    if (session) session.applying = true;
+    try {
+      // The Model control on screen belongs to the block whose model list was clicked. If it
+      // exists, this is already a NAM block: change its capture only, never re-pick its model
+      // (that would reset Input and EQ).
+      if (Number.isInteger(namView.modelSlot())) {
+        const accepted = namView.setSlot(entry.slot);
+        send({type: 'toneTrace', reason: 'nam-category', stage: accepted ? 'capture-set' : 'capture-refused', slot: entry.slot});
+        return;
+      }
+      // Not a NAM block yet: choose the block row as a click would, then finish in the hook.
+      if (!pick(list, entry.header)) {
+        send({type: 'toneTrace', reason: 'nam-category', stage: 'block-row-missing', slot: entry.slot});
+        return;
+      }
+      pendingCapture = {slot: entry.slot, dsp: controller.add(0x80).readS32(), until: Date.now() + 3000};
+      send({type: 'toneTrace', reason: 'nam-category', stage: 'adding-block', slot: entry.slot});
+      modelEvent(controller, selectionEvent, list, NULL, NULL);
+    } finally { if (session) session.applying = false; }
+  }
+
+  function finishPendingCapture() {
+    // UI thread, from the message hook: the new NAM block's Model control exists now.
+    const pending = pendingCapture;
+    try {
+      if (Date.now() > pending.until) {
+        pendingCapture = null;
+        send({type: 'toneTrace', reason: 'nam-category', stage: 'block-not-confirmed', slot: pending.slot});
+        return;
+      }
+      if (namView.libraryReady && !namView.libraryReady()) return;
+      if (!controllerReady(selectedController) || selectedController.add(0x80).readS32() !== pending.dsp) return;
+      if (!Number.isInteger(namView.modelSlot())) return;
+      pendingCapture = null;
+      const session = active;
+      if (session) session.applying = true;
+      let accepted;
+      try { accepted = namView.setSlot(pending.slot); }
+      finally { if (session) session.applying = false; }
+      send({type: 'toneTrace', reason: 'nam-category', stage: accepted ? 'capture-set' : 'capture-refused', slot: pending.slot});
+    } catch (error) {
+      pendingCapture = null;
+      send({type: 'toneTrace', reason: 'nam-category', stage: 'skipped', error: String(error.message)});
+    }
+  }
+
+  // --- NAM block icon ---------------------------------------------------------------------
+  // HX Edit draws a path block from the catalog record it resolves for the block's model id
+  // (icon, short name and colour come from that record's category), and for an id held by several
+  // categories its loader keeps the last one, so every NAM block showed the NAM Other waveform.
+  // The four NAM categories each hold their own record of the one NAM model. Here the record a
+  // block points at is swapped for the one whose category matches the block's capture type, at
+  // the two places HX Edit reads it: the path item, just before it redraws itself, and the
+  // selector's lookup, which decides the highlighted category and the header. Records are only
+  // exchanged between these four siblings of the same model; nothing is sent to the device.
+  // (Addresses and layouts: BLOCK-ICON-RESEARCH.md; confirmed by probes on November 13.)
+  const NAM_MODEL_ID = 'HD2_AmpNAMLite';
+  const NAM_CATEGORY_NAMES = ['NAM Amp', 'NAM Amp + cab', 'NAM Pedal', 'NAM Other'];  // nam_catalog.NAM_CATEGORY_GROUPS
+  const namRecords = new Map();      // category name -> that category's record of the NAM model
+  const flowDsp = new Map();         // path object -> its DSP index
+  const flowItems = new Map();       // path item -> {item, object, vtable}, to redraw after a change
+  const selectorStack = [];          // model selectors currently syncing to the cursor block
+  let iconReports = 40, iconState = '', iconCheckAt = 0, iconRefreshAt = 0, iconNudge = null;
+  const l6text = p => { const rep = p.add(4).readPointer(); return rep.isNull() ? '' : rep.add(0x10).readPointer().readCString(); };
+  const redrawItem = new NativeFunction(base.add(0x40ae70), 'void', ['pointer', 'int'], 'thiscall');
+
+  function indexNamRecords(catalog) {
+    const count = (o, first, end) => o.add(end).readU32() - o.add(first).readU32();
+    const at = (o, data, first, i) => o.add(data).readPointer().add(4 * (o.add(first).readU32() + i)).readPointer();
+    for (let i = 0; i < count(catalog, 0x14, 0x18) && i < 64; i++) {
+      const category = at(catalog, 0x0c, 0x14, i), name = l6text(category.add(4));
+      if (!NAM_CATEGORY_NAMES.includes(name)) continue;
+      for (let j = 0; j < count(category, 0x3c, 0x40) && j < 8; j++) {
+        const sub = at(category, 0x34, 0x3c, j);
+        for (let k = 0; k < count(sub, 0x28, 0x2c) && k < 16; k++) {
+          const record = at(sub, 0x20, 0x28, k);
+          if (l6text(record.add(0x24)) === NAM_MODEL_ID) namRecords.set(name, record);
+        }
+      }
+    }
+  }
+
+  function wantedRecord(dsp, blockName) {
+    // The record of the category that matches this block's capture, or null to leave HX Edit's own.
+    // The edit buffer is the one the model selector holds; the selector exists from startup,
+    // before the user has selected anything (selectedController is only set by a selection).
+    iconWhy = `records=${namRecords.size}`;
+    if (namRecords.size !== NAM_CATEGORY_NAMES.length) return null;
+    iconWhy = 'no-editor';
+    if (iconEditor.isNull()) return null;
+    const slot = targetBinding.peekSlot(iconEditor, dsp, blockName);
+    iconWhy = `slot=${slot} dsp=${dsp}`;
+    if (!Number.isInteger(slot)) return null;
+    const capture = namView.installedCaptures().find(entry => entry.slot === slot);
+    iconWhy = capture ? `gear=${capture.gear}` : `slot ${slot} not a known capture (${namView.installedCaptures().length} known)`;
+    return capture ? namRecords.get(NAM_CATEGORY_NAMES[captureGroup(capture.gear) - 1]) || null : null;
+  }
+  let iconWhy = '', iconWhyLast = '', iconEditor = NULL;
+  function iconSkipped(stage, blockName) {
+    // Why a NAM block kept HX Edit's own record: once per distinct reason, a few times at most.
+    const line = `${stage}|${blockName}|${iconWhy}`;
+    if (line === iconWhyLast || iconReports <= 0) return;
+    iconWhyLast = line; iconReports--;
+    send({type: 'toneTrace', reason: 'nam-icon', stage: stage + '-kept', block: blockName, why: iconWhy});
+  }
+
+  function iconTrace(stage, blockName, record) {
+    if (iconReports-- > 0) send({type: 'toneTrace', reason: 'nam-icon', stage, block: blockName,
+      category: l6text(record.add(0x30).readPointer().add(0x14).readPointer().add(4))});
+  }
+
+  function retargetItem(item, stage) {
+    // Point one path item's block at the record of its capture's category. Called as HX Edit
+    // refreshes the item, and directly before a redraw this code asks for: Frida does not run a
+    // hook for a call made from inside another hook's callback, so the redraw alone would not.
+    try {
+      let object = item.add(0x8c).readPointer();
+      if (object.isNull()) object = item.add(0x88).readPointer();
+      if (object.isNull() || object.readS32() !== 0) return;                   // blocks only
+      const record = object.add(0x24).readPointer();
+      if (record.isNull() || l6text(record.add(0x24)) !== NAM_MODEL_ID) return;
+      if (flowItems.size > 128) flowItems.clear();
+      flowItems.set(item.toString(), {item, object, vtable: item.readPointer()});
+      const dsp = flowDsp.get(object.toString()), blockName = l6text(object.add(8));
+      if (dsp === undefined) { iconWhy = 'path object never resolved'; iconSkipped(stage, blockName); return; }
+      const wanted = wantedRecord(dsp, blockName);
+      if (wanted && !wanted.equals(record)) { object.add(0x24).writePointer(wanted); iconTrace(stage, blockName, wanted); }
+      else if (!wanted) iconSkipped(stage, blockName);
+    } catch (error) { iconWhy = String(error.message); iconSkipped(stage, '?'); }
+  }
+
+  function redrawNamBlocks() {
+    // Ask the path items seen so far to redraw. An item that is no longer the object it was is dropped.
+    for (const [key, entry] of [...flowItems]) {
+      try {
+        const current = entry.item.add(0x8c).readPointer().isNull() ? entry.item.add(0x88).readPointer() : entry.item.add(0x8c).readPointer();
+        if (!entry.item.readPointer().equals(entry.vtable) || !current.equals(entry.object)) { flowItems.delete(key); continue; }
+        retargetItem(entry.item, 'redraw');
+        redrawItem(entry.item, 1);
+      } catch (_) { flowItems.delete(key); }
+    }
+  }
+
+  let iconWindow = NULL, iconActiveUntil = 0;
+  function watchNamIcons(hwnd) {
+    // UI thread, from the message hook. A change of the selected block's capture, or of what is
+    // known to be installed, means some block may now belong under a different category.
+    const now = Date.now();
+    if (hwnd && !hwnd.isNull()) iconWindow = hwnd;
+    if (!iconNudge) {
+      // An idle editor dispatches no messages, so a change that arrives with the last one (the
+      // slot check finishing) would never be acted on. While anything is pending, or for a few
+      // seconds after activity, ask for one more pass. Frida's timer thread: post only.
+      iconNudge = setInterval(() => {
+        if (!iconWindow.isNull() && (iconRefreshAt || Date.now() < iconActiveUntil)) post(iconWindow, wake, 0, 0);
+      }, 400);
+    }
+    if (iconRefreshAt && now >= iconRefreshAt) { iconRefreshAt = 0; redrawNamBlocks(); }
+    if (!iconActiveUntil) iconActiveUntil = now + 20000;     // startup: the first slot check is still to come
+    if (now < iconCheckAt) return;
+    iconCheckAt = now + 250;
+    try {
+      if (namView.libraryReady && !namView.libraryReady()) return;
+      const state = `${iconEditor}|${controllerReady(selectedController) ? selectedController.toString() : ''}|${namView.modelSlot()}|${namView.installedCaptures().length}`;
+      if (state !== iconState) { iconState = state; iconRefreshAt = now + 150; iconActiveUntil = now + 4000; }
+    } catch (_) { /* presentation only */ }
+  }
+
+  if (profile.namCategory) {
+    Interceptor.attach(base.add(0x3c24e0), {            // HXModelCatalog::findModel(id, variant)
+      onEnter(args) {
+        try {
+          if (namRecords.size === 0) indexNamRecords(this.context.ecx);
+          this.nam = selectorStack.length > 0 && l6text(args[0]) === NAM_MODEL_ID;
+        } catch (_) { this.nam = false; }
+      },
+      onLeave(result) {
+        if (!this.nam || result.isNull()) return;
+        try {
+          const selector = selectorStack[selectorStack.length - 1];
+          const blockName = block(selector), wanted = wantedRecord(selector.add(0x80).readS32(), blockName);
+          if (wanted && !wanted.equals(result)) { result.replace(wanted); iconTrace('selector', blockName, wanted); }
+          else if (!wanted) iconSkipped('selector', blockName);
+        } catch (error) { iconWhy = String(error.message); iconSkipped('selector', '?'); }
+      },
+    });
+    Interceptor.attach(base.add(0x21e500), {            // model selector: sync to the cursor block
+      onEnter() {
+        selectorStack.push(this.context.ecx);
+        try { if (controllerReady(this.context.ecx)) iconEditor = this.context.ecx.add(0x34).readPointer(); } catch (_) { /* keep the last one */ }
+      },
+      onLeave() { selectorStack.pop(); },
+    });
+    Interceptor.attach(base.add(0x269540), {            // signal-flow data: resolve one path object
+      onEnter(args) {
+        try {
+          if (flowDsp.size > 512) flowDsp.clear();
+          flowDsp.set(args[0].toString(), this.context.ecx.add(0x0c).readS32());
+        } catch (_) { /* unknown object: its item keeps HX Edit's record */ }
+      },
+    });
+    Interceptor.attach(base.add(0x40ae70), {            // path item: refresh icon, label and colour
+      onEnter() { retargetItem(this.context.ecx, 'path'); },
+    });
+  }
+
+  // --- block icon research probes (profile.namProbe; trace only, change nothing) ---------------
+  // Static analysis (BLOCK-ICON-RESEARCH.md) says a path block's icon, short name and colour come
+  // from the catalog record findModel returns for its model id, and that the last category holding
+  // the id wins. These report what the running editor does, so the substitution can be written
+  // against facts: which records exist, what findModel returns, and whether the signal-flow
+  // resolver runs again when only the capture changes.
+  if (profile.namProbe) {
+    let budget = 260, dumped = false;
+    const probe = payload => { if (budget-- > 0) send({type: 'toneTrace', reason: 'probe', ...payload}); };
+    const text = p => { const rep = p.add(4).readPointer(); return rep.isNull() ? '' : rep.add(0x10).readPointer().readCString(); };
+    const category = m => {
+      if (m.isNull()) return null;
+      const sub = m.add(0x30).readPointer(); if (sub.isNull()) return null;
+      const cat = sub.add(0x14).readPointer();
+      return cat.isNull() ? null : {id: cat.add(0x24).readS32(), name: text(cat.add(4))};
+    };
+    const model = m => m.isNull() ? null : {ptr: m.toString(), id: text(m.add(0x24)), category: category(m),
+      stereo: m.add(0x70).readU8(), sub: m.add(0x30).readPointer().isNull() ? null : m.add(0x30).readPointer().add(0x0c).readS32()};
+    const guard = (name, work) => { try { work(); } catch (error) { probe({stage: name + '-failed', error: String(error.message)}); } };
+    function dumpCatalog(catalog) {
+      const count = (o, first, end) => o.add(end).readU32() - o.add(first).readU32();
+      const at = (o, data, first, i) => o.add(data).readPointer().add(4 * (o.add(first).readU32() + i)).readPointer();
+      const found = [];
+      for (let i = 0; i < count(catalog, 0x14, 0x18) && i < 64; i++) {
+        const cat = at(catalog, 0x0c, 0x14, i);
+        for (let j = 0; j < count(cat, 0x3c, 0x40) && j < 16; j++) {
+          const sub = at(cat, 0x34, 0x3c, j);
+          for (let k = 0; k < count(sub, 0x28, 0x2c) && k < 400; k++) {
+            const record = at(sub, 0x20, 0x28, k);
+            if (text(record.add(0x24)) === 'HD2_AmpNAMLite') found.push(model(record));
+          }
+        }
+      }
+      probe({stage: 'catalog', categories: count(catalog, 0x14, 0x18), nam: found});
+    }
+    Interceptor.attach(base.add(0x3c24e0), {
+      onEnter(args) { guard('findModel', () => { this.catalog = this.context.ecx; this.id = text(args[0]); this.variant = args[1].toInt32(); }); },
+      onLeave(result) {
+        guard('findModel', () => {
+          if (!dumped) { dumped = true; dumpCatalog(this.catalog); }
+          if (this.id === 'HD2_AmpNAMLite') probe({stage: 'findModel', variant: this.variant, result: model(result),
+            from: this.returnAddress.sub(base).toString()});
+        });
+      },
+    });
+    Interceptor.attach(base.add(0x269540), {
+      onEnter(args) { guard('sfResolve', () => { this.object = args[0]; this.dsp = this.context.ecx.add(0x0c).readS32(); this.resolve = args[1].toInt32() & 0xff; }); },
+      onLeave() {
+        guard('sfResolve', () => {
+          if (!this.object || this.object.isNull() || this.object.readS32() !== 0) return;
+          const found = this.object.add(0x24).readPointer();
+          if (!found.isNull() && text(found.add(0x24)) === 'HD2_AmpNAMLite') probe({stage: 'sfResolve', dsp: this.dsp,
+            resolve: this.resolve, block: text(this.object.add(8)), object: this.object.toString(), model: model(found)});
+        });
+      },
+    });
+    Interceptor.attach(base.add(0x40ae70), {
+      onEnter() {
+        guard('itemRefresh', () => {
+          const item = this.context.ecx;
+          let object = item.add(0x8c).readPointer(); if (object.isNull()) object = item.add(0x88).readPointer();
+          if (object.isNull() || object.readS32() !== 0) return;
+          const found = object.add(0x24).readPointer();
+          if (!found.isNull() && text(found.add(0x24)) === 'HD2_AmpNAMLite') probe({stage: 'itemRefresh', item: item.toString(),
+            object: object.toString(), block: text(object.add(8)), model: model(found)});
+        });
+      },
+    });
+    Interceptor.attach(base.add(0x21e500), {
+      onEnter() { this.selector = this.context.ecx; },
+      onLeave() {
+        guard('selectorSync', () => {
+          const found = this.selector.add(0xa4).readPointer();
+          if (!found.isNull() && text(found.add(0x24)) === 'HD2_AmpNAMLite') probe({stage: 'selectorSync',
+            dsp: this.selector.add(0x80).readS32(), block: text(this.selector.add(0x84)), model: model(found)});
+        });
+      },
+    });
+  }
+
   Interceptor.attach(base.add(0x380940), {
     onEnter(args) {
-      if (profile.navigation) return;
+      if (profile.navigation) {
+        if (!profile.namCategory) return;
+        if (!this.context.ecx.readPointer().equals(base.add(0x91fcd0)) || args[1].isNull() || args[5].isNull()) return;
+        const header = args[1].readUtf8String();
+        // The last stock category row in the category column (list kind 0): mark it afterwards.
+        if (header === 'Looper' && this.context.ecx.add(0x1d8).readU32() === 0) { this.separator = true; return; }
+        if (header.trimEnd() !== tiles[0].block) return;      // the NAM A2 Lite block row of any group
+        this.captures = {header, list: this.context.ecx, image: args[2], index: args[4].toInt32(), model: args[5]};
+        return;
+      }
       if (!this.context.ecx.readPointer().equals(base.add(0x91fcd0)) || args[1].isNull() || args[5].isNull()) return;
       const tile = tileByBlock.get(args[1].readUtf8String());
       if (tile === undefined) return;
@@ -554,13 +900,33 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       this.index = args[4].toInt32();
       this.model = args[5];
     },
-    onLeave() {
+    onLeave(item) {
+      if (this.separator) {
+        // HX Edit's own list rows can draw a one-pixel line along their bottom edge (item flags
+        // bit 1 at +0x114, drawn in the row's text colour across the whole row, icon column
+        // included). That is the divider before the NAM categories: no row of its own, nothing
+        // to hover or choose. The list is rebuilt often; this runs each time the row is added.
+        try { if (!item.isNull()) item.add(0x114).writeU32(item.add(0x114).readU32() | 2); }
+        catch (error) { send({type: 'toneTrace', reason: 'nam-category', stage: 'separator-skipped', error: String(error.message)}); }
+        return;
+      }
+      if (this.captures) return appendCaptureRows(this.captures);
       if (this.list) appendRow(this.list, -1, tileLabels[this.tile], this.image, 0, this.index, this.model, 0, 0);
     },
   });
 
   function onModelEvent(controller, event, sender, data, flags) {
     if (profile.navigation) {
+      if (profile.namCategory && event === selectionEvent && !sender.isNull()) {
+        let entry = null;
+        try {
+          if (sender.equals(controller.add(0x58).readPointer())) {       // the model column
+            const row = selectedRow(sender);
+            entry = row.isNull() ? null : captureRows.get(row.readUtf8String()) || null;
+          }
+        } catch (_) { entry = null; }
+        if (entry) return chooseCapture(controller, sender, entry);
+      }
       modelEvent(controller, event, sender, data, flags);
       observeController(controller);
       if (event === selectionEvent) refreshBounds(true);
@@ -1295,6 +1661,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   Interceptor.attach(user32.getExportByName('DispatchMessageW'), {
     onEnter(args) {
       if (leftover) recoverLeftover();
+      if (pendingCapture) finishPendingCapture();
+      if (profile.namCategory) watchNamIcons(args[0].readPointer());
       if (!active) return;
       const hwnd = args[0].readPointer();
       const event = args[0].add(4).readU32();

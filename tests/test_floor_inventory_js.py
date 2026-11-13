@@ -92,12 +92,18 @@ assert.equal(friendlyNamCaption(127,'',raw,'Deluxe Reverb'),'127: Deluxe Reverb'
 assert.equal(friendlyNamCaption(9,'127: '+raw,raw,'Other'),'127: '+raw);
 assert.equal(friendlyNamCaption(127,'127: Stale',raw,'Other'),'127: Stale');
 assert.equal(friendlyNamCaption(127,raw,raw,'\0'),raw);
-assert.equal(friendlyNamCaption(127,raw,raw,'界'.repeat(100)),'127: '+'界'.repeat(20)+'…');
+const wide=friendlyNamCaption(127,raw,raw,'界'.repeat(100));
+assert.match(wide,/^127: 界+…$/);assert.ok(wide.length<30);
 // Candidate60 owner screenshot: a long library name pushed the slot number out of the control.
 const long='Friedman Brit 50 Teaser Tone from Capture Pack (32 DI Captures + IR\'s) – BRIT50 HG BRI CAB';
 assert.equal(friendlyNamCaption(22,raw,raw,long),'22: BRIT50 HG BRI CAB');
-assert.equal(friendlyNamCaption(22,raw,raw,'A very long single capture name with no profile part'),'22: A very long single ca…');
+assert.match(friendlyNamCaption(22,raw,raw,'A very long single capture name with no profile part'),/^22: A very long sing.*…$/);
 assert.ok(friendlyNamCaption(124,raw,raw,long+' and a much longer profile name').length<=26);
+// Candidate67 owner screenshot: capitals are wide. This caption fitted by character count and
+// still lost its first characters in the control; "16: EVH 5150III® 100S ste…" had fitted.
+assert.equal(friendlyNamCaption(9,raw,raw,'FNDR BFDRI VB Clean BASS'),'9: FNDR BFDRI VB Cle…');
+assert.equal(friendlyNamCaption(16,raw,raw,'EVH 5150III® 100S stealth'),'16: EVH 5150III® 100S s…');
+assert.equal(friendlyNamCaption(127,raw,raw,'Deluxe Reverb'),'127: Deluxe Reverb');
 assert.equal(friendlyNamCaption(128,raw,raw,undefined),raw);
 ''')
 

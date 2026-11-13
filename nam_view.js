@@ -165,12 +165,27 @@ function friendlyNamCaption(slot, original, physicalName, title) {
   // The Model control is right-aligned and shows only the end of a long caption, which cut the
   // slot number and the start of the name off. Library names read "tone title – profile name":
   // prefer the profile name, which tells one tone's captures apart, then shorten from the end.
-  const limit = 26;
+  // The control's font is proportional, so the room is estimated in rough glyph widths rather
+  // than characters: on the Floor "16: EVH 5150III® 100S ste…" fitted while the equally long
+  // "9: FNDR BFDRI VB Clean BA…" lost its first characters.
+  const room = 21;
+  const wide = text => {
+    let total = 0;
+    for (const ch of text) {
+      total += /[MW]/.test(ch) ? 1.5 : /[mw]/.test(ch) ? 1.4 : /[A-HK-LN-VX-Z]/.test(ch) ? 1.25 :
+        /[IJijl1.,:;' |!]/.test(ch) ? 0.55 : /[a-z]/.test(ch) ? 0.95 : /[ -~]/.test(ch) ? 1.0 : 1.3;
+    }
+    return total;
+  };
   let name = title;
-  if ((prefix + name).length > limit) {
+  if (wide(prefix + name) > room) {
     const profile = name.split(' – ').pop().trim();
     if (profile) name = profile;
-    if ((prefix + name).length > limit) name = name.slice(0, Math.max(1, limit - prefix.length - 1)).trimEnd() + '…';
+    if (wide(prefix + name) > room) {
+      const kept = [...name];
+      while (kept.length > 1 && wide(prefix + kept.join('').trimEnd() + '…') > room) kept.pop();
+      name = kept.join('').trimEnd() + '…';
+    }
   }
   const result = prefix + name;
   let bytes = 0;
@@ -1132,6 +1147,19 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     libraryReady, discoverySnapshot, exportDiscoverySlot, profileLabel,
     flushInventoryPresentation, needsInventoryPresentation,
     slotEpoch: () => slotLedger?.epoch() || 0,
+    installedCaptures() {
+      // Captures of this PC's library that are on the Floor now, by verified slot: for the NAM
+      // category's model list. [{slot, name, gear}], lowest slot first.
+      const result = [];
+      if (!slotLedger) return result;
+      for (const [slot, contentId] of slotLedger.entries()) {
+        const capture = payloadMetadata[contentId];
+        if (!capture || slot === AUDITION_SLOT) continue;
+        result.push({slot, name: capture.name || profiles[slot] || 'Capture', gear: capture.gear || ''});
+      }
+      return result;
+    },
+    requestSlotCheck() { requestLibraryVerification(); },
     acceptRememberedSlot(slot) {
       // From the slot check's UI-thread tick, right after its snapshot. True: this slot needs
       // no read-back.
