@@ -60,7 +60,8 @@ class DspMeterScriptTests(unittest.TestCase):
         source = (ROOT / 'dsp_meter.js').read_text(encoding='utf-8')
         self.assertIn("'495f90': '558bec515356578bf9c745fc00000000'", source)
         self.assertIn("'4972b0': '558bec6aff68'", source)
-        self.assertIn("onEnter() { device = this.context.ecx; }", source)   # notes, never changes
+        self.assertIn("candidate.readPointer().equals(deviceVtable)) device = candidate;", source)   # notes, never changes
+        self.assertIn("base.add(0x962930)", source)   # only the device object's class
         self.assertNotIn('onLeave', source)
         self.assertNotIn('retval.replace', source)
         # Only the Floor's own answer: HX Edit's offline estimate (device fields differ) is not shown.

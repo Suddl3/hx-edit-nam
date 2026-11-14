@@ -34,8 +34,16 @@ function installDspMeter(options = {}) {
   const POLL_MS = options.pollMs || 2000;
   const load = new NativeFunction(base.add(0x495f90), 'float', ['pointer', 'int'], 'thiscall');
   let device = NULL, last = '', failures = 0;
-  // Only notes the object; never changes arguments or results.
-  const hook = Interceptor.attach(base.add(0x4972b0), { onEnter() { device = this.context.ecx; } });
+  // Only notes the object; never changes arguments or results. The reader has only been seen on the
+  // device object (vtable RVA 0x962930); anything else is ignored, so the load call never runs on
+  // an object of another kind.
+  const deviceVtable = base.add(0x962930);
+  const hook = Interceptor.attach(base.add(0x4972b0), {
+    onEnter() {
+      const candidate = this.context.ecx;
+      try { if (!candidate.isNull() && candidate.readPointer().equals(deviceVtable)) device = candidate; } catch (_) { /* unreadable: ignore */ }
+    },
+  });
   const timer = setInterval(() => {
     if (device.isNull()) return;
     let loads;
