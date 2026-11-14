@@ -308,6 +308,43 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     return content && payloadMetadata[content]?.name || profiles[slot];
   }
 
+  // --- Model caption width -------------------------------------------------------------------
+  // With the NAM categories a padlock sits at a fixed place left of the Model value, and the
+  // value text, right-aligned, must end before it. Its width is measured rather than estimated:
+  // HX Edit draws it in Roboto at 12 px, one to one with widget units (Floor, November 13:
+  // GDI widths matched the screen within a few pixels), and it ends 12 units left of the value
+  // menu's right edge. The caption is shortened until it fits the space up to the padlock.
+  let captionGdi = null, captionReports = 12;
+  function captionWidth(text) {
+    try {
+      if (!captionGdi) {
+        const g = Process.getModuleByName('gdi32.dll'), f = (n, r, a) => new NativeFunction(g.getExportByName(n), r, a, 'stdcall');
+        const dc = f('CreateCompatibleDC', 'pointer', ['pointer'])(NULL);
+        const font = f('CreateFontW', 'pointer', ['int','int','int','int','int','uint','uint','uint','uint','uint','uint','uint','uint','pointer'])(
+          -12, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, Memory.allocUtf16String('Roboto'));
+        if (dc.isNull() || font.isNull()) return null;
+        f('SelectObject', 'pointer', ['pointer','pointer'])(dc, font);
+        captionGdi = {dc, extent: f('GetTextExtentPoint32W', 'int', ['pointer','pointer','int','pointer']), size: Memory.alloc(8)};
+      }
+      const wide = Memory.allocUtf16String(text);
+      if (!captionGdi.extent(captionGdi.dc, wide, text.length, captionGdi.size)) return null;
+      return captionGdi.size.readS32();
+    } catch (_) { return null; }
+  }
+  function captionSpace(slider, menu) {
+    // Widget units between the padlock (plus a small gap) and the end of the caption; null when
+    // no padlock is shown (a plain NAM A2 Lite block, or no NAM categories).
+    // Whichever padlock is shown: asking the lock state here was a moment early right after a
+    // capture pick (the block had not reported its new capture yet) and gave the full width.
+    if (!profile.namCategory || !modelLockQuery) return null;
+    const button = Object.keys(LOCK_BUTTONS).map(name => lockButton(slider, name))
+      .find(candidate => candidate && isVisible(candidate, 0));
+    if (!button) return null;
+    const value = box(menu), padlock = box(button);
+    const space = (value.x + value.w - 12) - (padlock.x + padlock.w + 4);
+    return space > 40 && space < 600 ? space : null;
+  }
+
   function refreshDisplayedModelName() {
     if (displayRefreshing || !hasActiveModel()) return;
     displayRefreshing = true;
@@ -334,13 +371,29 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       const original = text.readCString(), previous = lastModelAlias;
       const source = previous && previous.menu.equals(menu) && previous.slot === slot &&
         previous.physicalName === physicalName && previous.text === original ? previous.source : original;
-      // With the NAM categories a padlock sits left of the caption: two glyphs fewer (on the Floor
-      // "127: NAM AC Deluxe Re…" ran under it after a snapshot change).
-      const replacement = friendlyNamCaption(slot, source, physicalName, title || physicalName, profile.namCategory ? 19 : 21);
+      let replacement = friendlyNamCaption(slot, source, physicalName, title || physicalName);
+      const space = captionSpace(slider, menu);
+      if (space !== null) {
+        // Shorten until the measured caption ends before the padlock ("127: NAM AC Deluxe Re…"
+        // ran under it when only estimated). Without a measurement, two glyphs fewer.
+        for (let room = 21; room >= 6; room--) {
+          const candidate = friendlyNamCaption(slot, source, physicalName, title || physicalName, room);
+          const width = captionWidth(candidate);
+          if (width === null) { replacement = friendlyNamCaption(slot, source, physicalName, title || physicalName, 19); break; }
+          replacement = candidate;
+          if (width <= space) break;
+        }
+        if (captionReports-- > 0) send({type: 'toneTrace', reason: 'caption-fit', text: replacement, width: captionWidth(replacement), space, original});
+      }
       if (replacement === original) return;
       const setText = new NativeFunction(setter, 'void', ['pointer', 'pointer', 'int'], 'thiscall');
       setText(menu, Memory.allocUtf8String(replacement), 0);
       lastModelAlias = {menu, slot, physicalName, source, text:replacement};
+      // Lay the value out again for the new text. After a capture pick HX Edit had placed the
+      // long native name and kept its position for the shorter caption, which then started about
+      // ten units further left, under the padlock (Floor, November 13). Re-applying the menu's own
+      // right anchor with a layout pass places it from the right edge again.
+      try { setAnchor(menu, 1, getAnchor(menu, 1), 1); } catch (_) { /* drawn as before */ }
       redraw(menu);
     } catch (error) {
       send({type:'toneTrace', phase:'model-display-refresh-skipped', reason:String(error)});
@@ -846,6 +899,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
   // parameter row (slider.xml); only a NAM block's Model row shows one.
   let modelLockQuery = null, modelLockOwn = 0, modelLockCheckAt = 0, modelLockReports = 20;
   let padlockPainted = '', padlockReshows = [];
+  let captionRefit = false;
   const modelLockDisabled = new Set();      // value children this code disabled (only these are re-enabled)
   const MODEL_VALUE_EVENTS = [0x21617663, 0x21766362, 0x21766365];   // cva! / bcv! / ecv!
   const MODEL_VALUE_CHILDREN = [0x13c, 0x140, 0x144];                // sldr, edit, menu
@@ -884,6 +938,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
         const show = Number(state === name);
         if (Number(!!isVisible(button, 0)) !== show) {
           setVisible(button, show, 1);
+          captionRefit = true;
           if (show) {
             padlockReshows = [now + 300, now + 1500, now + 4000];
             modelLockTrace(name);
@@ -907,6 +962,8 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
           }
         }
       }
+      // The space for the caption changed with the padlock: fit it again.
+      if (captionRefit) { captionRefit = false; refreshDisplayedModelName(); }
     } catch (error) { modelLockTrace('apply-skipped', {error: String(error.message)}); }
   }
 
