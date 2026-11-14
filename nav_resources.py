@@ -10,7 +10,9 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 EXE_SHA256 = 'f7faac4996164f9039c9ae3ca8d85cd135c5bceae8a511c8921a1244046cab66'
-BUTTONS = (('t3bf', 'Browse TONE3000', 158), ('t3bc', 'TONE3000', 84), ('t3bi', 'T3', 32))
+# Wide enough for the TONE3000 wordmark at nearly full button height (at 15 px it was too small to
+# read: its red and blue layers became one-pixel slivers).
+BUTTONS = (('t3bf', 'Browse TONE3000', 196), ('t3bc', 'TONE3000', 150), ('t3bi', 'T3', 32))
 
 
 def _verify_executable(app: Path) -> None:

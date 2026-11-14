@@ -7,7 +7,7 @@ const { navigationBannerLayout: layout, navigationBannerGuards: guards,
 for (let available = 0; available < 500; available++) {
   const redo = { x: 400, y: 8, w: 35, h: 29 };
   const result = layout(redo, { right: 449 + available });
-  const expected = available >= 158 ? 't3bf' : available >= 84 ? 't3bc' : available >= 32 ? 't3bi' : null;
+  const expected = available >= 196 ? 't3bf' : available >= 150 ? 't3bc' : available >= 32 ? 't3bi' : null;
   assert.equal(result?.id ?? null, expected);
   if (result) assert.ok(result.left + result.width <= 442 + available);
 }
@@ -74,7 +74,7 @@ const tempo = widget(0x746d7677, editor, {x:1490,y:8,w:100,h:29});
 const tuner = widget(0x74756e62, editor, {x:1455,y:8,w:29,h:29});
 widgets.get(tuner.value).visible = false;
 const buttonIds = {t3bf:0x74336266,t3bc:0x74336263,t3bi:0x74336269};
-const buttons = Object.fromEntries(Object.entries(buttonIds).map(([name,id]) => [name,widget(id,editor,{x:871,y:8,w:name==='t3bf'?158:name==='t3bc'?84:32,h:29})]));
+const buttons = Object.fromEntries(Object.entries(buttonIds).map(([name,id]) => [name,widget(id,editor,{x:871,y:8,w:name==='t3bf'?196:name==='t3bc'?150:32,h:29})]));
 for (const button of Object.values(buttons)) widgets.get(button.value).visible = false;
 function descendant(value, ancestor) {
   for(let current=widgets.get(value); current; current=widgets.get(current.parent.value)) {
@@ -153,7 +153,7 @@ assert.equal(nativeCalls,count,'other windows cannot trigger banner layout');
 invoke(0x3bd120,buttons.t3bf,[p(0x2162705f)]);
 assert.deepEqual(opens,[0x900000,0x900000]);
 // Resize based on real right-side control geometry, without moving stock controls.
-widgets.get(tempo.value).rect.x=970;
+widgets.get(tempo.value).rect.x=1040;  // room for the 150-wide wordmark button, not the 196-wide one
 dispatch(5);
 count=nativeCalls;
 for(let i=0;i<1000;i++) dispatch(0x47);

@@ -22,7 +22,7 @@ function navigationBannerLayout(redo, limits) {
       || redo.w <= 0 || redo.h <= 0 || redo.x < 0 || redo.y < 0) return null;
   const left = Math.ceil(redo.x + redo.w + 7);
   const space = Math.floor(limits.right - 7 - left);
-  for (const [id, width] of [['t3bf', 158], ['t3bc', 84], ['t3bi', 32]]) {
+  for (const [id, width] of [['t3bf', 196], ['t3bc', 150], ['t3bi', 32]]) {
     if (space >= width) return { id, left, top: Math.round(redo.y), width };
   }
   return null; // Never overlap existing controls in a window too narrow to fit.

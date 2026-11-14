@@ -113,8 +113,9 @@ def lock_buttons():
 # stacked like HX Edit's push buttons: normal, disabled, pressed, hover. "BROWSE" is drawn with a
 # Windows font (needs Pillow).
 BANNER_OUT = Path(__file__).with_name('nav_images')
-BANNER_SIZES = (('t3_browse.png', 158), ('t3_wordmark.png', 84), ('t3_short.png', 32))
+BANNER_SIZES = (('t3_browse.png', 196), ('t3_wordmark.png', 150), ('t3_short.png', 32))
 LOGO_T_WIDTH = 0.133          # the T's share of the wordmark's width
+LOGO_HEIGHT = 21              # of 29: the wordmark is only legible at nearly full button height
 
 
 def _font(name, size):
@@ -123,30 +124,32 @@ def _font(name, size):
 
 
 def banner_frame(width, height, state):
+    # Key and label drawn at 4x and reduced; the wordmark is reduced once, straight from the
+    # source to its final size, so its thin coloured layers keep their edges.
     scale = 4
     w, h = width * scale, height * scale
-    image = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
+    key = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(key)
     fill = {'normal': (0, 0, 0, 255), 'disabled': (0, 0, 0, 160), 'pressed': (0, 0, 0, 255), 'hover': (30, 30, 30, 255)}[state]
     edge = {'normal': (64, 64, 64, 255), 'disabled': (48, 48, 48, 160), 'pressed': (255, 255, 0, 255), 'hover': (255, 255, 0, 255)}[state]
     draw.rounded_rectangle([0, 0, w - 1, h - 1], radius=4 * scale, fill=fill, outline=edge, width=scale)
     logo = Image.open(BANNER_OUT / 'tone3000-logo.png').convert('RGBA')
     if width < 60:
         logo = logo.crop((0, 0, round(logo.width * LOGO_T_WIDTH), logo.height))
-    mark_h = (15 if width >= 150 else 12 if width >= 80 else 17) * scale
-    mark = logo.resize((round(logo.width * mark_h / logo.height), mark_h), Image.LANCZOS)
-    if width >= 150:
+    mark = logo.resize((round(logo.width * LOGO_HEIGHT / logo.height), LOGO_HEIGHT), Image.LANCZOS)
+    left = (width - mark.width) // 2
+    if width >= 190:
         small = _font('seguisb.ttf', 9 * scale)
-        label, gap = 'BROWSE', 6 * scale
-        lw = draw.textlength(label, font=small)
-        x = round((w - (lw + gap + mark.width)) / 2)
-        draw.text((x, h / 2), label, font=small, anchor='lm', fill=(220, 220, 220, 255))
-        image.alpha_composite(mark, (round(x + lw + gap), (h - mark.height) // 2))
-    else:
-        image.alpha_composite(mark, ((w - mark.width) // 2, (h - mark.height) // 2))
+        label, gap = 'BROWSE', 6
+        lw = draw.textlength(label, font=small) / scale
+        left = round((width - (lw + gap + mark.width)) / 2)
+        draw.text((left * scale, h / 2), label, font=small, anchor='lm', fill=(220, 220, 220, 255))
+        left = round(left + lw + gap)
+    image = key.resize((width, height), Image.LANCZOS)
+    image.alpha_composite(mark, (left, (height - mark.height) // 2))
     if state == 'disabled':
         image.putalpha(image.getchannel('A').point(lambda a: a * 55 // 100))
-    return image.resize((width, height), Image.LANCZOS)
+    return image
 
 
 def banner_buttons():
