@@ -12,6 +12,36 @@ preview is the `floor` branch; this branch is the newer navigation work. See
 [FLOOR-SETUP.md](FLOOR-SETUP.md) to run it and [PRODUCT-VISION.md](PRODUCT-VISION.md)
 for the complete product scope. This document is the workflow contract.
 
+## Status, November 14
+
+Added on this branch since November 13, each checked on one Helix Floor:
+
+- **Capture icons.** 108 angled product pictures (no logos or text), picked from a capture's
+  name, with a stable generic per category when nothing matches. Shown in the NAM tab, the
+  expanded library and, with `--nam-category`, the NAM model lists. All 30 of the test Floor's
+  captures matched as expected; 48/48 cases in the matcher check.
+- **Change icon…** in the expanded library: choose any of the 108, Automatic, or **Upload icon…**
+  (PNG, JPEG, WebP, GIF or BMP, shrunk to 128 px and kept with the library). Your uploads appear
+  under "Your icons"; their × asks first, naming the captures that use one, which go back to
+  Automatic. Checked in a headless browser with awkward files (wide/tall/tiny, animated GIF, a
+  text file named .png, SVG, 26 MB): 27/27. The Windows file dialog itself was not driven on screen.
+- **NAM tab.** Readable names when the pane is narrow, dates as 11/9/26, and Expand always opens
+  the library.
+- **DSP meter** right of the toolbar, by the tempo: "DSP 1 27/75" with a bar (green, yellow from
+  60 %, red above 90 %), or "DSP1 36%" coloured text where bars do not fit, hidden when even that
+  does not fit. The figures are the Floor's own: HX Edit's unused dspLoad code asks the device;
+  shown less the Floor's 15 % base, of the 75 blocks may use (the same as the Floor's on-screen
+  meter). Declared block costs, not measured load. Checked: preset edits (36 → 44.5 → 47.8 → 71.9
+  and back), 3,274 requests at 20× the meter's rate during edits with no errors, window sizes
+  (maximized, 1700, 1440, 1380 px, minimize and restore), and the Floor switched off (hidden) and
+  on again (back).
+- **Window kept across reconnects.** HX Edit used to take a maximized window out of maximize when
+  the Floor reconnected. Now a reconnect leaves the window as it is: maximized, a custom size and
+  position, or minimized (without popping up or taking focus). Checked with smart-plug power
+  cycles of the Floor; startup is unchanged.
+
+The offline suite is 285 tests (268 run in a fresh clone; the other 17 need local fixtures).
+
 ## Status, November 13
 
 This source is the owner's Candidate63 test build. On one Helix Floor, each of

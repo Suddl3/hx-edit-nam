@@ -2,7 +2,17 @@
 
 The maintained Floor-focused editor is [Suddl3/hx-edit-nam](https://github.com/Suddl3/hx-edit-nam/tree/floor), paired with [HX Unbound Floor firmware](https://github.com/Suddl3/hx-unbound-floor).
 
-**This is the `floor-navigation` branch: newer than the `floor` source preview, and still a test build.** It adds the Browse TONE3000 banner button, the rich NAM tab, previews on User IR 128 that put the original capture back, and remembered slots. It has been exercised on one Helix Floor by one maintainer; see [what has and has not been tested](FLOOR-WORKFLOW.md#status-november-13).
+**This is the `floor-navigation` branch: newer than the `floor` source preview, and still a test build.** It adds the Browse TONE3000 banner button, the rich NAM tab, previews on User IR 128 that put the original capture back, and remembered slots. It has been exercised on one Helix Floor by one maintainer; see [what has and has not been tested](FLOOR-WORKFLOW.md#status-november-14).
+
+### New on November 14
+
+- **Capture icons**: a gear picture for every NAM capture, picked from its name, in the NAM tab, the expanded library and the NAM model lists.
+- **Change icon…**: choose another picture, go back to Automatic, or upload your own (and delete your uploads).
+- **DSP meter** in HX Edit's toolbar: each DSP's use as the Floor reports it ("DSP 1 27/75"), turning yellow and red as a path fills up.
+- **Your window stays put** when the Floor reconnects (maximized stays maximized).
+- A tidier NAM tab: readable names when narrow, short dates, and Expand always opens the library.
+
+Details and what was tested: [Status, November 14](FLOOR-WORKFLOW.md#status-november-14).
 
 ## Start here
 
@@ -16,7 +26,7 @@ Our fork controls the Floor workflow. Useful upstream improvements are reviewed 
 
 ## Current milestone
 
-One NAM collection across the NAM tab and its expanded view, full HX Edit controls, and consistent TONE3000 browsing, preview and save actions. Opt-in NAM categories in the block selector with a Model lock. Next: storage and DSP display.
+One NAM collection across the NAM tab and its expanded view, full HX Edit controls, and consistent TONE3000 browsing, preview and save actions. Opt-in NAM categories in the block selector with a Model lock. Capture icons and a DSP meter (declared costs, as the Floor reports them). Next: storage, and measured DSP load once the firmware can report it.
 
 Volume leveling remains an isolated offline prototype; it is not live preset normalization. Optional optimization and new runtime models require separately verified Floor compatibility. Read PRODUCT-VISION.md before broadening scope.
 
