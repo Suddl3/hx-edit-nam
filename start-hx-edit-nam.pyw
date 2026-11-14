@@ -156,14 +156,16 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             options.update(namProbe=(exe.parent / 'res' / 'nam-probe.flag').is_file())
             before = '\n'.join((ROOT / name).read_text(encoding='utf-8') for name in
                 ('library_slot_state.js', 'automatic_slot_discovery.js', 'native_export_observer.js',
-                 'nav_banner.js', 'target_binding.js', 'nam_sidebar.js', 'dsp_meter.js')) + '\n'
+                 'nav_banner.js', 'target_binding.js', 'nam_sidebar.js', 'dsp_meter.js', 'window_keep.js')) + '\n'
             config = dict(request=uuid4().hex, repeat=True, automatic=True, requireHostMonitor=True)
             # Validate original native bytes before namView attaches to shared
             # entry points. The callback runs only after toneView exists and the
             # suspended editor resumes; installing it does not open the browser.
             initialize = ('\nconst navigationBanner = installNavigationBanner({openBrowser: (window, options) => toneView.openBrowser(window, options)});\n'
                           # The DSP meter is optional: a failed byte guard leaves the editor as it was.
-                          "try { installDspMeter(); } catch (error) { send({type: 'dspMeter', event: 'unavailable', error: String(error.message)}); }\n")
+                          "try { installDspMeter(); } catch (error) { send({type: 'dspMeter', event: 'unavailable', error: String(error.message)}); }\n"
+                          # A reconnect leaves the window as the user has it (maximized stays maximized).
+                          "try { installWindowKeeper(); } catch (error) { send({type: 'windowKeeper', event: 'unavailable', error: String(error.message)}); }\n")
             after = (f'\nconnectNativeExportLibrary({json.dumps(config)}, namView);'
                      '\nnamView.setLibraryOpener(window => toneView.openBrowser(window, {library:true, dockPanel:navigationBanner.dockPanel()}));'
                      '\ninstallNamSidebar(namView);')
@@ -209,7 +211,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             if payload.get('type') == 'ready':
                 ready.set()
             if payload.get('type') in {'toneTrace', 'navigationBanner', 'automaticSlotStatus', 'floorInventoryPresentation',
-                                       'dspMeterLayout',
+                                       'dspMeterLayout', 'windowKeeper',
                                        'libraryConnectionGuard', 'librarySlotEvidenceResult'}:
                 trace(payload)
             if payload.get('type') == 'irExportObservation' and payload.get('stage') in {'invalidated', 'discarded', 'slot-changed'}:

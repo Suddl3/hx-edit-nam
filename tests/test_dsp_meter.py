@@ -51,7 +51,8 @@ class DspMeterScriptTests(unittest.TestCase):
         banner = (ROOT / 'nav_banner.js').read_text(encoding='utf-8')
         self.assertIn('minLeft: Math.max(view.x + layout.left + layout.width, buttonRight) + 14', banner)   # never over the button
         helper = (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8')
-        self.assertIn('if(spanWidth>=0&&ParentWidth()!=placedWidth)Place();', helper)   # follows window resizes
+        self.assertIn('if(spanWidth>=0&&width!=placedWidth)Place();', helper)   # follows window resizes
+        self.assertIn('if(spanWidth==0&&width>0)spanWidth=width;', helper)        # minimized: anchors when restored
         self.assertIn('if(shown)Invalidate();', helper)   # recovers from HX Edit's repaints over it
         self.assertIn('CompactMax = 150, CompactMin = 124', helper)   # coloured text when bars do not fit
 

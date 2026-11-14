@@ -1116,7 +1116,13 @@ class DspMeter : Form
         var watch=new Timer{Interval=250};
         // HX Edit repaints its whole window after a resize or maximize, over this child (it does not clip
         // children), so a shown meter redraws itself every tick; 300 x 29 pixels, double-buffered.
-        watch.Tick+=(sender,e)=>{if(!IsWindow(parent)){Close();return;} if(spanWidth>=0&&ParentWidth()!=placedWidth)Place(); if(shown)Invalidate();};
+        watch.Tick+=(sender,e)=>{
+            if(!IsWindow(parent)){Close();return;}
+            int width=ParentWidth();
+            if(spanWidth==0&&width>0)spanWidth=width;   // a span that arrived while minimized: anchor it now
+            if(spanWidth>=0&&width!=placedWidth)Place();
+            if(shown)Invalidate();
+        };
         watch.Start();
     }
     protected override CreateParams CreateParams {get{var settings=base.CreateParams;settings.Parent=parent;
@@ -1143,8 +1149,13 @@ class DspMeter : Form
         if(state.TryGetValue("dsp",out value)&&value is IList){var list=(IList)value;dsp=new object[]{list.Count>0?list[0]:null,list.Count>1?list[1]:null};}
         var span=state.TryGetValue("span",out value)?value as Dictionary<string,object>:null;
         if(span!=null){
-            spanLeft=Number(span,"minLeft");spanRight=Number(span,"right");spanTop=Number(span,"top");spanHeight=Number(span,"height");
-            spanWidth=ParentWidth();
+            int left=Number(span,"minLeft"),right=Number(span,"right"),top=Number(span,"top"),height=Number(span,"height");
+            // Every line repeats the span; HX Edit's width is measured only for a new one (a DSP update
+            // while HX Edit is minimized must not re-anchor it to a zero-width window).
+            if(spanWidth<0||left!=spanLeft||right!=spanRight||top!=spanTop||height!=spanHeight){
+                spanLeft=left;spanRight=right;spanTop=top;spanHeight=height;
+                spanWidth=AnchorWidth(ParentWidth());
+            }
         }else spanWidth=-1;
         // WinForms parks a hidden child under its own placeholder window: attach to HX Edit explicitly.
         if(GetParent(Handle)!=parent)SetParent(Handle,parent);
@@ -1157,9 +1168,11 @@ class DspMeter : Form
     public static Rectangle Placement(int left,int right,int top,int height,int widthThen,int widthNow){
         int end=right+(widthNow-widthThen), room=end-left;
         int width=room>=MeterMin?Math.Min(MeterMax,room):room>=CompactMin?Math.Min(CompactMax,room):0;
-        return widthThen<0||widthNow<0||width==0||height<=0?Rectangle.Empty:new Rectangle(end-width,top,width,height);
+        return widthThen<=0||widthNow<=0||width==0||height<=0?Rectangle.Empty:new Rectangle(end-width,top,width,height);
     }
     public static bool IsCompact(Rectangle place){ return !place.IsEmpty&&place.Width<MeterMin; }
+    // The width a span is anchored to: HX Edit's client width, or 0 (wait) while it has none, e.g. minimized.
+    public static int AnchorWidth(int parentWidth){ return parentWidth>0?parentWidth:0; }
     public static bool HasReading(object[] dsp){ return dsp!=null&&(dsp[0] is Dictionary<string,object>||dsp[1] is Dictionary<string,object>); }
     void Place(){
         placedWidth=ParentWidth();
@@ -1247,6 +1260,9 @@ class DspMeter : Form
         if(CompactLabel(ok,0)!="DSP1 36%"||CompactLabel(half,1)!="DSP2 57%"||CompactLabel(null,0)!="DSP1 —")throw new Exception("DSP meter compact labels");
         if(HasReading(new object[]{null,null})||!HasReading(new object[]{null,ok})||HasReading(null))throw new Exception("DSP meter hides without readings");
         if(!Placement(310,1388,9,24,-1,1920).IsEmpty)throw new Exception("DSP meter without a span");
+        // Minimized: HX Edit's client width is 0. Nothing is placed, and a span is not anchored to it.
+        if(!Placement(310,1388,9,24,1920,0).IsEmpty||!Placement(310,1388,9,24,0,1920).IsEmpty)throw new Exception("DSP meter while minimized");
+        if(AnchorWidth(0)!=0||AnchorWidth(-1)!=0||AnchorWidth(1484)!=1484)throw new Exception("DSP meter span anchor");
         var parsed=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>("{\"dsp\":[{\"load\":42,\"used\":27,\"budget\":75,\"level\":\"green\"},null]}");
         if(!(parsed["dsp"] is IList)||Label(((IList)parsed["dsp"])[0],0)!="DSP 1  27/75")throw new Exception("DSP meter input lists");
     }
