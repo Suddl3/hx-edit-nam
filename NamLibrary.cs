@@ -1160,10 +1160,13 @@ class DspMeter : Form
         return widthThen<0||widthNow<0||width==0||height<=0?Rectangle.Empty:new Rectangle(end-width,top,width,height);
     }
     public static bool IsCompact(Rectangle place){ return !place.IsEmpty&&place.Width<MeterMin; }
+    public static bool HasReading(object[] dsp){ return dsp!=null&&(dsp[0] is Dictionary<string,object>||dsp[1] is Dictionary<string,object>); }
     void Place(){
         placedWidth=ParentWidth();
         var place=spanWidth<0?Rectangle.Empty:Placement(spanLeft,spanRight,spanTop,spanHeight,spanWidth,placedWidth);
-        shown=!place.IsEmpty;
+        // No reading for either DSP (the Floor disconnected, or not answered yet): nothing to show, so
+        // the meter is not left over HX Edit's "No device connected" screen.
+        shown=!place.IsEmpty&&HasReading(dsp);
         compact=IsCompact(place);
         // Above the editor's own drawing, without taking focus.
         if(shown)SetWindowPos(Handle,IntPtr.Zero,place.X,place.Y,place.Width,place.Height,0x0010|0x0040);   // NOACTIVATE|SHOWWINDOW
@@ -1242,6 +1245,7 @@ class DspMeter : Form
         if(Placement(310,1388,9,24,1920,975)!=new Rectangle(310,9,133,24))throw new Exception("DSP meter compact squeezes");
         if(!Placement(310,1388,9,24,1920,960).IsEmpty)throw new Exception("DSP meter hides when even text does not fit");
         if(CompactLabel(ok,0)!="DSP1 36%"||CompactLabel(half,1)!="DSP2 57%"||CompactLabel(null,0)!="DSP1 —")throw new Exception("DSP meter compact labels");
+        if(HasReading(new object[]{null,null})||!HasReading(new object[]{null,ok})||HasReading(null))throw new Exception("DSP meter hides without readings");
         if(!Placement(310,1388,9,24,-1,1920).IsEmpty)throw new Exception("DSP meter without a span");
         var parsed=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>("{\"dsp\":[{\"load\":42,\"used\":27,\"budget\":75,\"level\":\"green\"},null]}");
         if(!(parsed["dsp"] is IList)||Label(((IList)parsed["dsp"])[0],0)!="DSP 1  27/75")throw new Exception("DSP meter input lists");

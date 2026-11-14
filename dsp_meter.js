@@ -40,7 +40,13 @@ function installDspMeter(options = {}) {
     if (device.isNull()) return;
     let loads;
     try {
-      loads = [0, 1].map(dsp => load(device, dsp));
+      // 0x495f90 asks the device only while the connected device ([+0x38]) is the one its figures
+      // are for ([+0x500], not 0x210100) and its query object ([+0x4f8]) exists; otherwise it
+      // returns HX Edit's own offline estimate (seen: 36/36 with the Floor switched off). The meter
+      // shows the Floor's own figures or nothing.
+      const expected = device.add(0x500).readU32();
+      const live = device.add(0x38).readU32() === expected && expected !== 0x210100 && !device.add(0x4f8).readPointer().isNull();
+      loads = live ? [0, 1].map(dsp => load(device, dsp)) : [-1, -1];
       failures = 0;
     } catch (error) {
       if (++failures === 3) send({ type: 'dspMeter', event: 'read-failed', error: String(error.message) });

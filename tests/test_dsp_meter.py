@@ -62,6 +62,9 @@ class DspMeterScriptTests(unittest.TestCase):
         self.assertIn("onEnter() { device = this.context.ecx; }", source)   # notes, never changes
         self.assertNotIn('onLeave', source)
         self.assertNotIn('retval.replace', source)
+        # Only the Floor's own answer: HX Edit's offline estimate (device fields differ) is not shown.
+        self.assertIn("device.add(0x38).readU32() === expected && expected !== 0x210100", source)
+        self.assertIn('shown=!place.IsEmpty&&HasReading(dsp);', (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8'))
 
 
 class FakeProcess:
