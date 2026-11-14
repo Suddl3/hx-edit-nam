@@ -150,7 +150,7 @@ function previewSlotUnused(preset, slot) {
     preset?.slots instanceof Set && !preset.slots.has(slot);
 }
 
-function friendlyNamCaption(slot, original, physicalName, title) {
+function friendlyNamCaption(slot, original, physicalName, title, room = 21) {
   if (!Number.isInteger(slot) || slot < 1 || slot > 128 ||
       typeof original !== 'string' || typeof physicalName !== 'string' || !physicalName ||
       typeof title !== 'string' || !title) return original;
@@ -168,7 +168,7 @@ function friendlyNamCaption(slot, original, physicalName, title) {
   // The control's font is proportional, so the room is estimated in rough glyph widths rather
   // than characters: on the Floor "16: EVH 5150III® 100S ste…" fitted while the equally long
   // "9: FNDR BFDRI VB Clean BA…" lost its first characters.
-  const room = 21;
+  // room: 21 by default; less when the Model lock's padlock sits left of the caption.
   const wide = text => {
     let total = 0;
     for (const ch of text) {
@@ -273,6 +273,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
   const slotLedger = typeof createLibrarySlotLedger === 'function' ? createLibrarySlotLedger() : null;
   let inventoryDirty = false, inventoryState = 'unverified', inventoryFlushing = false, inventoryRetryAt = 0;
   let payloadMetadata = profile.payloadMetadata || {};
+  let payloadRevision = 0;
   let displayRefreshing = false, lastModelAlias = null;
 
   // Proven Candidate53 text-only ABI. Guard the call-site but do not attach
@@ -333,7 +334,9 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       const original = text.readCString(), previous = lastModelAlias;
       const source = previous && previous.menu.equals(menu) && previous.slot === slot &&
         previous.physicalName === physicalName && previous.text === original ? previous.source : original;
-      const replacement = friendlyNamCaption(slot, source, physicalName, title || physicalName);
+      // With the NAM categories a padlock sits left of the caption: two glyphs fewer (on the Floor
+      // "127: NAM AC Deluxe Re…" ran under it after a snapshot change).
+      const replacement = friendlyNamCaption(slot, source, physicalName, title || physicalName, profile.namCategory ? 19 : 21);
       if (replacement === original) return;
       const setText = new NativeFunction(setter, 'void', ['pointer', 'pointer', 'int'], 'thiscall');
       setText(menu, Memory.allocUtf8String(replacement), 0);
@@ -813,11 +816,132 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     if (value === getValue(slider)) return true;
     const popup = slider.add(0x144).readPointer();
     if (popup.isNull()) return false;
-    // The native popup stores the slot before handing its change to Model.
-    setValue(popup, value, 0, 0);
-    handleModelEvent(slider, 0x21617663, popup, NULL); // cva!
+    // The native popup stores the slot before handing its change to Model. The Model lock
+    // applies to the on-screen control only: this deliberate change always passes.
+    modelLockOwn++;
+    try {
+      setValue(popup, value, 0, 0);
+      handleModelEvent(slider, 0x21617663, popup, NULL); // cva!
+    } finally { modelLockOwn--; }
+    // The caption is refreshed by a hook on the Model's value setter, which Frida does not run
+    // for a call made from inside another hook (previews apply from the message hook): the
+    // preview's "128: …" caption stayed unshortened under the padlock. Refresh it here.
+    try { syncSelection(); } catch (_) { /* presentation only */ }
     return true;
   }
+
+  // --- Model lock ---------------------------------------------------------------------------
+  // With the NAM categories, a block whose capture was picked from a category list (or that came
+  // with a preset) keeps it until the user unlocks it with the padlock left of the Model value.
+  // tone_view decides per block; modelLockQuery.state() answers 'locked', 'unlocked', 'plain'
+  // (a plain NAM A2 Lite block: no padlock), 'none' (not a NAM block) or null when the Model
+  // control on screen cannot be tied to a block yet (then nothing is changed), and
+  // modelLockQuery.toggle() flips the cursor block. Locked means: the value children (slider,
+  // number box, value menu) are disabled, so click, drag and stepper arrows do nothing
+  // (BLOCK-ICON-RESEARCH.md Q3); the row itself stays enabled so its padlock can be clicked; a
+  // double-click on the row is refused; and any value change a child still reports (mouse wheel,
+  // keys) is turned into the child's own "set, not by the user" notice and the child put back.
+  // Picks from the category list, the NAM tab and previews go through setModelSlot and pass.
+  // The padlocks are two hidden push buttons that nam_catalog.patch_model_lock adds to every
+  // parameter row (slider.xml); only a NAM block's Model row shows one.
+  let modelLockQuery = null, modelLockOwn = 0, modelLockCheckAt = 0, modelLockReports = 20;
+  let padlockPainted = '', padlockReshows = [];
+  const modelLockDisabled = new Set();      // value children this code disabled (only these are re-enabled)
+  const MODEL_VALUE_EVENTS = [0x21617663, 0x21766362, 0x21766365];   // cva! / bcv! / ecv!
+  const MODEL_VALUE_CHILDREN = [0x13c, 0x140, 0x144];                // sldr, edit, menu
+  const LOCK_BUTTONS = {locked: 0x6e6c6b64, unlocked: 0x6e756c6b};   // nlkd, nulk
+  function modelLockTrace(stage, extra = {}) {
+    if (modelLockReports-- > 0) send({type: 'toneTrace', reason: 'model-lock', stage, ...extra});
+  }
+  function modelLockState() {
+    try { return modelLockQuery && hasActiveModel() ? modelLockQuery.state() : null; } catch (_) { return null; }
+  }
+  function lockButton(view, state) {
+    const button = findWidget(view, LOCK_BUTTONS[state], 1);
+    return button.isNull() ? null : button;
+  }
+  function applyModelLock(force = false) {
+    if (!modelLockQuery) return;
+    const now = Date.now();
+    if (!force && now < modelLockCheckAt) return;
+    modelLockCheckAt = now + 100;
+    try {
+      if (!hasActiveModel()) return;
+      const view = activeModel, state = modelLockState();
+      if (state === null) return;
+      const locked = state === 'locked';
+      for (const offset of MODEL_VALUE_CHILDREN) {
+        const child = view.add(offset).readPointer();
+        if (child.isNull()) continue;
+        const key = child.toString(), enabled = child.add(0x54).readPointer().add(0x55).readU8() !== 0;
+        if (locked && enabled) { setEnabled(child, 0, 1); modelLockDisabled.add(key); }
+        else if (!locked && !enabled && modelLockDisabled.has(key)) { setEnabled(child, 1, 1); modelLockDisabled.delete(key); }
+        else if (!locked) modelLockDisabled.delete(key);
+      }
+      for (const name of Object.keys(LOCK_BUTTONS)) {
+        const button = lockButton(view, name);
+        if (!button) { if (name === 'locked' && locked) modelLockTrace('padlock-missing'); continue; }
+        const show = Number(state === name);
+        if (Number(!!isVisible(button, 0)) !== show) {
+          setVisible(button, show, 1);
+          if (show) {
+            padlockReshows = [now + 300, now + 1500, now + 4000];
+            modelLockTrace(name);
+          }
+        }
+        if (show) {
+          // Shown while HX Edit is still starting, the padlock was not painted, though its widget
+          // state matched a painted one byte for byte (seen on the Floor); the redraws asked for
+          // then are lost. So hide and show it again when it moves, and a few times in the
+          // seconds after it appears. A push button picks its image frame from its state, which
+          // passing through disabled sets.
+          const where = `${button}|${getParent(view)}|${JSON.stringify(box(button))}|${JSON.stringify(box(view))}`;
+          const due = padlockReshows.length > 0 && now >= padlockReshows[0];
+          if (where !== padlockPainted || due) {
+            if (due) padlockReshows.shift();
+            padlockPainted = where;
+            setVisible(button, 0, 0);
+            setVisible(button, 1, 0);
+            setEnabled(button, 0, 0);
+            setEnabled(button, 1, 1);
+          }
+        }
+      }
+    } catch (error) { modelLockTrace('apply-skipped', {error: String(error.message)}); }
+  }
+
+  Interceptor.attach(address(0x26c440), {                // the row's double-click / Enter: edit or popup
+    onEnter() {
+      if (!modelLockQuery || modelLockOwn || activeModel.isNull() || !this.context.ecx.equals(activeModel)) return;
+      if (modelLockState() !== 'locked') return;
+      // It starts by testing the row's enabled flag: report it disabled for this call only.
+      const flag = activeModel.add(0x54).readPointer().add(0x55);
+      this.flag = flag; this.value = flag.readU8();
+      flag.writeU8(0);
+    },
+    onLeave() { if (this.flag) this.flag.writeU8(this.value); },
+  });
+
+  Interceptor.attach(address(0x26b690), {                // HXSliderParamView::onEvent
+    onEnter(args) {
+      if (!modelLockQuery || modelLockOwn || activeModel.isNull() || !this.context.ecx.equals(activeModel)) return;
+      const event = args[0].toUInt32();
+      if (!MODEL_VALUE_EVENTS.includes(event)) return;
+      const view = this.context.ecx, sender = args[1];
+      if (![0x13c, 0x140, 0x144].some(offset => view.add(offset).readPointer().equals(sender))) return;
+      if (modelLockState() !== 'locked') return;
+      args[0] = ptr(0x21707663);   // pva!: what the child sends when set by the program; the view ignores it
+      this.revert = sender;
+      if (event === 0x21617663) modelLockTrace('refused');
+    },
+    onLeave() {
+      if (!this.revert) return;
+      try {
+        setValue(this.revert, getValue(activeModel), 0, 0);
+        syncSelection();
+      } catch (error) { modelLockTrace('revert-skipped', {error: String(error.message)}); }
+    },
+  });
 
   function syncSelection() {
     refreshDisplayedModelName();
@@ -884,9 +1008,20 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       if (event === 0x2162705f) { // _pb!
         this.allCaptures = !allCapturesButton.isNull() && sender.equals(allCapturesButton);
         this.action = Object.keys(buttons).find(action => sender.equals(buttons[action]));
+        if (modelLockQuery && hasActiveModel()) {
+          this.lockClick = Object.keys(LOCK_BUTTONS).some(name => {
+            const button = lockButton(activeModel, name);
+            return !!button && sender.equals(button);
+          });
+        }
       }
     },
     onLeave() {
+      if (this.lockClick) {
+        try { modelLockQuery.toggle(); } catch (error) { modelLockTrace('toggle-skipped', {error: String(error.message)}); }
+        applyModelLock(true);
+        return;
+      }
       if (this.allCaptures) {
         requestLibraryVerification();
         const window = libraryWindow();
@@ -983,6 +1118,10 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       else constructing.delete(this.threadId);
       activeModel = this.model;
       syncSelection();
+      // The row was (re)built for a block: a padlock already flagged visible from the last block
+      // is not painted on the new row, so show it again as on first appearance.
+      padlockPainted = ''; padlockReshows = [Date.now() + 300, Date.now() + 1500, Date.now() + 4000];
+      applyModelLock(true);
     },
   });
 
@@ -1238,8 +1377,10 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       }
     },
     setPayloadMetadata(value) {
-      payloadMetadata = value || {}; inventoryDirty = true;
+      payloadMetadata = value || {}; inventoryDirty = true; payloadRevision++;
     },
+    // Counts metadata updates (a capture's type or name changed): the NAM block icons redraw.
+    payloadRevision: () => payloadRevision,
     inventorySnapshot() {
       return { epoch: slotLedger?.epoch() || 0, state: inventoryState,
         entries: slotLedger?.displayEntries() || [], verified: slotLedger?.entries() || [] };
@@ -1320,6 +1461,8 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       return true;
     },
     setSlot: slot => setModelSlot(slot),
+    setModelLockQuery(query) { modelLockQuery = query && typeof query.state === 'function' && typeof query.toggle === 'function' ? query : null; },
+    applyModelLock: force => applyModelLock(force),
     selectProfile(transfer) {
       return !!this.previewName(transfer) && setModelSlot(transfer.slot);
     },

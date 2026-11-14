@@ -72,7 +72,41 @@ def section():
     finish(image, 'FX_HX_Category_Section.png')
 
 
+# Model lock buttons (nam_catalog.patch_model_lock): 16x16 padlocks, four frames stacked like
+# HX Edit's own push buttons (normal, disabled, pressed, hover; measured from the stock strips).
+LOCK_FRAMES = ((0xD0, 255), (0x50, 255), (0xA0, 255), (0xFF, 255))
+
+
+def padlock(locked, grey, alpha):
+    size, scale = 16, 8
+    image = Image.new('RGBA', (size * scale, size * scale), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    colour, width = (grey, grey, grey, alpha), int(1.6 * scale)
+    z = lambda *values: [value * scale for value in values]
+    draw.rounded_rectangle(z(3, 7.5, 13, 15), radius=1.5 * scale, fill=colour)          # body
+    if locked:
+        draw.arc(z(5, 2, 11, 10), 180, 360, fill=colour, width=width)                     # closed shackle
+        draw.line(z(5.8, 6, 5.8, 8), fill=colour, width=width)
+        draw.line(z(10.2, 6, 10.2, 8), fill=colour, width=width)
+    else:
+        draw.arc(z(7.5, 0.5, 13.5, 8.5), 180, 360, fill=colour, width=width)              # open, lifted right
+        draw.line(z(12.7, 4.5, 12.7, 8), fill=colour, width=width)
+        draw.line(z(8.3, 4.5, 8.3, 5.5), fill=colour, width=width)
+    draw.ellipse(z(7, 9.8, 9, 11.8), fill=(0, 0, 0, 0))                                 # keyhole
+    draw.rectangle(z(7.6, 11, 8.4, 13), fill=(0, 0, 0, 0))
+    return image.resize((size, size), Image.LANCZOS)
+
+
+def lock_buttons():
+    for locked, name in ((True, 'model_locked.png'), (False, 'model_unlocked.png')):
+        strip = Image.new('RGBA', (16, 64), (0, 0, 0, 0))
+        for index, (grey, alpha) in enumerate(LOCK_FRAMES):
+            strip.alpha_composite(padlock(locked, grey, alpha), (0, 16 * index))
+        OUT.mkdir(exist_ok=True)
+        strip.save(OUT / name)
+
+
 if __name__ == '__main__':
-    for draw_icon in (amp, amp_cab, pedal, other, section):
+    for draw_icon in (amp, amp_cab, pedal, other, section, lock_buttons):
         draw_icon()
     print(sorted(path.name for path in OUT.glob('*.png')))

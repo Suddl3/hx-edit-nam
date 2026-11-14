@@ -54,7 +54,8 @@ handlers.inventory.onEnter([]);automatic.setSessionActive(false);tick(2000);
 assert.deepEqual(exports,[9,127,9]);
 // Editing or changing the preset does not change the device's IR library.
 for(const preset of ['EditBuffer_HelixBlockAdded','EditBuffer_HelixBlockRemoved',
-    'EditBuffer_PresetContentsWillChange','EditBuffer_PresetContentsDidChange']){
+    'EditBuffer_PresetContentsWillChange','EditBuffer_PresetContentsDidChange',
+    'EditBuffer_HelixSnapshotWillChange','EditBuffer_HelixSnapshotDidChange','EditBuffer_DevicePresetChanged']){
   const before=ledger.entries();name=preset;handlers.inventory.onEnter([]);tick(2000);
   assert.deepEqual(ledger.entries(),before);
   assert.deepEqual([...automatic.inspect().done].sort((a,b)=>a-b),[9,127]);

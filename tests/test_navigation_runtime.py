@@ -217,6 +217,30 @@ def js(source):
 
 @unittest.skipUnless(shutil.which('node'), 'Node.js required')
 class NavigationNativeTests(unittest.TestCase):
+    def test_a_preview_whose_block_left_the_preview_slot_is_ended(self):
+        # Undo of the preview's Model change put the block back on its capture while the card
+        # still said "Previewing" (Floor, November 13). It is ended like a snapshot change.
+        result = js('''
+          let now=1000; Date.now=()=>now;
+          let active={navigation:true,transfer:{slot:128},undoAfter:7}, command=null, workflowRequest=null;
+          let slot=128, onScreen=true, leftPreviewSince=0; const sent=[], ended=[];
+          const namView={modelSlot:()=>slot}, targetOnScreen=()=>onScreen, send=v=>sent.push(v);
+          const invalidate=by=>{ended.push(by);active.cleanupRequested=true;};
+        ''' + function('watchPreviewLeft') + '''
+          const step=ms=>{now+=ms;watchPreviewLeft();return ended.length;};
+          const counts=[step(0)];                     // still on 128
+          slot=127; counts.push(step(100), step(100)); // left, but not for 300 ms yet
+          counts.push(step(250));                      // held: ended once
+          counts.push(step(400));                      // cleanup requested: not again
+          active.cleanupRequested=false; slot=127; onScreen=false; leftPreviewSince=0;
+          counts.push(step(100), step(400));           // another block on screen: left alone
+          onScreen=true; active.applying=true; counts.push(step(100), step(400)); // while applying
+          console.log(JSON.stringify({counts,ended,sent}));
+        ''')
+        self.assertEqual(result['counts'], [0, 0, 0, 1, 1, 1, 1, 1, 1])
+        self.assertEqual(result['ended'], ['model-left-preview'])
+        self.assertEqual(result['sent'][0]['slot'], 127)
+
     def test_repeated_control_notifications_publish_only_changed_target_state(self):
         result = js('''
           let active={id:5,navigation:true,bound:true,valid:true,targetVersion:3,targetLabel:'NAM A'};

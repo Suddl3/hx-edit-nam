@@ -117,8 +117,16 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       if (!namView.slotName(leftover.originalSlot)) return;
       if (namView.slotName(AUDITION_SLOT) !== leftover.name) return forgetPreview('preview-gone');
       if (!controllerReady(selectedController)) return;
-      if (selectedController.add(0x80).readS32() !== leftover.dsp || block(selectedController) !== leftover.block ||
-          namView.modelSlot() !== AUDITION_SLOT) return;      // not this block, or not on screen yet
+      if (selectedController.add(0x80).readS32() !== leftover.dsp || block(selectedController) !== leftover.block) return;
+      const playing = namView.modelSlot();
+      if (Number.isInteger(playing) && playing !== AUDITION_SLOT && playing >= 1 && playing <= 127) {
+        // The recorded block plays another capture now (it was moved off the preview before the
+        // editor closed): it keeps it; only the preview slot is released once nothing uses it.
+        send({type: 'toneTrace', reason: 'leftover-preview', stage: 'block-moved-on', dsp: leftover.dsp, block: leftover.block, slot: playing});
+        leftover.clearUntil = now + 8000;
+        return;
+      }
+      if (playing !== AUDITION_SLOT) return;                 // not on screen yet
       const session = active;
       if (session) session.applying = true;
       let accepted;
@@ -253,16 +261,20 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   function publishTarget(text, force = false) {
     if (!active || !active.navigation) return;
     const selected = selectedTarget();
+    const payloadCanBind = target => !!target && !active.transfer && !active.pendingTransfer && !active.quarantined;
     const bound = active.bound && !active.quarantined && atTarget();
     const payload = { type: 'toneTarget', session: active.id, version: active.targetVersion,
       bound: !!bound, label: bound ? active.targetLabel : '',
-      selected: selected ? selected.label : '', canBind: !!selected && !active.transfer && !active.pendingTransfer && !active.quarantined,
+      selected: selected ? selected.label : '', canBind: payloadCanBind(selected),
       preview: !!active.transfer || !!active.orphanTransfer || !!active.pendingTransfer, quarantined: !!active.quarantined,
       text: text || (bound ? active.transfer ? 'Auditioning in User IR 128. Input and EQ stay with this block.' :
         active.onPreviewSlot ? 'This block is still on the preview slot (User IR 128). Pick a capture for it in the NAM tab, then preview.' :
         'Ready to audition on this NAM block.' :
         active.cleanupRequested ? 'Restoring the previous block and clearing its preview…' :
         active.quarantined ? 'Preview cleanup needs attention. No new block will be changed.' :
+        // A NAM block is selected and Preview binds it: after a snapshot change or reselecting the
+        // block the card said "Select a NAM block" while Preview worked (Floor, November 13).
+        payloadCanBind(selected) ? 'Ready to audition on the selected NAM block.' :
         'Select a NAM block to audition.') };
     // Native control notifications often repeat without changing the target.
     // Compare the entire visible state; a new session has no cached snapshot.
@@ -574,6 +586,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   function appendCaptureRows(frame) {
     try {
       namView.requestSlotCheck?.();          // remembered slots make this immediate after the first run
+      builtSignature = captureSignature();
       for (const capture of capturesUnder(frame.header)) {
         const label = captureRowLabel(capture);
         if (!captureLabels.has(label)) captureLabels.set(label, Memory.allocUtf8String(label));
@@ -598,9 +611,12 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       // The Model control on screen belongs to the block whose model list was clicked. If it
       // exists, this is already a NAM block: change its capture only, never re-pick its model
       // (that would reset Input and EQ).
-      if (Number.isInteger(namView.modelSlot())) {
+      const before = namView.modelSlot();
+      if (Number.isInteger(before)) {
         const accepted = namView.setSlot(entry.slot);
         send({type: 'toneTrace', reason: 'nam-category', stage: accepted ? 'capture-set' : 'capture-refused', slot: entry.slot});
+        // Clicking the capture the block already plays changes nothing, the lock included.
+        if (accepted && entry.slot !== before) setLockState(controller, 'locked', 'capture-row');
         return;
       }
       // Not a NAM block yet: choose the block row as a click would, then finish in the hook.
@@ -633,11 +649,177 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       try { accepted = namView.setSlot(pending.slot); }
       finally { if (session) session.applying = false; }
       send({type: 'toneTrace', reason: 'nam-category', stage: accepted ? 'capture-set' : 'capture-refused', slot: pending.slot});
+      if (accepted) setLockState(selectedController, 'locked', 'capture-row');
     } catch (error) {
       pendingCapture = null;
       send({type: 'toneTrace', reason: 'nam-category', stage: 'skipped', error: String(error.message)});
     }
   }
+
+  // --- Keeping the open capture list current ------------------------------------------------
+  // HX Edit builds the model column once, when a category is chosen. The capture rows come from
+  // what is known to be on the Floor and from the capture types, and both can change while the
+  // list is open: the startup slot check finishes after the first list is built (NAM Other was
+  // empty until another category was opened), and a type changed in the NAM tab moves a capture.
+  // Then the NAM category on show is chosen again, as a click would, and its rows rebuilt. When the
+  // selected block is a NAM block whose capture is known, its own category is the one shown.
+  // Native calls made here run inside the message hook, where Frida runs no other hooks, so the
+  // capture rows are added here rather than by the list hook.
+  let categoryList = NULL, builtSignature = null, shownBlock = null, listCheckAt = 0, listReports = 12, checkAskedAt = 0;
+  const redrawList = method(0x3baa40, 'void', []);
+
+  function captureSignature() {
+    return namView.installedCaptures().map(capture => `${capture.slot}:${captureGroup(capture.gear)}:${capture.name}`).join('|');
+  }
+  function listOwner() {
+    // The selector that owns the category list; its model column is at +0x58.
+    for (const controller of [cursorController(), selectedController]) {
+      if (!controllerReady(controller)) continue;
+      for (let offset = 0x40; offset <= 0xa0; offset += 4) {
+        if (controller.add(offset).readPointer().equals(categoryList)) return controller;
+      }
+    }
+    return NULL;
+  }
+  function rowIndex(list, test) {
+    for (let index = 0, count = rowCount(list); index < count && index < 512; index++) {
+      const row = getIrRow(list, index);
+      if (!row.isNull() && test(row.readUtf8String(), row)) return index;
+    }
+    return -1;
+  }
+  function highlightCapture(list, slot) {
+    // The capture the block plays, rather than the NAM A2 Lite row HX Edit highlights. Selection
+    // only: no event, so nothing is chosen.
+    if (!Number.isInteger(slot)) return;
+    const index = rowIndex(list, text => captureRows.get(text)?.slot === slot);
+    if (index < 0) return;
+    const selected = selectedRow(list);
+    if (!selected.isNull() && selected.readUtf8String() === getIrRow(list, index).readUtf8String()) return;
+    clearSelection(list, 0, 0);
+    selectRow(list, 1, index, 0, 1);
+  }
+  function refreshCaptureList() {
+    // UI thread, from the message hook.
+    const now = Date.now();
+    if (now < listCheckAt) return;
+    listCheckAt = now + 300;
+    try {
+      if (categoryList.isNull() || (namView.libraryReady && !namView.libraryReady())) return;
+      if (active?.transfer || active?.pendingTransfer || command || workflowRequest || toneImport || pendingCapture) return;
+      // Only a category list a live selector still holds is read (the list is rebuilt with it).
+      const controller = listOwner();
+      if (controller.isNull()) return;
+      // The selected block and its capture. A change of either while a NAM category is on show
+      // (a block selected or added: HX Edit picks the category before the capture is known, and
+      // showed NAM Other) also brings up the block's own category. Kept current while a stock
+      // category is shown, so opening a NAM category by hand is never overridden.
+      const slot = namBlockSlot(controller);
+      const blockKey = `${lockKey(controller)}|${slot}`;
+      const blockChanged = shownBlock !== null && blockKey !== shownBlock;
+      shownBlock = blockKey;
+      const shownRow = selectedRow(categoryList);
+      const shown = shownRow.isNull() ? '' : shownRow.readUtf8String();
+      if (!NAM_CATEGORY_NAMES.includes(shown)) return;
+      const list = controller.add(0x58).readPointer();
+      if (list.isNull()) return;
+      const signature = captureSignature();
+      // A NAM category on show with nothing known to be on the Floor: the slot check was asked for
+      // when the list was built, but proof discarded after that (one notice after another) is
+      // asked for again by nobody. Ask again, every two seconds at most.
+      if (signature === '' && now >= checkAskedAt) { checkAskedAt = now + 2000; namView.requestSlotCheck?.(); }
+      if (signature !== builtSignature || blockChanged) {
+        const capture = Number.isInteger(slot) ? namView.installedCaptures().find(entry => entry.slot === slot) : null;
+        const target = capture ? NAM_CATEGORY_NAMES[captureGroup(capture.gear) - 1] : shown;
+        const index = rowIndex(categoryList, text => text === target);
+        if (index < 0) return;
+        clearSelection(categoryList, 0, 0);
+        selectRow(categoryList, 1, index, 0, 1);
+        modelEvent(controller, selectionEvent, categoryList, NULL, NULL);
+        const header = rowIndex(list, text => text.trimEnd() === tiles[0].block);
+        if (header >= 0) {
+          const row = getIrRow(list, header);
+          appendCaptureRows({header: row.readUtf8String(), list, image: row.add(0x104).readPointer(),
+            index: row.add(0x100).readS32(), model: row.add(0x10c).readPointer()});
+          redrawList(list);
+        }
+        builtSignature = signature;
+        if (listReports-- > 0) send({type: 'toneTrace', reason: 'nam-category', stage: 'list-refreshed', from: shown, to: target});
+      }
+      if (Number.isInteger(slot) && slot === namView.modelSlot()) highlightCapture(list, slot);
+    } catch (error) {
+      if (listReports-- > 0) send({type: 'toneTrace', reason: 'nam-category', stage: 'list-refresh-skipped', error: String(error.message)});
+    }
+  }
+
+  // --- Model lock --------------------------------------------------------------------------
+  // Owner rule (November 13): a NAM block's Model control is locked by default when its capture
+  // was picked from a NAM category list or the block came with a preset. A padlock left of the
+  // Model value (nam_view) shows the state and unlocks / locks it on click. A plain NAM A2 Lite
+  // block, picked from its own row, starts unlocked and shows no padlock. The state is the
+  // editor's, per block of the loaded preset, and is never written to the preset or the device.
+  // A block with no entry is locked; a preset or device change forgets every entry.
+  const modelLocks = new Map();      // block key -> 'unlocked' | 'plain' (absent: locked)
+  let lockCursor = NULL, pendingPlain = null, lockEventReports = 40;
+
+  function noteCursor(controller) {
+    try { if (controllerReady(controller)) lockCursor = controller; } catch (_) { /* not a view yet */ }
+  }
+  function cursorController() {
+    if (controllerReady(lockCursor)) return lockCursor;
+    return controllerReady(selectedController) ? selectedController : NULL;
+  }
+  function lockKey(controller) {
+    return `${controller.add(0x34).readPointer()}|${controller.add(0x80).readS32()}|${block(controller)}`;
+  }
+  function namBlockSlot(controller) {
+    return targetBinding.peekSlot(controller.add(0x34).readPointer(), controller.add(0x80).readS32(), block(controller));
+  }
+  function lockState(controller) {
+    return modelLocks.get(lockKey(controller)) || 'locked';
+  }
+  function setLockState(controller, state, why) {
+    try {
+      if (!controllerReady(controller)) return;
+      const key = lockKey(controller);
+      if (state === 'locked') modelLocks.delete(key); else modelLocks.set(key, state);
+      send({type: 'toneTrace', reason: 'model-lock', stage: state, why, block: block(controller)});
+      namView.applyModelLock?.(true);
+    } catch (error) { send({type: 'toneTrace', reason: 'model-lock', stage: 'state-skipped', error: String(error.message)}); }
+  }
+  function modelLockState() {
+    // The cursor block's state for the Model control on screen: 'locked' | 'unlocked' | 'plain',
+    // 'none' when the cursor block is not a NAM block, null when the two cannot be tied yet.
+    const controller = cursorController();
+    if (controller.isNull()) return null;
+    const slot = namBlockSlot(controller);
+    if (!Number.isInteger(slot)) return 'none';
+    if (slot !== namView.modelSlot()) return null;
+    return lockState(controller);
+  }
+  function toggleModelLock() {
+    // The padlock was clicked: it is shown only on a locked or unlocked block's Model row.
+    const controller = cursorController();
+    if (controller.isNull()) return;
+    const state = modelLockState();
+    if (state === 'locked' || state === 'unlocked') setLockState(controller, state === 'locked' ? 'unlocked' : 'locked', 'padlock');
+  }
+  function finishPendingPlain() {
+    // UI thread: a plain NAM A2 Lite row was picked for a cell that had no block name yet.
+    const pending = pendingPlain;
+    if (Date.now() > pending.until) { pendingPlain = null; return; }
+    const controller = cursorController();
+    if (controller.isNull() || controller.add(0x80).readS32() !== pending.dsp || !Number.isInteger(namBlockSlot(controller))) return;
+    pendingPlain = null;
+    setLockState(controller, 'plain', 'plain-row');
+  }
+  function plainPicked(controller) {
+    try {
+      if (Number.isInteger(namBlockSlot(controller))) return setLockState(controller, 'plain', 'plain-row');
+      pendingPlain = {dsp: controller.add(0x80).readS32(), until: Date.now() + 3000};
+    } catch (_) { pendingPlain = null; }
+  }
+  if (profile.namCategory) namView.setModelLockQuery?.({state: modelLockState, toggle: toggleModelLock});
 
   // --- NAM block icon ---------------------------------------------------------------------
   // HX Edit draws a path block from the catalog record it resolves for the block's model id
@@ -756,7 +938,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     iconCheckAt = now + 250;
     try {
       if (namView.libraryReady && !namView.libraryReady()) return;
-      const state = `${iconEditor}|${controllerReady(selectedController) ? selectedController.toString() : ''}|${namView.modelSlot()}|${namView.installedCaptures().length}`;
+      const state = `${iconEditor}|${controllerReady(selectedController) ? selectedController.toString() : ''}|${namView.modelSlot()}|${namView.installedCaptures().length}|${namView.payloadRevision?.() || 0}`;
       if (state !== iconState) { iconState = state; iconRefreshAt = now + 150; iconActiveUntil = now + 4000; }
     } catch (_) { /* presentation only */ }
   }
@@ -782,6 +964,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     Interceptor.attach(base.add(0x21e500), {            // model selector: sync to the cursor block
       onEnter() {
         selectorStack.push(this.context.ecx);
+        noteCursor(this.context.ecx);
         try { if (controllerReady(this.context.ecx)) iconEditor = this.context.ecx.add(0x34).readPointer(); } catch (_) { /* keep the last one */ }
       },
       onLeave() { selectorStack.pop(); },
@@ -886,7 +1069,9 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         if (!this.context.ecx.readPointer().equals(base.add(0x91fcd0)) || args[1].isNull() || args[5].isNull()) return;
         const header = args[1].readUtf8String();
         // The last stock category row in the category column (list kind 0): mark it afterwards.
-        if (header === 'Looper' && this.context.ecx.add(0x1d8).readU32() === 0) { this.separator = true; return; }
+        if (header === 'Looper' && this.context.ecx.add(0x1d8).readU32() === 0) {
+          this.separator = true; categoryList = this.context.ecx; return;
+        }
         if (header.trimEnd() !== tiles[0].block) return;      // the NAM A2 Lite block row of any group
         this.captures = {header, list: this.context.ecx, image: args[2], index: args[4].toInt32(), model: args[5]};
         return;
@@ -917,18 +1102,23 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
 
   function onModelEvent(controller, event, sender, data, flags) {
     if (profile.navigation) {
+      let plain = false;
       if (profile.namCategory && event === selectionEvent && !sender.isNull()) {
-        let entry = null;
+        let entry = null, text = null;
         try {
           if (sender.equals(controller.add(0x58).readPointer())) {       // the model column
             const row = selectedRow(sender);
-            entry = row.isNull() ? null : captureRows.get(row.readUtf8String()) || null;
+            text = row.isNull() ? null : row.readUtf8String();
+            entry = text === null ? null : captureRows.get(text) || null;
           }
-        } catch (_) { entry = null; }
+        } catch (_) { entry = null; text = null; }
         if (entry) return chooseCapture(controller, sender, entry);
+        plain = text !== null && text.trimEnd() === tiles[0].block;   // a NAM category's own NAM A2 Lite row
       }
       modelEvent(controller, event, sender, data, flags);
+      if (plain) plainPicked(controller);
       observeController(controller);
+      if (profile.namCategory) noteCursor(controller);
       if (event === selectionEvent) refreshBounds(true);
       return;
     }
@@ -987,6 +1177,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   Interceptor.attach(base.add(0x216e00), {
     onEnter() {
       if (selectedController.equals(this.context.ecx)) selectedController = NULL;
+      if (lockCursor.equals(this.context.ecx)) lockCursor = NULL;
       if (active && active.controller.equals(this.context.ecx)) {
         if (!active.navigation) active.panel = NULL;
         if (active.navigation) send({type:'toneTrace',reason:'navigation-controller-destroyed',
@@ -1007,6 +1198,15 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       this.ours = active && active.controller.equals(this.context.ecx);
       // A save with no preview playing stores nothing of ours: it must not block the next preview.
       if (this.ours && event === 'EditBuffer_PresetSavedToDevice') active.deviceSaved = !!active.transfer;
+      if (profile.namCategory && contextEvent.test(event)) {
+        if (lockEventReports-- > 0) send({type: 'toneTrace', reason: 'model-lock', stage: 'context', event, entries: modelLocks.size});
+        // Blocks of another preset (or device) are new to this editor: locked by default again.
+        // PresetContentsWillChange is the one seen when a preset loads (Floor traces, November
+        // 13); none of these came with Model, capture or lock changes, or a plain block pick.
+        if (/^EditBuffer_(?:TargetDeviceChanged|DevicePresetChanged|PresetChanged|PresetContentsWillChange)$/.test(event)) {
+          modelLocks.clear(); pendingPlain = null;
+        }
+      }
       if (!contextEvent.test(event)) return;
       if (!profile.navigation) {
         if (this.ours) invalidate(event);
@@ -1031,6 +1231,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     },
     onLeave() {
       if (profile.navigation) observeController(this.controller);
+      // Every open view receives these notices; only a cursor change says which block is the cursor's.
+      if (profile.namCategory && this.event === 'EditBuffer_HelixCursorChange') noteCursor(this.controller);
       if (profile.navigation && this.event === 'EditBuffer_HelixCursorChange') refreshBounds(true);
       // (Not while inserting or restoring a block: the cell's position changes when it fills or empties.)
       if (this.ours && active && (active.valid || active.bound) && !active.applying && !active.inserting && !active.restoring && !atTarget()) {
@@ -1160,6 +1362,27 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       rememberPreview();
       return { slot: transfer.slot, freeSlots: namView.freeSlots(transfer.slot) };
     }, 3500);
+  }
+
+  // A preview whose block no longer plays the preview slot has ended in sound: an Undo of the
+  // preview's Model change (seen on the Floor, November 13: the card kept saying "Previewing"
+  // while the block was back on its own capture), or Model changed on an unlocked block. End it in
+  // the session too, the way a snapshot change does: the block keeps what it plays now, and an
+  // owned, unreferenced User IR 128 is released. Only once the change has held for 300 ms.
+  let leftPreviewSince = 0;
+  function watchPreviewLeft() {
+    const transfer = active.transfer;
+    if (!active.navigation || !transfer || active.pendingTransfer || active.applying || active.restoring ||
+        active.inserting || active.cleanupRequested || active.quarantined || command || workflowRequest ||
+        active.undoAfter === undefined || !targetOnScreen()) { leftPreviewSince = 0; return; }
+    const slot = namView.modelSlot();
+    if (!Number.isInteger(slot) || slot === transfer.slot) { leftPreviewSince = 0; return; }
+    const now = Date.now();
+    if (!leftPreviewSince) { leftPreviewSince = now; return; }
+    if (now - leftPreviewSince < 300) return;
+    leftPreviewSince = 0;
+    send({type: 'toneTrace', reason: 'preview-left', slot, previewSlot: transfer.slot});
+    invalidate('model-left-preview');
   }
 
   function playing(transfer) {
@@ -1298,6 +1521,10 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     }
     if (!nativeTarget?.valid || active.context !== contextVersion) return releaseDetachedPreview(request, completed, retained);
     if (!namView.previewName(transfer)) return retained('ownership-changed', 'Preview slot ownership changed. Nothing was overwritten or cleared.');
+    // The capture the block ends on: its original one, or, when the preview ended because the
+    // block itself was moved off the preview slot (watchPreviewLeft: an Undo, or Model changed on
+    // an unlocked block), the one it plays now. Keeping 128 then only blocked the next preview.
+    let keep = origin.slot;
     try {
       const current = targetBinding.read(nativeTarget, {context:contextVersion});
       cleanupTrace(request, 'observed', current.slot);
@@ -1318,7 +1545,12 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         }
         cleanupTrace(request, 'restore-accepted', current.slot);
       } else if (current.slot !== origin.slot) {
-        return retained('block-edited', 'The original block was edited independently. Preview remains in User IR 128 for review.', current.slot);
+        if (request.action !== 'autoEnd' || active.invalidatedBy !== 'model-left-preview' ||
+            !Number.isInteger(current.slot) || current.slot < 1 || current.slot > 127) {
+          return retained('block-edited', 'The original block was edited independently. Preview remains in User IR 128 for review.', current.slot);
+        }
+        keep = current.slot;
+        cleanupTrace(request, 'kept-new-capture', current.slot);
       }
     } catch (error) { return retained('native-read-or-write-failed', String(error.message)); }
     active.restoring = true;
@@ -1329,18 +1561,18 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
           return retained('context-changed', 'The target context changed during cleanup. Preview was retained.');
         }
         const current = targetBinding.read(nativeTarget, {context:contextVersion});
-        if (current.slot === origin.slot && !clearing && !refreshed && targetOnScreen() &&
+        if (current.slot === keep && !clearing && !refreshed && targetOnScreen() &&
             namView.modelSlot() === transfer.slot) {
           // The block is restored but its control on screen still shows the preview (it came
           // back on screen after a typed restore). Bring the control to the same original slot.
           refreshed = true;
           active.applying = true;
-          try { namView.setSlot(origin.slot); }
+          try { namView.setSlot(keep); }
           finally { active.applying = false; }
           return null;
         }
-        if (current.slot !== origin.slot || (targetOnScreen() && namView.modelSlot() !== origin.slot)) {
-          if (!clearing && (current.slot === transfer.slot || current.slot === origin.slot) && !expired) return null;
+        if (current.slot !== keep || (targetOnScreen() && namView.modelSlot() !== keep)) {
+          if (!clearing && (current.slot === transfer.slot || current.slot === keep) && !expired) return null;
           return retained('restore-not-confirmed', 'The previous block did not confirm its original capture. Preview was retained.', current.slot);
         }
         if (!clearing) {
@@ -1662,8 +1894,14 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     onEnter(args) {
       if (leftover) recoverLeftover();
       if (pendingCapture) finishPendingCapture();
-      if (profile.namCategory) watchNamIcons(args[0].readPointer());
+      if (profile.namCategory) {
+        if (pendingPlain) { try { finishPendingPlain(); } catch (_) { pendingPlain = null; } }
+        namView.applyModelLock?.();
+        refreshCaptureList();
+        watchNamIcons(args[0].readPointer());
+      }
       if (!active) return;
+      try { watchPreviewLeft(); } catch (_) { leftPreviewSince = 0; }
       const hwnd = args[0].readPointer();
       const event = args[0].add(4).readU32();
       // Keyboard focus can remain in HX Edit while a docked browser is visible.

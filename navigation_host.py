@@ -15,6 +15,12 @@ class NavigationHost:
         self.service = service or FloorInventoryService(Path(workspace) / 'slot-exports')
         self.closed = False
         self.watch = watch_factory(self.connection_changed, presence=floor_presence)
+        # The editor starts with this metadata (launch options). A type or name changed later in
+        # the NAM tab or the library card reaches it through the library's change notice, so the
+        # block selector's NAM categories and the path block icons follow without a restart.
+        self.published_metadata = self._metadata()
+        subscribe = getattr(library, 'subscribe', None)
+        self.unsubscribe = subscribe(self.library_changed) if callable(subscribe) else None
 
     def post(self, kind, payload):
         if not self.closed and not self.detached.is_set():
@@ -25,8 +31,24 @@ class NavigationHost:
         self.post('toneDeviceChange', value)
         self.post('hostDeviceChange', value)
 
+    def _metadata(self):
+        try:
+            return self.library.payload_metadata()
+        except Exception:
+            return None
+
     def metadata_changed(self):
-        self.post('floorPayloadMetadata', self.library.payload_metadata())
+        # After a download is registered. The library's own notice has usually posted it already.
+        self.library_changed()
+
+    def library_changed(self):
+        # Only a real change is posted: the editor's own slot reports also notify the library,
+        # and the editor answers new metadata with a slot report, so a repost would loop.
+        metadata = self._metadata()
+        if metadata is None or metadata == self.published_metadata:
+            return
+        self.published_metadata = metadata
+        self.post('floorPayloadMetadata', metadata)
 
     def start(self):
         return self.watch.start()
@@ -65,6 +87,8 @@ class NavigationHost:
         if self.closed:
             return
         self.closed = True
+        if self.unsubscribe:
+            self.unsubscribe()
         try:
             self.watch.close()
         finally:

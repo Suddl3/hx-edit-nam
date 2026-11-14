@@ -201,7 +201,12 @@ function installNativeExportObserver(config, env) {
           // session, adding one NAM block discarded all proof and re-read every slot before
           // the NAM tab could show slot numbers or offer Use on Floor. Exact names only.
           name==='EditBuffer_HelixBlockAdded' || name==='EditBuffer_HelixBlockRemoved' ||
-          name==='EditBuffer_PresetContentsWillChange' || name==='EditBuffer_PresetContentsDidChange';
+          name==='EditBuffer_PresetContentsWillChange' || name==='EditBuffer_PresetContentsDidChange' ||
+          // Same for recalling a snapshot or loading a preset on the device: parameter values and
+          // blocks change, the IR library does not. On the Floor (November 13) one snapshot change
+          // discarded all proof twice (Will/Did), and the NAM categories showed no captures.
+          name==='EditBuffer_HelixSnapshotWillChange' || name==='EditBuffer_HelixSnapshotDidChange' ||
+          name==='EditBuffer_DevicePresetChanged';
       if(name==='Device_SettingChanged' && (active || api.busy)) {
         const setting=api.setting(args);
         if(api.busy && setting.name==='UILockout')api.busy(setting.value);

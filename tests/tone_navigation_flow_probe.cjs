@@ -335,6 +335,32 @@ function fixture(options = {}) {
   const id = f.command('audition', {file:'after.wav'}); assert.equal(f.reply(id).slot, 128);
 }
 
+// The recorded block was moved to another capture before HX Edit closed (Floor, November 13):
+// it keeps that capture, nothing is written to it, and the preview slot is released.
+{
+  const f = fixture({leftover: {dsp:0, block:'block0', originalSlot:9, name:'left-behind 4d5e6f'}});
+  f.retainForeignPreview('left-behind 4d5e6f'); f.a.slot = 11;
+  f.select(f.a); f.tick(300); f.dispatch(0xf); f.tick(300); f.dispatch(0xf);
+  assert.equal(f.writes.length, 0); assert.equal(f.a.slot, 11);
+  assert.deepEqual(f.slotClears, [128]); assert.equal(f.previewStates().at(-1), null);
+  assert.ok(f.traces('leftover-preview').some(m => m.stage === 'block-moved-on'));
+}
+
+// During a preview the block itself leaves the preview slot (an Undo, or Model moved on an
+// unlocked block). The preview ends: the block keeps what it plays now and 128 is released,
+// and the next preview is not blocked.
+{
+  const f = fixture(); f.select(f.a); f.open();
+  const id = f.command('audition', {file:'first.wav'}); assert.equal(f.reply(id).slot, 128);
+  f.a.slot = 11;
+  for (let i = 0; i < 4; i++) { f.tick(200); f.dispatch(0xf); }
+  f.tick(); f.dispatch(0xf); f.tick(300); f.dispatch(0xf);
+  assert.ok(f.traces('preview-left').length >= 1);
+  assert.equal(f.a.slot, 11); assert.equal(f.clears.length, 1);
+  assert.equal(f.target().quarantined, false);
+  const next = f.command('audition', {file:'second.wav'}); assert.equal(f.reply(next).slot, 128);
+}
+
 // A record whose preview is no longer in 128 changes nothing and is dropped.
 {
   const f = fixture({leftover: {dsp:0, block:'block0', originalSlot:9, name:'left-behind 1a2b3c'}});

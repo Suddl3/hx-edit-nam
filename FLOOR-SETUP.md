@@ -73,7 +73,7 @@ Nothing else needs reinstalling: the launcher rebuilds its working copy of HX Ed
 
 ![NAM categories in the block selector](docs/screenshots/nam-category.jpg)
 
-With `--nam-category` the block selector gains four categories under a thin line after Looper. Each lists the NAM A2 Lite block and the captures of that type that are on the Floor; picking one sets the block to it, and the block in the signal path takes the icon of its capture's type. A capture's type is the one shown in the NAM tab. What has been seen working and the known flaws are in [FLOOR-WORKFLOW.md](FLOOR-WORKFLOW.md#nam-categories-in-the-block-selector-opt-in---nam-category).
+With `--nam-category` the block selector gains four categories under a thin line after Looper. Each lists the NAM A2 Lite block and the captures of that type that are on the Floor; picking one sets the block to it, and the block in the signal path takes the icon of its capture's type. A capture's type is the one shown in the NAM tab; changing it there moves the capture at once. A padlock left of the Model value locks a NAM block's capture against accidental changes (click it to unlock). What has been seen working and the known flaws are in [FLOOR-WORKFLOW.md](FLOOR-WORKFLOW.md#nam-categories-in-the-block-selector-opt-in---nam-category).
 
 ### Notes
 

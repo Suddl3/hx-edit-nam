@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import struct
 from xml.etree import ElementTree as ET
 
 import msgpack
@@ -170,6 +171,82 @@ def nam_category_rows(index, models):
     return rows
 
 
+# Model lock buttons: two padlock images added to HX Edit's main image bundle, and two hidden
+# push buttons in every parameter row (res/slider.xml), just left of the value menu. nam_view
+# shows one of them on a NAM block's Model row only.
+MODEL_LOCK_IMAGES = ((7001, 'model_locked.png'), (7002, 'model_unlocked.png'))
+MODEL_LOCK_BUTTONS = (('nlkd', 'Model locked', 7001), ('nulk', 'Model unlocked', 7002))
+
+
+def add_bundle_images(bundle, images):
+    """Append (id, png bytes, frames) entries to an XGIM image bundle.
+
+    Layout (main.imb of HX Edit 3.82): 'XGIM', u32 table offset, u32 count, u32 0, the PNGs back
+    to back, then the table: per image u32 id, offset, size, frame count (stacked vertically), 1.
+    Big-endian. XML <image> values are these ids. HX Edit keeps the first image it loads for an id
+    across all bundles (ids 104 and 105 were taken: the padlocks never drew), so new ids are 7000+.
+    Images already present by id are left alone.
+    """
+    if bundle[:4] != b'XGIM':
+        raise ValueError('Not an XGIM image bundle')
+    table, count, zero = struct.unpack('>III', bundle[4:16])
+    if zero != 0 or table + 20 * count != len(bundle):
+        raise ValueError('Unexpected XGIM image bundle layout')
+    entries = [struct.unpack('>5I', bundle[table + 20 * k:table + 20 * (k + 1)]) for k in range(count)]
+    known = {entry[0] for entry in entries}
+    data = bytearray(bundle[:table])
+    for identity, png, frames in images:
+        if identity in known:
+            continue
+        if png[:8] != b'\x89PNG\r\n\x1a\n':
+            raise ValueError('Bundle images must be PNG')
+        entries.append((identity, len(data), len(png), frames, 1))
+        data += png
+    if len(entries) == count:
+        return bundle
+    data[4:16] = struct.pack('>III', len(data), len(entries), 0)
+    return bytes(data) + b''.join(struct.pack('>5I', *entry) for entry in entries)
+
+
+def model_lock_slider_xml(source):
+    root = ET.fromstring(source)
+    views = root.findall("./panel_widget[@id='slvw']")
+    if len(views) != 1 or len(views[0].findall("text_menu_widget[@id='menu']")) != 1:
+        raise ValueError('Model lock requires the stock slider view')
+    view = views[0]
+    ours = {identity for identity, _, _ in MODEL_LOCK_BUTTONS}
+    present = {node.get('id') for node in view if node.get('id') in ours}
+    if present:
+        if present != ours:
+            raise ValueError('Partial model lock resources')
+        return source
+    for identity, name, image in MODEL_LOCK_BUTTONS:
+        button = ET.SubElement(view, 'pushbutton_widget', {
+            'height': '16', 'id': identity, 'left': '0', 'name': name, 'top': '0', 'width': '16'})
+        # The value menu is 150 wide and 23 from the right edge: the padlock sits 5 px left of it.
+        ET.SubElement(button, 'anchor_pos', right='178', top='1')
+        ET.SubElement(button, 'visible').text = 'no'
+        ET.SubElement(button, 'bg_color').text = '0x00000000'
+        ET.SubElement(button, 'image').text = str(image)
+        ET.SubElement(button, 'button_repeat').text = 'no'
+    return ET.tostring(root, encoding='utf-8')
+
+
+def patch_model_lock(resources):
+    """Add the Model lock padlocks to a prepared copy (part of the NAM category experiment)."""
+    bundle = resources / 'main.imb'
+    source = bundle.read_bytes()
+    patched = add_bundle_images(source, [(identity, (NAM_CATEGORY_ICONS / name).read_bytes(), 4)
+                                         for identity, name in MODEL_LOCK_IMAGES])
+    if patched != source:
+        bundle.write_bytes(patched)
+    slider = resources / 'slider.xml'
+    source = slider.read_bytes()
+    patched = model_lock_slider_xml(source)
+    if patched != source:
+        slider.write_bytes(patched)
+
+
 def patch_nam_category(resources):
     """Experiment: NAM capture categories in the block selector, under their own heading.
 
@@ -185,6 +262,7 @@ def patch_nam_category(resources):
     The Amp > NAM subcategory that patch_catalog adds is removed, so the stock section is stock.
     No model, parameter or firmware identity changes. Only with the launcher's --nam-category.
     """
+    patch_model_lock(resources)
     catalog_path = resources / 'HX_ModelCatalog.bin'
     catalog = msgpack.unpackb(catalog_path.read_bytes())
     categories = catalog['categories\0']

@@ -32,29 +32,43 @@ An experiment added after Candidate63, off unless the launcher is given
   NAM Pedal, NAM Other), under a thin line; Amp > NAM is removed;
 - each lists the NAM A2 Lite block and the captures of that type that are on the
   Floor; picking a capture sets the block to it;
-- the block in the signal path shows the icon of its capture's type.
+- the block in the signal path shows the icon of its capture's type;
+- the open list follows the selected block: it shows the block's own category with
+  its capture highlighted, and refills when the startup slot check finishes, a block
+  is added or selected, or a capture's type is changed in the NAM tab;
+- **Model lock:** a padlock left of the Model value. A NAM block from a preset, or
+  one whose capture was picked from a NAM category, is locked: the Model control
+  ignores clicks, drags and the mouse wheel. Click the padlock to unlock (and again
+  to lock). A plain NAM A2 Lite block picked from its own row starts unlocked and
+  has no padlock. The lock belongs to the editor, per block of the loaded preset; it
+  is never saved in the preset and resets when another preset is loaded. Picks from
+  a NAM category, the NAM tab and previews still change a locked block.
 
-Seen on one Floor: the categories, picking a capture, the line under Looper and
-the path icon. Known flaws: just after launch the selector still highlights NAM
-Other until a block is selected again; the capture list highlights the NAM A2
-Lite row instead of the loaded capture; a capture that is not in the PC library,
-and a preview on User IR 128, show as NAM Other. The Model control can still be
-changed by hand afterwards (a lock is planned). The icons are placeholders drawn
-for this project.
+Seen on one Floor: all of the above, on both DSPs, across snapshot changes and a
+block drag. Known flaws: just after launch HX Edit's own marker in the category
+list can stay on NAM Other; a capture that is not in the PC library shows as NAM
+Other; while locked, the Model control's right-click menu is unavailable too; an
+Undo of a plain NAM A2 Lite pick keeps that block without a padlock until the
+preset is loaded again; an older WAV import and the original .nam of the same
+capture are not recognised as one (saving the .nam to the Floor adds a second
+slot). The icons are placeholders drawn for this project.
+
+### Previews: tested on the Floor
+
+Each of these ended the preview with the block back on its own capture (or on the
+capture it was moved to) and User IR 128 deleted: Close, Escape, selecting another
+block, a snapshot change, loading another preset, Undo, changing an unlocked Model
+during the preview, switching to another profile of the tone, and closing HX Edit
+during a preview (the next launch restores the block). Save to PC + Floor wrote the
+capture to the lowest free slot and the NAM category list showed it at once.
 
 ### Still to test on the Floor
 
-- Switching snapshot while a preview is playing: the preview should end on its
-  original block after about half a second.
-- Loading another preset while a preview is playing: User IR 128 should be
-  released within a few seconds and the new preset left untouched.
 - Load on Floor from the NAM tab for a capture that is not on the Floor yet:
   only that row should go amber, then green.
 
 ### Known gaps
 
-- Changing the Model by hand during a preview leaves the preview in User IR 128
-  until the next preview replaces it.
 - Notices can open behind HX Edit.
 - Remembered slots are trusted by slot name, and one Floor is assumed.
 - The NAM categories are an opt-in experiment (above). No storage or DSP counters yet.

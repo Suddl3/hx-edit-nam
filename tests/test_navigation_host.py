@@ -34,6 +34,32 @@ def test_file_evidence_goes_back_to_native_acceptance_before_library(tmp_path):
     library.set_slot_inventory.assert_called_once_with(accepted)
 
 
+def test_a_type_change_in_the_library_reaches_the_editor_once(tmp_path):
+    # The NAM tab or library card changes a capture's type; the block selector's NAM categories
+    # are built from the metadata the editor holds, so it must be posted without a restart.
+    from nam_library import Library
+    library = Library(tmp_path / "library")
+    capture = tmp_path / 'demo.nam'
+    capture.write_bytes(b'{"metadata": {"gear_type": "amp"}}')
+    identity = library.add(capture)
+    library._payload_index[identity] = {'c' * 64}          # as prime_library leaves it
+    script, service, watch = Mock(), Mock(), Mock()
+    host = NavigationHost(script, tmp_path, library, Event(), service=service, watch_factory=watch)
+    posted = lambda: [call.args[0] for call in script.post.call_args_list
+                      if call.args[0]['type'] == 'floorPayloadMetadata']
+    library.mark_pending(identity, 5)                      # an unrelated notice: nothing posted
+    assert posted() == []
+    library.update(identity, gear='pedal')
+    assert [p['payload']['c' * 64]['gear'] for p in posted()] == ['pedal']
+    library.set_slot_inventory({'epoch': 1, 'state': 'verified', 'entries': [], 'generation': 1})
+    assert len(posted()) == 1                              # the editor's own slot report: no repost
+    library.reset_gear(identity)
+    assert [p['payload']['c' * 64]['gear'] for p in posted()] == ['pedal', 'amp']
+    host.close()
+    library.update(identity, gear='amp-cab')               # after close: not posted
+    assert len(posted()) == 2
+
+
 def test_failure_reports_same_token_and_does_not_publish_mapping(tmp_path):
     host, script, library, service, _, _ = host_fixture(tmp_path)
     service.prepare.side_effect = ValueError('Export already pending')
