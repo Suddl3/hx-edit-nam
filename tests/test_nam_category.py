@@ -180,6 +180,13 @@ listCheckAt=0; refreshCaptureList(); assert.equal(rebuilds,6); assert.equal(cate
 // Not while a preview is running, and not when a stock category is on show.
 installed=[]; active={transfer:{}}; listCheckAt=0; refreshCaptureList(); assert.equal(rebuilds,6);
 active=null; categories.selected=0; listCheckAt=0; refreshCaptureList(); assert.equal(rebuilds,6);
+// Nothing of the library on the Floor (a new install): the check is asked for again only until
+// it has completed, not every two seconds for as long as the empty list is shown.
+let asked=0, done=false; namView.requestSlotCheck=()=>{asked++;}; namView.slotCheckDone=()=>done;
+categories.selected=4; builtSignature=''; installed=[];
+listCheckAt=0; checkAskedAt=0; refreshCaptureList(); assert.equal(asked,1);
+listCheckAt=0; refreshCaptureList(); assert.equal(asked,1);          // at most every two seconds
+done=true; listCheckAt=0; checkAskedAt=0; refreshCaptureList(); assert.equal(asked,1);
 """
         run = subprocess.run(['node'], input=code, capture_output=True, text=True, encoding='utf-8', timeout=15)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)

@@ -1299,6 +1299,8 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       return result;
     },
     requestSlotCheck() { requestLibraryVerification(); },
+    // The slot check has completed (all slots, or all it could read) since proof was last discarded.
+    slotCheckDone: () => inventoryState === 'verified' || inventoryState === 'partial',
     acceptRememberedSlot(slot) {
       // From the slot check's UI-thread tick, right after its snapshot. True: this slot needs
       // no read-back.

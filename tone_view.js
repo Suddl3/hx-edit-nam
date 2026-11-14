@@ -726,8 +726,12 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       const signature = captureSignature();
       // A NAM category on show with nothing known to be on the Floor: the slot check was asked for
       // when the list was built, but proof discarded after that (one notice after another) is
-      // asked for again by nobody. Ask again, every two seconds at most.
-      if (signature === '' && now >= checkAskedAt) { checkAskedAt = now + 2000; namView.requestSlotCheck?.(); }
+      // asked for again by nobody. Ask again, every two seconds at most, until the check has
+      // completed: with no library captures on the Floor (a new install) the list stays empty and
+      // asking on that alone repeated the check every two seconds for as long as it was shown.
+      if (signature === '' && !(namView.slotCheckDone?.()) && now >= checkAskedAt) {
+        checkAskedAt = now + 2000; namView.requestSlotCheck?.();
+      }
       if (signature !== builtSignature || blockChanged) {
         const capture = Number.isInteger(slot) ? namView.installedCaptures().find(entry => entry.slot === slot) : null;
         const target = capture ? NAM_CATEGORY_NAMES[captureGroup(capture.gear) - 1] : shown;
