@@ -346,7 +346,8 @@ class TonePreview:
                 self.script.post({'type': 'toneBrowserProcess', 'payload': {'session': session, 'pid': browser_pid}})
             if browser.wait_ready():
                 self._trace('browser', 'ready', session, started=started)
-                browser.send('card', html=render_card(library=bool(self.library)), has_tone=False)
+                if not (self.library and (self.initial_library or not client_id)):  # browse() sends the library card
+                    browser.send('card', html=render_card(library=bool(self.library)), has_tone=False)
                 if self.navigation:
                     if self.headless and not self.target_ready.wait(5):
                         raise ToneError('HX Edit did not report the selected NAM block. Nothing was loaded.')

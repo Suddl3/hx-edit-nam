@@ -53,6 +53,7 @@ class PresentationRoundTrips {
     Rectangle dock = new Rectangle(20, 40, 700, 500), applied, positioned;
     bool closing = false, IsDisposed = false, panelVisible = true, Visible = true;
     bool canRetry, hasTone, library, targetCanEnd, parentIconic;
+    int cardReloads;
     string catalogPage, openAfterLoad, cardHtml = "retained-card";
     Uri callback;
     Dictionary<string, object> status = new Dictionary<string, object>();

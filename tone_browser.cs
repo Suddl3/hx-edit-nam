@@ -68,7 +68,8 @@ sealed class ToneBrowser : Form
     bool hasTone;
     bool library;
     Dictionary<string, object> status = new Dictionary<string, object>();
-    string cardHtml;
+    string cardHtml, servedCard;
+    int cardReloads;
     bool closing;
     bool hostClosing;
     bool cancelRequested;
@@ -419,8 +420,14 @@ sealed class ToneBrowser : Form
             card.WebResourceRequested += (sender, args) => {
                 if (cardHtml == null || args.Request.Uri != CardUrl) return;
                 var html = new MemoryStream(Encoding.UTF8.GetBytes(cardHtml));
+                servedCard = cardHtml;
                 args.Response = env.CreateWebResourceResponse(html, 200, "OK",
                     "Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store");
+            };
+            // Two cards sent back to back (Expand: the empty card, then the library) can finish
+            // in the wrong order and leave the older one showing. Load the latest once more.
+            card.NavigationCompleted += (sender, args) => {
+                if (cardHtml != null && !ReferenceEquals(servedCard, cardHtml) && cardReloads-- > 0) card.Navigate(CardUrl);
             };
             card.DOMContentLoaded += (sender, args) => UpdateCard();
             card.WebMessageReceived += (sender, args) => {
@@ -545,6 +552,7 @@ sealed class ToneBrowser : Form
                 hasTone = (bool)message["has_tone"];
                 library = message.ContainsKey("library") && (bool)message["library"];
                 LayoutPane(true);
+                cardReloads = 1;
                 details.CoreWebView2.Navigate(CardUrl);
                 break;
             case "source":

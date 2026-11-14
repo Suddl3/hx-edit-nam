@@ -57,6 +57,11 @@ class NamLibrary : Form
     readonly RowsComparer sorter = new RowsComparer();
     bool applying;
     bool fittingColumns;
+    // Type, IR slot and Date as the user last sized them. A narrow pane borrows from
+    // Date, then Type, so the Name column keeps room for the icon and a readable name;
+    // widening the pane gives the borrowed width back.
+    readonly int[] preferredWidths={0,78,50,100};
+    const int NameMinimum=140,BorrowedMinimum=50;
     bool waiting;
     bool busy;
     bool targetReady;
@@ -341,7 +346,10 @@ class NamLibrary : Form
         table.ItemSelectionChanged+=(sender,args)=>table.Invalidate(args.Item.Bounds);
         table.Columns.Add("Name",170); table.Columns.Add("Type",78);
         table.Columns.Add("IR slot",50);table.Columns.Add("Date",100);
-        table.ColumnWidthChanged+=(sender,args)=>FillHeader();
+        table.ColumnWidthChanged+=(sender,args)=>{
+            if(!fittingColumns&&args.ColumnIndex>0)preferredWidths[args.ColumnIndex]=table.Columns[args.ColumnIndex].Width;
+            FillHeader();
+        };
         table.ColumnWidthChanging+=(sender,args)=>{
             int minimum=args.ColumnIndex==2?44:50;
             if(args.NewWidth<minimum){args.Cancel=true;args.NewWidth=minimum;}
@@ -450,7 +458,18 @@ class NamLibrary : Form
     void FitColumns(){
         if(table.Columns.Count!=4||fittingColumns)return;
         fittingColumns=true;
-        try{table.Columns[0].Width=Math.Max(60,table.ClientSize.Width-table.Columns[1].Width-table.Columns[2].Width-table.Columns[3].Width);}
+        try{
+            var widths=(int[])preferredWidths.Clone();
+            int spare=table.ClientSize.Width-widths[1]-widths[2]-widths[3]-NameMinimum;
+            foreach(int column in new[]{3,1}){
+                if(spare>=0)break;
+                int cut=Math.Min(-spare,Math.Max(0,widths[column]-BorrowedMinimum));
+                widths[column]-=cut;spare+=cut;
+            }
+            for(int column=1;column<4;column++)
+                if(table.Columns[column].Width!=widths[column])table.Columns[column].Width=widths[column];
+            table.Columns[0].Width=Math.Max(60,table.ClientSize.Width-widths[1]-widths[2]-widths[3]);
+        }
         finally{fittingColumns=false;}
         FillHeader();
     }
@@ -969,10 +988,15 @@ class NamLibrary : Form
                 if(pane.table.Columns[3].Width!=50)throw new Exception("Header painting must not grow Date column");
             }
             pane.table.Columns[1].Width=78;pane.table.Columns[2].Width=50;pane.table.Columns[3].Width=100;
-            foreach(int width in new[]{600,300,360}){
+            foreach(int width in new[]{600,300,360,600}){
                 pane.ClientSize=new Size(width,700);pane.LayoutPane();
-                if(pane.table.Columns[3].Width!=100||pane.table.Columns[0].Width!=pane.table.ClientSize.Width-228)
-                    throw new Exception("Default columns should fit after narrowing again");
+                var columns=pane.table.Columns;int client=pane.table.ClientSize.Width;
+                if(columns[0].Width+columns[1].Width+columns[2].Width+columns[3].Width!=Math.Max(client,60+columns[1].Width+columns[2].Width+columns[3].Width))
+                    throw new Exception("Columns should fill the pane");
+                if(client-228>=NameMinimum){
+                    if(columns[1].Width!=78||columns[3].Width!=100)throw new Exception("Default columns should come back after narrowing");
+                }else if(columns[0].Width<NameMinimum&&(columns[1].Width>BorrowedMinimum||columns[3].Width>BorrowedMinimum))
+                    throw new Exception("A narrow pane should keep room for names");
             }
         }
         using(var writer=new StringWriter())using(var pane=new NamLibrary(IntPtr.Zero,writer)){
