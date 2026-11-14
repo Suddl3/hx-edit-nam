@@ -28,6 +28,16 @@ function navigationBannerLayout(redo, limits) {
   return null; // Never overlap existing controls in a window too narrow to fit.
 }
 
+// The DSP meter (dsp_meter.js, drawn by NamLibrary.exe --dsp-meter) sits right of the TONE3000
+// button, on its row, and only where it fits whole before the tempo/tuner controls.
+function dspMeterLayout(banner, redo, limits) {
+  if (!banner || !redo || !limits) return null;
+  const left = banner.left + banner.width + 14;
+  const width = Math.min(300, Math.floor(limits.right - 10 - left));
+  if (width < 220) return null;
+  return { left, top: banner.top, width, height: Math.max(16, Math.round(redo.h)) };
+}
+
 function installNavigationBanner(options) {
   if (!options || typeof options.openBrowser !== 'function') throw new Error('Navigation requires openBrowser(window)');
   if (Process.arch !== 'ia32' || Process.pointerSize !== 4) throw new Error('Navigation requires HX Edit x86');
@@ -58,7 +68,7 @@ function installNavigationBanner(options) {
   let buttons = {}, library = NULL, editor = NULL, mainWindow = NULL;
   let libraryUiThread = 0;
   let disposed = false, inLayout = false, opening = false, layoutKey = '', lastError = '';
-  let layoutDirty = true, nextLayoutAt = 0, layoutTimer = null;
+  let layoutDirty = true, nextLayoutAt = 0, layoutTimer = null, dspMeterKey = '';
   const layoutInterval = 50;
   const hooks = [];
   function log(event, details = {}) { send({ type: 'navigationBanner', event, ...details }); }
@@ -149,6 +159,16 @@ function installNavigationBanner(options) {
         if (!reserved.isNull() && isVisible(reserved, 1)) right = Math.min(right, bounds(reserved).x);
       }
       const layout = navigationBannerLayout({ ...rb, x: rb.x - view.x, y: rb.y - view.y }, { right: right - view.x });
+      const meter = dspMeterLayout(layout, rb, { right: right - view.x });
+      const meterKey = meter && !mainWindow.isNull()
+        ? `${mainWindow.toUInt32()}:${view.x + meter.left}:${view.y + meter.top}:${meter.width}:${meter.height}` : 'hidden';
+      if (meterKey !== dspMeterKey) {
+        dspMeterKey = meterKey;
+        // Window client pixels, like the docked library pane.
+        send({ type: 'dspMeterLayout', window: mainWindow.isNull() ? 0 : mainWindow.toUInt32(), visible: meterKey !== 'hidden',
+               x: meter ? view.x + meter.left : 0, y: meter ? view.y + meter.top : 0,
+               w: meter ? meter.width : 0, h: meter ? meter.height : 0 });
+      }
       const key = layout ? `${layout.id}:${layout.left}:${layout.top}` : 'hidden';
       layoutDirty = false;
       if (key === layoutKey) return;

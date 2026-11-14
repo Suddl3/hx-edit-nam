@@ -130,6 +130,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
     host = None
     preview = None
     sidebar = None
+    meter = None
     memory = None
     pid = device.spawn([str(exe)], cwd=str(exe.parent))
     try:
@@ -155,12 +156,14 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             options.update(namProbe=(exe.parent / 'res' / 'nam-probe.flag').is_file())
             before = '\n'.join((ROOT / name).read_text(encoding='utf-8') for name in
                 ('library_slot_state.js', 'automatic_slot_discovery.js', 'native_export_observer.js',
-                 'nav_banner.js', 'target_binding.js', 'nam_sidebar.js')) + '\n'
+                 'nav_banner.js', 'target_binding.js', 'nam_sidebar.js', 'dsp_meter.js')) + '\n'
             config = dict(request=uuid4().hex, repeat=True, automatic=True, requireHostMonitor=True)
             # Validate original native bytes before namView attaches to shared
             # entry points. The callback runs only after toneView exists and the
             # suspended editor resumes; installing it does not open the browser.
-            initialize = '\nconst navigationBanner = installNavigationBanner({openBrowser: (window, options) => toneView.openBrowser(window, options)});\n'
+            initialize = ('\nconst navigationBanner = installNavigationBanner({openBrowser: (window, options) => toneView.openBrowser(window, options)});\n'
+                          # The DSP meter is optional: a failed byte guard leaves the editor as it was.
+                          "try { installDspMeter(); } catch (error) { send({type: 'dspMeter', event: 'unavailable', error: String(error.message)}); }\n")
             after = (f'\nconnectNativeExportLibrary({json.dumps(config)}, namView);'
                      '\nnamView.setLibraryOpener(window => toneView.openBrowser(window, {library:true, dockPanel:navigationBanner.dockPanel()}));'
                      '\ninstallNamSidebar(namView);')
@@ -182,6 +185,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     script.post({'type': 'namSidebarAction', 'payload': {'action': action, 'id': identity}})
             sidebar = NamSidebar(script, library, detached, action_handler=sidebar_action, trace=trace)
             preview.sidebar_status = sidebar.status
+            from dsp_meter import DspMeter
+            meter = DspMeter(trace=trace)
 
         def on_message(event, _data):
             if event['type'] == 'error':
@@ -195,6 +200,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 memory.receive(payload)
             if sidebar:
                 sidebar.receive(payload)
+            if meter:
+                meter.receive(payload)
             if host:
                 host.receive(payload)
                 if payload.get('type') == 'floorInventory':
@@ -278,6 +285,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             try:
                 if sidebar:
                     sidebar.close()
+                if meter:
+                    meter.close()
             finally:
                 if preview:
                     preview.close_diagnostics()

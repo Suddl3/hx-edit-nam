@@ -737,6 +737,12 @@ class NamLibrary : Form
         });
     }
     [STAThread] static void Main(string[] args){
+        if(args.Length>1&&args[0]=="--dsp-meter"){
+            var host=ParseWindowHandle(args[1]);if(!IsWindow(host))return;
+            SetThreadDpiAwarenessContext(GetWindowDpiAwarenessContext(host));
+            Application.Run(new DspMeter(host,new StreamReader(Console.OpenStandardInput(),Encoding.UTF8)));
+            return;
+        }
         if(args.Length>0&&(args[0]=="--self-test"||args[0]=="--render-fixture")){
             try{if(args[0]=="--self-test")SelfTest();else RenderFixture(args[1],args.Length>2?args[2]:null);}
             catch(Exception error){Console.Error.WriteLine(error);Environment.ExitCode=1;}return;
@@ -1068,6 +1074,120 @@ class NamLibrary : Form
            FloorLabel(new Dictionary<string,object>{{"deviceStatus","verified"},{"verifiedSlots",new object[]{127,11,127,128,-1,"9"}}})!="11, 127"||
            FloorLabel(new Dictionary<string,object>{{"deviceStatus","verified"}})!=""||
            FloorLabel(new Dictionary<string,object>{{"deviceStatus","preview"}})!="128 · P")throw new Exception("IR slot evidence labels");
+        DspMeter.SelfTest();
         Console.WriteLine("Library table self-tests passed");
+    }
+}
+
+// The DSP meter beside HX Edit's TONE3000 button (dsp_meter.py). It only draws what it is sent:
+// one JSON line per change, {visible, x, y, w, h (parent client pixels), dsp: [{load, used, budget,
+// level} or null, ...]}. No device, file or network access. Closing its input ends it.
+class DspMeter : Form
+{
+    [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern IntPtr SetParent(IntPtr child, IntPtr parent);
+    [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int w, int h, uint flags);
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
+    readonly IntPtr parent;
+    readonly StreamReader input;
+    readonly JavaScriptSerializer json = new JavaScriptSerializer();
+    readonly ToolTip tip = new ToolTip();
+    object[] dsp = new object[2];
+    bool shown;   // only once a layout says where
+    static readonly Color Back = Color.FromArgb(29, 29, 29), Track = Color.FromArgb(58, 58, 58),
+        Ink = Color.FromArgb(200, 200, 200), Dim = Color.FromArgb(130, 130, 130);
+
+    public DspMeter(IntPtr parent, StreamReader input){
+        this.parent=parent; this.input=input;
+        FormBorderStyle=FormBorderStyle.None; ShowInTaskbar=false; StartPosition=FormStartPosition.Manual;
+        BackColor=Back; DoubleBuffered=true; Font=new Font("Segoe UI", 8.25f); Bounds=new Rectangle(0,0,1,1);
+        var handle=Handle;   // the child window exists before any line arrives (BeginInvoke needs it)
+        var reader=new System.Threading.Thread(Read){IsBackground=true};reader.Start();
+        var watch=new Timer{Interval=1000};watch.Tick+=(sender,e)=>{if(!IsWindow(parent))Close();};watch.Start();
+    }
+    protected override CreateParams CreateParams {get{var settings=base.CreateParams;settings.Parent=parent;
+        settings.Style=(settings.Style&~unchecked((int)0x80000000))|0x40000000;return settings;}}   // WS_CHILD
+    protected override bool ShowWithoutActivation { get { return true; } }
+    protected override void SetVisibleCore(bool value){ base.SetVisibleCore(value&&shown); }
+    void Read(){
+        try{
+            string line;
+            while((line=input.ReadLine())!=null){
+                Dictionary<string,object> state;
+                try{state=json.Deserialize<Dictionary<string,object>>(line);}catch(Exception){continue;}
+                BeginInvoke(new Action(()=>Apply(state)));
+            }
+        }catch(Exception){}
+        try{BeginInvoke(new Action(Close));}catch(Exception){}
+    }
+    static int Number(Dictionary<string,object> state,string key){
+        object value;return state.TryGetValue(key,out value)&&value!=null?Convert.ToInt32(value,CultureInfo.InvariantCulture):0;
+    }
+    void Apply(Dictionary<string,object> state){
+        object value;
+        // JavaScriptSerializer gives arrays as ArrayList (or object[]): any list will do.
+        if(state.TryGetValue("dsp",out value)&&value is IList){var list=(IList)value;dsp=new object[]{list.Count>0?list[0]:null,list.Count>1?list[1]:null};}
+        bool visible=state.TryGetValue("visible",out value)&&value is bool&&(bool)value;
+        int w=Number(state,"w"),h=Number(state,"h");
+        shown=visible&&w>0&&h>0;
+        // WinForms parks a hidden child under its own placeholder window: attach to HX Edit
+        // explicitly, then place and show it above the editor's own drawing without taking focus.
+        if(GetParent(Handle)!=parent)SetParent(Handle,parent);
+        if(shown)SetWindowPos(Handle,IntPtr.Zero,Number(state,"x"),Number(state,"y"),w,h,0x0010|0x0040);   // NOACTIVATE|SHOWWINDOW
+        else ShowWindow(Handle,0);
+        tip.SetToolTip(this,Describe(dsp));
+        Invalidate();
+    }
+    // "DSP 1  27/75": the share of the 75 a DSP's blocks may use on the Floor (its own meter's figure).
+    public static string Label(object item,int index){
+        var view=item as Dictionary<string,object>;
+        if(view==null)return "DSP "+(index+1)+"  —";
+        return "DSP "+(index+1)+"  "+Format(view["used"])+"/"+Format(view["budget"]);
+    }
+    public static string Describe(object[] dsp){
+        var lines=new List<string>();
+        for(int i=0;i<2;i++){
+            var view=dsp!=null&&dsp.Length>i?dsp[i] as Dictionary<string,object>:null;
+            lines.Add(view==null?"DSP "+(i+1)+": not reported (Floor not connected or busy)":
+                "DSP "+(i+1)+": blocks use "+Format(view["used"])+" of "+Format(view["budget"])+" ("+Format(view["load"])+"% of the DSP with the Floor's own 15%)");
+        }
+        lines.Add("As the Floor reports it: declared block costs, not measured load.");
+        return string.Join("\n",lines);
+    }
+    static string Format(object value){
+        double number=Convert.ToDouble(value,CultureInfo.InvariantCulture);
+        return Math.Abs(number-Math.Round(number))<0.05?Math.Round(number).ToString(CultureInfo.InvariantCulture):number.ToString("0.0",CultureInfo.InvariantCulture);
+    }
+    public static Color LevelColor(object item){
+        var view=item as Dictionary<string,object>;object level;
+        if(view==null||!view.TryGetValue("level",out level))return Dim;
+        return (string)level=="red"?Color.FromArgb(214,72,72):(string)level=="yellow"?Color.FromArgb(222,182,64):Color.FromArgb(92,184,92);
+    }
+    protected override void OnPaint(PaintEventArgs args){
+        var g=args.Graphics;g.Clear(Back);
+        int half=ClientSize.Width/2, bar=Math.Max(40,half-96), barHeight=6;
+        for(int i=0;i<2;i++){
+            int x=i*half+2, mid=ClientSize.Height/2;
+            var view=dsp[i] as Dictionary<string,object>;
+            TextRenderer.DrawText(g,Label(dsp[i],i),Font,new Rectangle(x,0,90,ClientSize.Height),view==null?Dim:Ink,
+                TextFormatFlags.VerticalCenter|TextFormatFlags.Left|TextFormatFlags.NoPadding);
+            var track=new Rectangle(x+90,mid-barHeight/2,bar,barHeight);
+            using(var brush=new SolidBrush(Track))g.FillRectangle(brush,track);
+            if(view!=null){
+                double share=Math.Max(0,Math.Min(1,Convert.ToDouble(view["used"],CultureInfo.InvariantCulture)/Convert.ToDouble(view["budget"],CultureInfo.InvariantCulture)));
+                using(var brush=new SolidBrush(LevelColor(view)))g.FillRectangle(brush,new Rectangle(track.X,track.Y,(int)Math.Round(track.Width*share),track.Height));
+            }
+        }
+    }
+    public static void SelfTest(){
+        var ok=new Dictionary<string,object>{{"load",42.0},{"used",27.0},{"budget",75},{"level","green"}};
+        var half=new Dictionary<string,object>{{"load",57.5},{"used",42.5},{"budget",75},{"level","yellow"}};
+        if(Label(ok,0)!="DSP 1  27/75"||Label(half,1)!="DSP 2  42.5/75"||Label(null,1)!="DSP 2  —")throw new Exception("DSP meter labels");
+        var text=Describe(new object[]{ok,null});
+        if(!text.Contains("blocks use 27 of 75 (42% of the DSP")||!text.Contains("DSP 2: not reported"))throw new Exception("DSP meter tooltip");
+        if(LevelColor(half).R!=222||LevelColor(null)!=Dim)throw new Exception("DSP meter colours");
+        var parsed=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>("{\"dsp\":[{\"load\":42,\"used\":27,\"budget\":75,\"level\":\"green\"},null]}");
+        if(!(parsed["dsp"] is IList)||Label(((IList)parsed["dsp"])[0],0)!="DSP 1  27/75")throw new Exception("DSP meter input lists");
     }
 }
