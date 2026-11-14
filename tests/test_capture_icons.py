@@ -225,15 +225,44 @@ class UploadedPictureTests(unittest.TestCase):
         self.library.set_icon('abc', ident)
         from nam_library import render_library
         page = render_library(self.library.entries(), None, self.library.pictures)
-        self.assertIn(f'"label": "Your pictures", "ids": ["{ident}", "{earlier}"]', page)
+        self.assertIn(f'"label": "Your icons", "ids": ["{ident}", "{earlier}"], "uploaded": true', page)
         self.assertIn(f'"{ident}": "data:image/png;base64,', page)
         self.assertIn(f'"icon": "{ident}", "iconChosen": true, "iconAuto": "green_screamer"', page)
+
+    def test_deleting_an_upload_sends_its_users_back_to_automatic(self):
+        ident = self.library.add_picture(tiny_png())
+        other = self.library.add_picture(tiny_png(red=10))
+        self.library.set_icon('abc', ident)
+        models = Path(self.folder.name) / 'icons_models'
+        models.mkdir()
+        self.library.publish_pictures(models)
+        self.assertEqual(self.library.remove_picture(ident), 1)
+        self.assertNotIn('icon', self.library.entries()['abc'])
+        self.assertFalse((self.library.pictures / f'{ident}.png').exists())
+        self.assertFalse((models / f'NAMCAP_{ident}.png').exists())
+        self.assertTrue((self.library.pictures / f'{other}.png').exists())   # only that one
+        self.assertEqual(self.library.remove_picture(other), 0)
+        for builtin in ('green_screamer', '../catalog', ''):
+            with self.subTest(icon=builtin), self.assertRaises(ValueError):
+                self.library.remove_picture(builtin)
+        self.assertTrue(self.library.catalog.is_file())
+
+    def test_change_icon_is_a_footer_button_and_delete_asks_first(self):
+        page = (ROOT / 'library_card.html').read_text(encoding='utf-8')
+        self.assertIn('<button id="changeIcon" disabled', page)
+        self.assertNotIn('icon-pick', page)   # the row picture is only a picture
+        self.assertIn("host?.postMessage('iconDelete:' + ident)", page)
+        self.assertIn('they go back to Automatic', page)
+        self.assertIn('box.append(text, yes, no)', page)
+        self.assertLess(page.index("box.className = 'confirm'"), page.index("host?.postMessage('iconDelete:' + ident)"))
+        source = (ROOT / 'tone_preview.py').read_text(encoding='utf-8')
+        self.assertIn("self.library.remove_picture(identity)", source)
 
     def test_page_and_preview_carry_the_upload(self):
         page = (ROOT / 'library_card.html').read_text(encoding='utf-8')
         self.assertIn("host?.postMessage('iconUpload:' + row.id + ':' + base64)", page)
         self.assertIn('createImageBitmap(file)', page)
-        self.assertIn('Upload picture', page)
+        self.assertIn('Upload icon', page)
         source = (ROOT / 'tone_preview.py').read_text(encoding='utf-8')
         self.assertIn('self.library.set_icon(identity, self.library.add_picture(picture))', source)
         self.assertIn('base64.b64decode(value, validate=True)', source)

@@ -314,6 +314,27 @@ class Library:
         except OSError:
             pass   # the lists then show the block's own picture for this capture
 
+    def remove_picture(self, ident):
+        """Delete an uploaded picture; the captures that used it go back to their automatic one.
+        Built-in pictures cannot be deleted. Returns how many captures changed."""
+        if not UPLOADED.fullmatch(str(ident or '')):
+            raise ValueError('Only uploaded icons can be deleted.')
+        with self.lock:
+            entries = self._read(for_write=True)
+            users = [entry for entry in entries.values() if entry.get('icon') == ident]
+            for entry in users:
+                entry.pop('icon', None)
+            if users:
+                self._write(entries)
+            (self.pictures / f'{ident}.png').unlink(missing_ok=True)
+        if self.editor_pictures is not None:
+            try:
+                (self.editor_pictures / f'NAMCAP_{ident}.png').unlink(missing_ok=True)
+            except OSError:
+                pass   # HX Edit may still hold it; nothing uses it any more
+        self._changed()
+        return len(users)
+
     def set_icon(self, identity, icon):
         """The capture's picture, chosen in the library window; '' goes back to the automatic one."""
         if icon and icon not in known_icons() and not (
@@ -413,7 +434,7 @@ def render_library(entries, view_state=None, pictures=None):
     data = json.dumps(rows, ensure_ascii=False).replace('<', '\\u003c')
     view = json.dumps(view_state or {}, ensure_ascii=False).replace('<', '\\u003c')
     pictures = json.dumps(icons).replace('<', '\\u003c')
-    groups = ([dict(label='Your pictures', ids=uploaded[::-1])] if uploaded else []) + picker_groups()
+    groups = ([dict(label='Your icons', ids=uploaded[::-1], uploaded=True)] if uploaded else []) + picker_groups()
     groups = json.dumps(groups)   # fixed labels and [a-z0-9_] ids: nothing to escape
     return Template(PAGE.read_text(encoding='utf-8')).substitute(rows=data, gears=options, view=view, icons=pictures,
                                                                  iconGroups=groups)

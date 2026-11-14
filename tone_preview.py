@@ -879,6 +879,8 @@ class TonePreview:
                         except ValueError:
                             raise ValueError('The picture could not be read.')
                         self.library.set_icon(identity, self.library.add_picture(picture))
+                    elif command == 'iconDelete':
+                        self.library.remove_picture(identity)   # identity: the uploaded icon's id
                     elif command == 'light' and identity in self.library.entries() and light_job is None:
                         layers, _, quality = value.partition(':')
                         start_light(identity, layers, quality)

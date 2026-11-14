@@ -23,10 +23,16 @@
   th:nth-child(3) { min-width: 62px; white-space: nowrap; }
   td { padding: 3px 8px; border-bottom: 1px solid #262626; white-space: nowrap; }
   td.name { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; }
-  td.name img.gear-icon { width: 24px; height: 24px; vertical-align: middle; }
-  td.name button.icon-pick { all: unset; display: inline-block; width: 26px; height: 26px; margin: -3px 7px -3px 0;
-    vertical-align: middle; text-align: center; border-radius: 4px; cursor: pointer; }
-  td.name button.icon-pick:hover, td.name button.icon-pick:focus-visible { background: #3a3a3a; outline: 1px solid #6a6a6a; }
+  td.name img.gear-icon { width: 24px; height: 24px; vertical-align: middle; margin: -3px 7px -3px 0; }
+  #pickerBody .mine { position: relative; }
+  #pickerBody .mine button.forget { position: absolute; top: -5px; right: -5px; width: 20px; height: 20px; padding: 0;
+    border-radius: 10px; line-height: 16px; font-size: 13px; background: #333; visibility: hidden; }
+  #pickerBody .mine:hover button.forget, #pickerBody .mine:focus-within button.forget { visibility: visible; }
+  #pickerBody .mine button.forget:hover { background: #862829; border-color: #b54545; }
+  #pickerBody .confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; padding: 6px 8px;
+    border: 1px solid #b54545; border-radius: 4px; background: #2b1d1d; }
+  #pickerBody .confirm p { margin: 0; flex: 1 1 260px; }
+  #pickerBody .confirm button.danger { background: #862829; border-color: #b54545; }
   #picker { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 5; }
   #picker[hidden] { display: none; }
   #picker .panel { background: #232323; border: 1px solid #575757; border-radius: 6px; width: min(640px, calc(100vw - 24px));
@@ -111,6 +117,7 @@
   <span id="target" title="The NAM block this pane loads into and how the capture is converted" hidden></span>
   <p id="status" role="status"></p>
   <button id="lighter" disabled>Lighter…</button>
+  <button id="changeIcon" disabled title="Choose the icon shown for the selected capture">Change icon…</button>
   <button id="remove" disabled>Remove</button>
   <button id="audition" disabled>Preview</button>
   <button id="install" disabled>Load on Floor</button>
@@ -151,18 +158,11 @@
       const name = tr.insertCell();
       name.className = 'name';
       name.title = row.name;
-      const iconButton = document.createElement('button');
-      iconButton.className = 'icon-pick';
-      iconButton.title = 'Change picture';
-      iconButton.setAttribute('aria-label', 'Change picture for ' + row.name);
       if (icons[row.icon]) {
         const picture = document.createElement('img');
         picture.className = 'gear-icon'; picture.alt = ''; picture.src = icons[row.icon];
-        iconButton.append(picture);
+        name.append(picture);
       }
-      iconButton.onclick = event => { event.stopPropagation(); selected = row.id; render(); publishView(); openPicker(row); };
-      iconButton.ondblclick = event => event.stopPropagation();
-      name.append(iconButton);
       name.append(row.name);
       const gear = document.createElement('select');
       gear.innerHTML = q('#gears').innerHTML;
@@ -205,6 +205,7 @@
     q('#install').title = verified ? 'Use the content-verified installed capture on the selected NAM block' :
       'Install in the lowest empty permanent IR slot and use it on the selected NAM block';
     remove.disabled = busy || !selected;
+    q('#changeIcon').disabled = !capture;   // only the icon: never touches the Floor
     lighter.hidden = !canTrain;
     if (!canTrain) lightPanel.hidden = true;
     lighter.disabled = !canTrain || !selected || rows.find(row => row.id === selected)?.canTrain === false || !!light?.running;
@@ -222,7 +223,7 @@
     return picture;
   }
   function openPicker(row) {
-    q('#pickerTitle').textContent = 'Picture for ' + row.name;
+    q('#pickerTitle').textContent = 'Icon for ' + row.name;
     const choose = ident => {
       row.icon = ident || row.iconAuto; row.iconChosen = !!ident;
       host?.postMessage('icon:' + row.id + ':' + (ident || ''));
@@ -236,8 +237,8 @@
     auto.onclick = () => choose('');
     const upload = document.createElement('button');
     upload.className = 'upload';
-    upload.textContent = 'Upload picture…';
-    upload.title = 'Use your own picture (PNG, JPEG, WebP, GIF or BMP). It is kept on this PC with your library.';
+    upload.textContent = 'Upload icon…';
+    upload.title = 'Use your own picture (PNG, JPEG, WebP, GIF or BMP) as the icon. It is kept on this PC with your library.';
     upload.onclick = () => { pickerFile.value = ''; pickerFile.click(); };
     pickerFile.onchange = () => uploadPicture(row, pickerFile.files[0]);
     const choices = document.createElement('div');
@@ -261,12 +262,23 @@
         button.setAttribute('aria-pressed', String(!!row.iconChosen && row.icon === ident));
         button.append(pictureOf(ident));
         button.onclick = () => choose(ident);
-        grid.append(button);
+        if (!group.uploaded) { grid.append(button); continue; }
+        // One of your uploads: × deletes it, after saying which captures use it.
+        const mine = document.createElement('div');
+        mine.className = 'mine';
+        const forget = document.createElement('button');
+        forget.className = 'forget';
+        forget.textContent = '×';
+        forget.title = 'Delete this uploaded icon';
+        forget.setAttribute('aria-label', 'Delete this uploaded icon');
+        forget.onclick = () => confirmForget(row, ident, note);
+        mine.append(button, forget);
+        grid.append(mine);
       }
       parts.push(heading, grid);
     }
     pickerBody.replaceChildren(...parts);
-    pickerReturn = document.activeElement;
+    if (picker.hidden) pickerReturn = document.activeElement;
     picker.hidden = false;
     host?.postMessage('dialog:open');   // the pane's Escape now closes the picker, not the pane
     (pickerBody.querySelector('[aria-pressed="true"]') || auto).focus();
@@ -299,6 +311,35 @@
     row.icon = ident; row.iconChosen = true;
     host?.postMessage('iconUpload:' + row.id + ':' + base64);
     closePicker(); render();
+  }
+  function confirmForget(row, ident, note) {
+    const users = rows.filter(item => item.iconChosen && item.icon === ident);
+    const names = users.slice(0, 5).map(item => item.name).join(', ') + (users.length > 5 ? ' and ' + (users.length - 5) + ' more' : '');
+    const box = document.createElement('div');
+    box.className = 'confirm';
+    box.setAttribute('role', 'alertdialog');
+    const text = document.createElement('p');
+    text.textContent = !users.length ? 'Delete this uploaded icon? No capture uses it.' :
+      'Delete this uploaded icon? ' + (users.length === 1 ? 'One capture uses it' : users.length + ' captures use it') +
+      ' (' + names + '); they go back to Automatic.';
+    const yes = document.createElement('button');
+    yes.className = 'danger'; yes.textContent = 'Delete';
+    const no = document.createElement('button');
+    no.textContent = 'Keep';
+    yes.onclick = () => {
+      host?.postMessage('iconDelete:' + ident);
+      for (const item of users) { item.icon = item.iconAuto; item.iconChosen = false; }
+      delete icons[ident];
+      for (const group of iconGroups) group.ids = group.ids.filter(other => other !== ident);
+      const mine = iconGroups.findIndex(group => group.uploaded && !group.ids.length);
+      if (mine >= 0) iconGroups.splice(mine, 1);
+      render(); openPicker(row);
+    };
+    no.onclick = () => box.remove();
+    box.append(text, yes, no);
+    pickerBody.querySelector('.confirm')?.remove();
+    note.after(box);
+    no.focus();
   }
   function closePicker() {
     if (picker.hidden) return;
@@ -394,6 +435,7 @@
     const installed = ['verified', 'partial'].includes(capture.slotState) && capture.irSlots?.length;
     host.postMessage((installed ? 'use:' : 'load:') + selected);
   };
+  q('#changeIcon').onclick = () => { const capture = rows.find(row => row.id === selected); if (capture) openPicker(capture); };
   remove.onclick = () => {
     const index = rows.findIndex(row => row.id === selected);
     if (index < 0 || !confirm('Remove "' + rows[index].name + '" from the library on this PC?')) return;
