@@ -10,6 +10,7 @@ import shutil
 from string import Template
 from threading import Lock
 
+from capture_icons import pick as pick_icon, small_data_uri
 from nam_convert import IR_NAME_LIMIT
 
 
@@ -180,7 +181,8 @@ class Library:
         with self.lock:
             payload_index = {identity: set(payloads) for identity, payloads in self._payload_index.items()}
         return {payload: dict(id=identity, name=entries[identity].get('name', ''),
-                              gear=entries[identity].get('gear', ''))
+                              gear=entries[identity].get('gear', ''),
+                              icon=pick_icon(entries[identity].get('name', ''), entries[identity].get('gear', '')))
                 for identity, payloads in payload_index.items() if identity in entries
                 for payload in payloads}
 
@@ -316,10 +318,14 @@ def render_library(entries, view_state=None):
                  gearLabel=GEARS.get(value.get('gear', ''), 'Unsorted'), aliases=[value.get('irName', '')],
                  added=value.get('added', ''), source=value.get('source', ''),
                  irSlots=value.get('irSlots', []), slotState=value.get('slotState', 'unverified'),
-                 canTrain=value.get('canTrain', True), pendingSlots=value.get('pendingSlots', []))
+                 canTrain=value.get('canTrain', True), pendingSlots=value.get('pendingSlots', []),
+                 icon=pick_icon(value.get('name', ''), value.get('gear', '')))
             for key, value in entries.items()]
+    # Each gear picture once, as a small data: URI; rows refer to it by id.
+    icons = {row['icon']: small_data_uri(row['icon']) for row in rows}
     options = ''.join(f'<option value="{escape(key)}">{escape(label)}</option>' for key, label in GEARS.items())
     # JSON inside <script>: escape "<" so a capture name cannot close the element.
     data = json.dumps(rows, ensure_ascii=False).replace('<', '\\u003c')
     view = json.dumps(view_state or {}, ensure_ascii=False).replace('<', '\\u003c')
-    return Template(PAGE.read_text(encoding='utf-8')).substitute(rows=data, gears=options, view=view)
+    pictures = json.dumps(icons).replace('<', '\\u003c')
+    return Template(PAGE.read_text(encoding='utf-8')).substitute(rows=data, gears=options, view=view, icons=pictures)

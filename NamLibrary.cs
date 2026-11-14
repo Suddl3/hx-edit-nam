@@ -148,6 +148,18 @@ class NamLibrary : Form
     }
     // Native selected-row painting substitutes the system highlight text color,
     // hiding pending/verified slot colors. Own the cells as well as the header.
+    const int IconSize=28,RowHeight=32;
+    static readonly Dictionary<string,Image> gearIcons=new Dictionary<string,Image>(StringComparer.OrdinalIgnoreCase);
+    static Image GearIcon(string path){
+        // Only the app's own icon folder's PNGs; a missing or unreadable file draws no icon.
+        if(string.IsNullOrEmpty(path)||!path.EndsWith(".png",StringComparison.OrdinalIgnoreCase))return null;
+        Image image;
+        if(gearIcons.TryGetValue(path,out image))return image;
+        try{if(File.Exists(path))using(var file=Image.FromFile(path))image=new Bitmap(file);}
+        catch(Exception){image=null;}
+        if(gearIcons.Count<512)gearIcons[path]=image;
+        return image;
+    }
     static void DrawLibraryCell(DrawListViewSubItemEventArgs args,Font font,bool focused) {
         args.DrawDefault=false;
         // Subitem custom-draw state can carry Selected for unrelated rows.
@@ -158,6 +170,17 @@ class NamLibrary : Form
         Color foreground=args.ColumnIndex==2?args.SubItem.ForeColor:Color.Gainsboro;
         using(var brush=new SolidBrush(background))args.Graphics.FillRectangle(brush,args.Bounds);
         var textBounds=args.Bounds;textBounds.X+=4;textBounds.Width=Math.Max(0,textBounds.Width-8);
+        var row=args.Item.Tag as Dictionary<string,object>;
+        var icon=args.ColumnIndex==0&&row!=null?GearIcon(TextOf(row,"icon")):null;
+        if(icon!=null&&args.Bounds.Width>=IconSize+8){
+            // The capture's gear icon (capture_icons.py), left of its name.
+            int size=Math.Min(IconSize,args.Bounds.Height-2);
+            var graphics=args.Graphics;var mode=graphics.InterpolationMode;
+            graphics.InterpolationMode=System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            graphics.DrawImage(icon,new Rectangle(args.Bounds.X+3,args.Bounds.Y+(args.Bounds.Height-size)/2,size,size));
+            graphics.InterpolationMode=mode;
+            textBounds.X+=size+4;textBounds.Width=Math.Max(0,textBounds.Width-size-4);
+        }
         TextRenderer.DrawText(args.Graphics,args.SubItem.Text,font,textBounds,foreground,background,
             TextFormatFlags.Left|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix);
     }
@@ -305,6 +328,7 @@ class NamLibrary : Form
         table.BackColor=BackColor; table.ForeColor=Color.Gainsboro;
         table.Font=new Font("Segoe UI",9); table.BorderStyle=BorderStyle.None;
         table.OwnerDraw=true;
+        table.SmallImageList=new ImageList{ImageSize=new Size(1,RowHeight)}; // row height for the gear icons
         table.DrawColumnHeader+=(sender,args)=>{
             using(var brush=new SolidBrush(Color.FromArgb(42,42,42))) args.Graphics.FillRectangle(brush,args.Bounds);
             TextRenderer.DrawText(args.Graphics,args.Header.Text,table.Font,args.Bounds,Color.Gainsboro,
@@ -694,7 +718,7 @@ class NamLibrary : Form
     }
     [STAThread] static void Main(string[] args){
         if(args.Length>0&&(args[0]=="--self-test"||args[0]=="--render-fixture")){
-            try{if(args[0]=="--self-test")SelfTest();else RenderFixture(args[1]);}
+            try{if(args[0]=="--self-test")SelfTest();else RenderFixture(args[1],args.Length>2?args[2]:null);}
             catch(Exception error){Console.Error.WriteLine(error);Environment.ExitCode=1;}return;
         }
         var parent=ParseWindowHandle(args[0]);if(!IsWindow(parent))return;
@@ -711,7 +735,7 @@ class NamLibrary : Form
             throw new ArgumentException("Invalid parent window handle");
         return IntPtr.Size==4?new IntPtr(unchecked((int)bits)):new IntPtr((long)bits);
     }
-    static void RenderFixture(string path){
+    static void RenderFixture(string path,string iconFolder){
         // Offscreen WinForms rendering only. No editor/device process or Show().
         Application.EnableVisualStyles();
         using(var writer=new StringWriter())using(var pane=new NamLibrary(IntPtr.Zero,writer)){
@@ -719,7 +743,9 @@ class NamLibrary : Form
             string[] names={"Deluxe Reverb","Klon Clean Boost","Plexi Bright","Studio Compressor"};
             string[] types={"Amp + cab","Pedal","Amp","Outboard"};
             string[] groups={"amp+cab","pedals","amp-only","outboard"};
+            string[] icons={"small_blackface_combo","gold_overdrive","brit_gold_head","rack_compressor"};
             for(int i=0;i<names.Length;i++)pane.allRows.Add(new Dictionary<string,object>{
+                {"icon",iconFolder==null?"":Path.Combine(iconFolder,icons[i]+".png")},
                 {"contentId",new string((char)('a'+i),64)},{"title",names[i]},{"categoryLabel",types[i]},
                 {"category",groups[i]},{"fileStatus","available"},{"fileDetail","Kept on this PC"},
                 {"canLoad",true},{"deviceStatus",i==0?"verified":"local-only"},

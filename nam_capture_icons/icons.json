@@ -1,0 +1,1278 @@
+{
+ "icons": [
+  {
+   "id": "brit_gold_head",
+   "group": "amp",
+   "keywords": [
+    "marshall",
+    "marsh",
+    "brit50",
+    "jcm",
+    "plexi",
+    "jmp",
+    "1959",
+    "super lead",
+    "jcm800",
+    "jcm 800",
+    "2203",
+    "2204",
+    "jtm",
+    "brit",
+    "slp",
+    "1987",
+    "jcm900",
+    "jvm",
+    "6100",
+    "dsl",
+    "jcm2000"
+   ]
+  },
+  {
+   "id": "brit_silver_head",
+   "group": "amp",
+   "keywords": [
+    "jubilee",
+    "2555",
+    "silver"
+   ]
+  },
+  {
+   "id": "diamond_plate_head",
+   "group": "amp",
+   "keywords": [
+    "rectifier",
+    "recto",
+    "mes",
+    "cali",
+    "dual rec",
+    "triple rec",
+    "drecf",
+    "mesa",
+    "boogie",
+    "roadster",
+    "road king"
+   ]
+  },
+  {
+   "id": "graphic_eq_head",
+   "group": "amp",
+   "keywords": [
+    "mark iic",
+    "iic+",
+    "mark iv",
+    "mark v",
+    "mark 5",
+    "mk iic",
+    "mkv",
+    "mk v",
+    "jp-2c",
+    "jp2c"
+   ]
+  },
+  {
+   "id": "striped_metal_head",
+   "group": "amp",
+   "keywords": [
+    "5150",
+    "6505",
+    "evh",
+    "peavey",
+    "invective",
+    "stealth"
+   ]
+  },
+  {
+   "id": "orange_tolex_head",
+   "group": "amp",
+   "keywords": [
+    "orange",
+    "rockerverb",
+    "or50",
+    "or120",
+    "or100",
+    "thunderverb",
+    "dual terror",
+    "tiny terror"
+   ]
+  },
+  {
+   "id": "chrome_panel_head",
+   "group": "amp",
+   "keywords": [
+    "soldano",
+    "sldn",
+    "sl100",
+    "slo",
+    "slo-100",
+    "slo100",
+    "hot rod 50",
+    "avenger"
+   ]
+  },
+  {
+   "id": "brass_boutique_head",
+   "group": "amp",
+   "keywords": [
+    "friedman",
+    "be-100",
+    "be100",
+    "dirty shirley",
+    "hbe",
+    "jj",
+    "smallbox",
+    "bogner",
+    "shiva",
+    "ecstasy",
+    "helios"
+   ]
+  },
+  {
+   "id": "german_silver_head",
+   "group": "amp",
+   "keywords": [
+    "diezel",
+    "vh4",
+    "herbert",
+    "engl",
+    "powerball",
+    "savage",
+    "fireball",
+    "uberschall",
+    "mesa triaxis",
+    "vh-4"
+   ]
+  },
+  {
+   "id": "boutique_silver_head",
+   "group": "amp",
+   "keywords": [
+    "dumble",
+    "ods",
+    "overdrive special",
+    "steel string",
+    "two-rock",
+    "two rock",
+    "sss",
+    "alexander",
+    "zinky",
+    "ceriatone",
+    "dr z",
+    "dr. z"
+   ]
+  },
+  {
+   "id": "red_metal_head",
+   "group": "amp",
+   "keywords": [
+    "randall",
+    "satan",
+    "revv",
+    "splawn",
+    "kerry king",
+    "invader",
+    "krank"
+   ]
+  },
+  {
+   "id": "white_tolex_head",
+   "group": "amp",
+   "keywords": [
+    "white",
+    "ivory",
+    "snow",
+    "bad cat",
+    "victory",
+    "kraken",
+    "duchess",
+    "sheriff"
+   ]
+  },
+  {
+   "id": "vintage_grey_head",
+   "group": "amp",
+   "keywords": [
+    "hiwatt",
+    "whowatt",
+    "dr103",
+    "dr504",
+    "custom 100",
+    "sound city",
+    "laney",
+    "lionheart",
+    "supergroup"
+   ]
+  },
+  {
+   "id": "bass_silver_head",
+   "group": "amp",
+   "keywords": [
+    "svt",
+    "ampeg",
+    "bass",
+    "b-15",
+    "b15",
+    "portaflex",
+    "trace elliot",
+    "gk",
+    "gallien"
+   ]
+  },
+  {
+   "id": "modern_black_head",
+   "group": "amp",
+   "keywords": [
+    "synergy",
+    "quad cortex",
+    "kemper",
+    "helix",
+    "mini",
+    "lunchbox",
+    "micro"
+   ]
+  },
+  {
+   "id": "green_vintage_head",
+   "group": "amp",
+   "keywords": [
+    "green",
+    "jtm45",
+    "jtm 45",
+    "bluesbreaker amp",
+    "1962"
+   ]
+  },
+  {
+   "id": "purple_head",
+   "group": "amp",
+   "keywords": [
+    "purple",
+    "plexi purple"
+   ]
+  },
+  {
+   "id": "blue_tolex_head",
+   "group": "amp",
+   "keywords": [
+    "blue",
+    "6100lm",
+    "blue 92"
+   ]
+  },
+  {
+   "id": "blackface_combo",
+   "group": "rig",
+   "keywords": [
+    "fender",
+    "fndr",
+    "bfsr",
+    "twin",
+    "twin reverb",
+    "super reverb",
+    "blackface",
+    "bf",
+    "vibroverb",
+    "pro reverb",
+    "bandmaster",
+    "showman",
+    "bassbreaker"
+   ]
+  },
+  {
+   "id": "small_blackface_combo",
+   "group": "rig",
+   "keywords": [
+    "deluxe",
+    "usdeluxe",
+    "lux",
+    "dlx",
+    "d-lux",
+    "princeton",
+    "vibrolux",
+    "deluxe reverb",
+    "hot rod"
+   ]
+  },
+  {
+   "id": "tweed_combo",
+   "group": "rig",
+   "keywords": [
+    "tweed",
+    "bassman",
+    "champ",
+    "5e3",
+    "5f6",
+    "5f1",
+    "narrow panel",
+    "high power tweed",
+    "tweed deluxe"
+   ]
+  },
+  {
+   "id": "diamond_grille_combo",
+   "group": "rig",
+   "keywords": [
+    "vox",
+    "a30",
+    "ac30",
+    "ac15",
+    "ac 30",
+    "ac 15",
+    "top boost",
+    "tb"
+   ]
+  },
+  {
+   "id": "silverface_combo",
+   "group": "rig",
+   "keywords": [
+    "silverface",
+    "sf"
+   ]
+  },
+  {
+   "id": "cream_boutique_combo",
+   "group": "rig",
+   "keywords": [
+    "imperial",
+    "tone king",
+    "matchless",
+    "match",
+    "brave",
+    "dc30",
+    "cream",
+    "boutique combo",
+    "carr",
+    "divided"
+   ]
+  },
+  {
+   "id": "brown_combo",
+   "group": "rig",
+   "keywords": [
+    "brownface",
+    "brown",
+    "vibroverb brown",
+    "concert"
+   ]
+  },
+  {
+   "id": "jazz_combo",
+   "group": "rig",
+   "keywords": [
+    "jc-120",
+    "jc120",
+    "jazz chorus",
+    "roland",
+    "polytone",
+    "henriksen"
+   ]
+  },
+  {
+   "id": "mini_combo",
+   "group": "rig",
+   "keywords": [
+    "practice",
+    "tiny",
+    "katana",
+    "spark",
+    "blackstar",
+    "id core",
+    "boss cube"
+   ]
+  },
+  {
+   "id": "brit_half_stack",
+   "group": "rig",
+   "keywords": [
+    "half stack",
+    "marsh fullstack",
+    "marshall fullstack",
+    "marshall full stack",
+    "full rig marshall",
+    "1960a",
+    "1960b"
+   ]
+  },
+  {
+   "id": "modern_half_stack",
+   "group": "rig",
+   "keywords": [
+    "full rig",
+    "rig",
+    "stack"
+   ]
+  },
+  {
+   "id": "orange_stack",
+   "group": "rig",
+   "keywords": [
+    "orange stack",
+    "orange rig"
+   ]
+  },
+  {
+   "id": "closed_4x12",
+   "group": "cab",
+   "keywords": [
+    "4x12",
+    "412",
+    "1960",
+    "cab",
+    "cabinet",
+    "v30",
+    "greenback",
+    "g12m",
+    "g12",
+    "marshall 4x12"
+   ]
+  },
+  {
+   "id": "oversized_4x12",
+   "group": "cab",
+   "keywords": [
+    "oversized",
+    "os",
+    "traditional",
+    "mesa",
+    "mesa 4x12",
+    "recto cab"
+   ]
+  },
+  {
+   "id": "open_2x12",
+   "group": "cab",
+   "keywords": [
+    "2x12",
+    "212",
+    "open back"
+   ]
+  },
+  {
+   "id": "one_12_cab",
+   "group": "cab",
+   "keywords": [
+    "1x12",
+    "112"
+   ]
+  },
+  {
+   "id": "orange_4x12",
+   "group": "cab",
+   "keywords": [
+    "orange",
+    "orange 4x12",
+    "ppc412",
+    "ppc"
+   ]
+  },
+  {
+   "id": "bass_8x10",
+   "group": "cab",
+   "keywords": [
+    "8x10",
+    "810",
+    "4x10",
+    "410",
+    "bass cab"
+   ]
+  },
+  {
+   "id": "green_screamer",
+   "group": "pedal",
+   "keywords": [
+    "ts9",
+    "ts-9",
+    "nobels",
+    "odr",
+    "ts808",
+    "ts 808",
+    "808",
+    "tube screamer",
+    "screamer",
+    "ts10",
+    "ts mini",
+    "tube driver"
+   ]
+  },
+  {
+   "id": "yellow_compact",
+   "group": "pedal",
+   "keywords": [
+    "sd-1",
+    "sd1",
+    "super overdrive",
+    "od-1"
+   ]
+  },
+  {
+   "id": "orange_compact",
+   "group": "pedal",
+   "keywords": [
+    "ds-1",
+    "ds1",
+    "distortion compact"
+   ]
+  },
+  {
+   "id": "blue_compact",
+   "group": "pedal",
+   "keywords": [
+    "bd-2",
+    "bd2",
+    "blues driver",
+    "blues"
+   ]
+  },
+  {
+   "id": "grey_compact",
+   "group": "pedal",
+   "keywords": [
+    "mt-2",
+    "mt2",
+    "metal zone",
+    "metal"
+   ]
+  },
+  {
+   "id": "gold_overdrive",
+   "group": "pedal",
+   "keywords": [
+    "klon",
+    "centaur",
+    "klone",
+    "wanderer",
+    "notaklon",
+    "soul food",
+    "archer",
+    "clon"
+   ]
+  },
+  {
+   "id": "black_rat",
+   "group": "pedal",
+   "keywords": [
+    "rat",
+    "rat2",
+    "rat 2",
+    "proco",
+    "pro co",
+    "turbo rat"
+   ]
+  },
+  {
+   "id": "silver_bluesbreaker",
+   "group": "pedal",
+   "keywords": [
+    "bluesbreaker",
+    "morning glory",
+    "timmy",
+    "ocd",
+    "blues breaker",
+    "dumbleator",
+    "zendrive"
+   ]
+  },
+  {
+   "id": "mini_boost",
+   "group": "pedal",
+   "keywords": [
+    "boost",
+    "ep booster",
+    "ep-3",
+    "koko",
+    "sparkle",
+    "treble booster",
+    "clean boost",
+    "mxr micro amp"
+   ]
+  },
+  {
+   "id": "big_fuzz_box",
+   "group": "pedal",
+   "keywords": [
+    "muff",
+    "big muff",
+    "muff pi",
+    "ram",
+    "triangle",
+    "green russian"
+   ]
+  },
+  {
+   "id": "round_fuzz",
+   "group": "pedal",
+   "keywords": [
+    "fuzz face",
+    "fuzzface",
+    "face",
+    "tone bender",
+    "bender",
+    "germanium"
+   ]
+  },
+  {
+   "id": "octave_fuzz",
+   "group": "pedal",
+   "keywords": [
+    "octave",
+    "octavo",
+    "octavia",
+    "lizard",
+    "octafuzz"
+   ]
+  },
+  {
+   "id": "reverb_box",
+   "group": "pedal",
+   "keywords": [
+    "reverb",
+    "bigsky",
+    "big sky",
+    "rv-6",
+    "rv-5",
+    "rv6",
+    "rv5",
+    "flint",
+    "plumes",
+    "slo",
+    "shoegaze",
+    "hall",
+    "plate"
+   ]
+  },
+  {
+   "id": "delay_box",
+   "group": "pedal",
+   "keywords": [
+    "delay",
+    "echo",
+    "timeline",
+    "dd-",
+    "carbon copy",
+    "memory man"
+   ]
+  },
+  {
+   "id": "chorus_compact",
+   "group": "pedal",
+   "keywords": [
+    "chorus",
+    "ce-2",
+    "ce2",
+    "ce-2w",
+    "phaser",
+    "phase 90",
+    "flanger",
+    "vibe",
+    "uni-vibe"
+   ]
+  },
+  {
+   "id": "compressor",
+   "group": "pedal",
+   "keywords": [
+    "comp",
+    "compressor",
+    "dyna",
+    "cali76",
+    "orange squeezer"
+   ]
+  },
+  {
+   "id": "bass_preamp_pedal",
+   "group": "pedal",
+   "keywords": [
+    "darkglass",
+    "b7k",
+    "sansamp",
+    "bass driver",
+    "vintage microtubes",
+    "bass preamp",
+    "xlr"
+   ]
+  },
+  {
+   "id": "eq_pedal",
+   "group": "pedal",
+   "keywords": [
+    "eq",
+    "ge-7",
+    "ge7",
+    "graphic",
+    "10 band"
+   ]
+  },
+  {
+   "id": "rack_preamp",
+   "group": "other",
+   "keywords": [
+    "preamp",
+    "neve",
+    "1073",
+    "api",
+    "studio",
+    "console",
+    "channel strip",
+    "outboard",
+    "rack"
+   ]
+  },
+  {
+   "id": "rack_compressor",
+   "group": "other",
+   "keywords": [
+    "1176",
+    "la-2a",
+    "la2a",
+    "compressor rack",
+    "distressor",
+    "ssl",
+    "bus comp",
+    "opto"
+   ]
+  },
+  {
+   "id": "tape_echo",
+   "group": "other",
+   "keywords": [
+    "tape",
+    "space echo",
+    "re-201",
+    "re201",
+    "echoplex",
+    "binson"
+   ]
+  },
+  {
+   "id": "acoustic_guitar",
+   "group": "other",
+   "keywords": [
+    "acoustic",
+    "nylon",
+    "classical",
+    "dreadnought",
+    "piezo"
+   ]
+  },
+  {
+   "id": "studio_mic",
+   "group": "other",
+   "keywords": [
+    "mic",
+    "microphone",
+    "sm57",
+    "u47",
+    "u87",
+    "md421",
+    "r121",
+    "ribbon",
+    "ir",
+    "impulse"
+   ]
+  },
+  {
+   "id": "di_box",
+   "group": "other",
+   "keywords": [
+    "di",
+    "direct",
+    "clean di",
+    "reamp"
+   ]
+  },
+  {
+   "id": "synth_module",
+   "group": "other",
+   "keywords": [
+    "synth",
+    "modular",
+    "experimental",
+    "eurorack",
+    "noise",
+    "glitch"
+   ]
+  },
+  {
+   "id": "multi_fx",
+   "group": "other",
+   "keywords": [
+    "multi",
+    "fx",
+    "modeler",
+    "pod",
+    "fractal",
+    "axe",
+    "line 6"
+   ]
+  },
+  {
+   "id": "mixer_console",
+   "group": "other",
+   "keywords": [
+    "mixer",
+    "mixing",
+    "desk",
+    "board"
+   ]
+  },
+  {
+   "id": "gen_head_1",
+   "group": "amp",
+   "keywords": []
+  },
+  {
+   "id": "gen_head_2",
+   "group": "amp",
+   "keywords": []
+  },
+  {
+   "id": "gen_head_3",
+   "group": "amp",
+   "keywords": []
+  },
+  {
+   "id": "gen_head_4",
+   "group": "amp",
+   "keywords": []
+  },
+  {
+   "id": "gen_head_5",
+   "group": "amp",
+   "keywords": []
+  },
+  {
+   "id": "gen_head_6",
+   "group": "amp",
+   "keywords": []
+  },
+  {
+   "id": "gen_head_7",
+   "group": "amp",
+   "keywords": []
+  },
+  {
+   "id": "gen_head_8",
+   "group": "amp",
+   "keywords": []
+  },
+  {
+   "id": "gen_head_9",
+   "group": "amp",
+   "keywords": []
+  },
+  {
+   "id": "gen_combo_1",
+   "group": "rig",
+   "keywords": []
+  },
+  {
+   "id": "gen_combo_2",
+   "group": "rig",
+   "keywords": []
+  },
+  {
+   "id": "gen_combo_3",
+   "group": "rig",
+   "keywords": []
+  },
+  {
+   "id": "gen_combo_4",
+   "group": "rig",
+   "keywords": []
+  },
+  {
+   "id": "gen_combo_5",
+   "group": "rig",
+   "keywords": []
+  },
+  {
+   "id": "gen_combo_6",
+   "group": "rig",
+   "keywords": []
+  },
+  {
+   "id": "gen_combo_7",
+   "group": "rig",
+   "keywords": []
+  },
+  {
+   "id": "gen_combo_8",
+   "group": "rig",
+   "keywords": []
+  },
+  {
+   "id": "gen_combo_9",
+   "group": "rig",
+   "keywords": []
+  },
+  {
+   "id": "gen_pedal_1",
+   "group": "pedal",
+   "keywords": []
+  },
+  {
+   "id": "gen_pedal_2",
+   "group": "pedal",
+   "keywords": []
+  },
+  {
+   "id": "gen_pedal_3",
+   "group": "pedal",
+   "keywords": []
+  },
+  {
+   "id": "gen_pedal_4",
+   "group": "pedal",
+   "keywords": []
+  },
+  {
+   "id": "gen_pedal_5",
+   "group": "pedal",
+   "keywords": []
+  },
+  {
+   "id": "gen_pedal_6",
+   "group": "pedal",
+   "keywords": []
+  },
+  {
+   "id": "gen_pedal_7",
+   "group": "pedal",
+   "keywords": []
+  },
+  {
+   "id": "gen_pedal_8",
+   "group": "pedal",
+   "keywords": []
+  },
+  {
+   "id": "gen_pedal_9",
+   "group": "pedal",
+   "keywords": []
+  },
+  {
+   "id": "wah_pedal",
+   "group": "pedal",
+   "keywords": [
+    "wah",
+    "cry baby",
+    "crybaby",
+    "auto wah",
+    "q-tron",
+    "envelope filter",
+    "filter"
+   ]
+  },
+  {
+   "id": "volume_pedal",
+   "group": "pedal",
+   "keywords": [
+    "volume",
+    "expression",
+    "swell"
+   ]
+  },
+  {
+   "id": "white_compact",
+   "group": "pedal",
+   "keywords": [
+    "dd-3",
+    "dd3",
+    "dd-7",
+    "dd7",
+    "dd-8",
+    "dd8",
+    "dd-500",
+    "ns-2",
+    "ns2"
+   ]
+  },
+  {
+   "id": "purple_compact",
+   "group": "pedal",
+   "keywords": [
+    "bf-2",
+    "bf2",
+    "bf-3",
+    "bf3",
+    "ph-3",
+    "ph3"
+   ]
+  },
+  {
+   "id": "black_compact",
+   "group": "pedal",
+   "keywords": [
+    "hm-2",
+    "hm2",
+    "heavy metal",
+    "hm-2w"
+   ]
+  },
+  {
+   "id": "pitch_treadle",
+   "group": "pedal",
+   "keywords": [
+    "whammy",
+    "pitch",
+    "harmonizer",
+    "shifter",
+    "drop tune"
+   ]
+  },
+  {
+   "id": "top_jack_mini",
+   "group": "pedal",
+   "keywords": [
+    "mooer",
+    "m-vave",
+    "mvave",
+    "nux",
+    "joyo",
+    "donner",
+    "ammoon",
+    "caline"
+   ]
+  },
+  {
+   "id": "dual_drive",
+   "group": "pedal",
+   "keywords": [
+    "dual",
+    "double",
+    "king of tone",
+    "kot",
+    "prince of tone",
+    "duellist",
+    "two in one",
+    "2 in 1"
+   ]
+  },
+  {
+   "id": "tremolo_pedal",
+   "group": "pedal",
+   "keywords": [
+    "tremolo",
+    "trem",
+    "vibrato",
+    "pulsar",
+    "rotary sim"
+   ]
+  },
+  {
+   "id": "speckle_combo",
+   "group": "rig",
+   "keywords": [
+    "supro",
+    "thunderbolt",
+    "blues king",
+    "dual tone",
+    "black magick",
+    "valco",
+    "airline"
+   ]
+  },
+  {
+   "id": "gold_trim_combo",
+   "group": "rig",
+   "keywords": [
+    "magnatone",
+    "super 59",
+    "twilighter",
+    "gibson",
+    "ga-40",
+    "ga40",
+    "les paul amp",
+    "standel"
+   ]
+  },
+  {
+   "id": "bass_combo",
+   "group": "rig",
+   "keywords": [
+    "bass combo",
+    "fliptop",
+    "flip top",
+    "rumble",
+    "1x15",
+    "115",
+    "b-15",
+    "b15",
+    "portaflex"
+   ]
+  },
+  {
+   "id": "closed_2x12",
+   "group": "cab",
+   "keywords": [
+    "2x12 closed",
+    "closed 2x12",
+    "mesa 2x12",
+    "recto 2x12",
+    "v30 2x12",
+    "thiele",
+    "widebody"
+   ]
+  },
+  {
+   "id": "tan_1x12_cab",
+   "group": "cab",
+   "keywords": [
+    "tweed 1x12",
+    "alnico",
+    "jensen",
+    "p12",
+    "p10",
+    "p12n",
+    "p10n",
+    "p12q",
+    "c12n",
+    "c10r"
+   ]
+  },
+  {
+   "id": "speaker_driver",
+   "group": "cab",
+   "keywords": [
+    "speaker",
+    "driver",
+    "celestion",
+    "creamback",
+    "eminence",
+    "wgs",
+    "g12h",
+    "g12t",
+    "g12t-75",
+    "g12-65",
+    "ir only",
+    "cone"
+   ]
+  },
+  {
+   "id": "blonde_combo",
+   "group": "rig",
+   "keywords": [
+    "blonde",
+    "blond",
+    "bandmaster blonde",
+    "showman blonde",
+    "tremolux"
+   ]
+  },
+  {
+   "id": "rotary_cabinet",
+   "group": "other",
+   "keywords": [
+    "leslie",
+    "rotary",
+    "rotating",
+    "organ"
+   ]
+  },
+  {
+   "id": "glass_tube_head",
+   "group": "amp",
+   "keywords": [
+    "tube",
+    "valve",
+    "el34",
+    "el84",
+    "6l6",
+    "6v6",
+    "kt88",
+    "kt66",
+    "12ax7",
+    "tube preamp"
+   ]
+  }
+ ],
+ "generic": {
+  "amp": [
+   "gen_head_1",
+   "gen_head_2",
+   "gen_head_3",
+   "gen_head_4",
+   "gen_head_5",
+   "gen_head_6",
+   "gen_head_7",
+   "gen_head_8",
+   "gen_head_9"
+  ],
+  "rig": [
+   "gen_combo_1",
+   "gen_combo_2",
+   "gen_combo_3",
+   "gen_combo_4",
+   "gen_combo_5",
+   "gen_combo_6",
+   "gen_combo_7",
+   "gen_combo_8",
+   "gen_combo_9"
+  ],
+  "pedal": [
+   "gen_pedal_1",
+   "gen_pedal_2",
+   "gen_pedal_3",
+   "gen_pedal_4",
+   "gen_pedal_5",
+   "gen_pedal_6",
+   "gen_pedal_7",
+   "gen_pedal_8",
+   "gen_pedal_9"
+  ],
+  "other": [
+   "rack_preamp",
+   "synth_module",
+   "studio_mic",
+   "mixer_console",
+   "multi_fx",
+   "di_box"
+  ]
+ },
+ "weak": [
+  "bass",
+  "bf",
+  "blue",
+  "blues",
+  "boost",
+  "brown",
+  "cab",
+  "cabinet",
+  "chorus",
+  "comp",
+  "cream",
+  "delay",
+  "di",
+  "drive",
+  "echo",
+  "eq",
+  "face",
+  "full rig",
+  "fuzz",
+  "fx",
+  "green",
+  "hall",
+  "impulse",
+  "ir",
+  "match",
+  "metal",
+  "mic",
+  "mini",
+  "os",
+  "phaser",
+  "plate",
+  "practice",
+  "purple",
+  "reverb",
+  "rig",
+  "sf",
+  "silver",
+  "stack",
+  "studio",
+  "tape",
+  "tb",
+  "tiny",
+  "vibe",
+  "white"
+ ]
+}

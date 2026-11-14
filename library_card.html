@@ -2,7 +2,7 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <title>NAM library</title>
 <style>
   :root { color-scheme: dark; font: 13px 'Segoe UI', sans-serif; background: #171717; color: #f0f0f0; }
@@ -23,6 +23,7 @@
   th:nth-child(3) { min-width: 62px; white-space: nowrap; }
   td { padding: 3px 8px; border-bottom: 1px solid #262626; white-space: nowrap; }
   td.name { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  td.name img.gear-icon { width: 24px; height: 24px; vertical-align: middle; margin: -3px 7px -3px 0; }
   tbody tr { cursor: pointer; }
   tbody tr:hover { background: #262626; }
   tbody tr[aria-selected="true"] { background: #4a2425; }
@@ -99,6 +100,7 @@
 <template id="gears">$gears</template>
 <script>
   const rows = $rows;
+  const icons = $icons;   // gear picture id -> data: URI (capture_icons.py)
   const initialView = $view;
   const host = window.chrome?.webview;
   const q = selector => document.querySelector(selector);
@@ -119,7 +121,13 @@
       tr.setAttribute('aria-selected', String(row.id === selected));
       const name = tr.insertCell();
       name.className = 'name';
-      name.textContent = name.title = row.name;
+      name.title = row.name;
+      if (icons[row.icon]) {
+        const picture = document.createElement('img');
+        picture.className = 'gear-icon'; picture.alt = ''; picture.src = icons[row.icon];
+        name.append(picture);
+      }
+      name.append(row.name);
       const gear = document.createElement('select');
       gear.innerHTML = q('#gears').innerHTML;
       gear.value = row.gear;

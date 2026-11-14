@@ -1375,13 +1375,13 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     slotEpoch: () => slotLedger?.epoch() || 0,
     installedCaptures() {
       // Captures of this PC's library that are on the Floor now, by verified slot: for the NAM
-      // category's model list. [{slot, name, gear}], lowest slot first.
+      // category's model list. [{slot, name, gear, icon}], lowest slot first (icon: capture_icons id).
       const result = [];
       if (!slotLedger) return result;
       for (const [slot, contentId] of slotLedger.entries()) {
         const capture = payloadMetadata[contentId];
         if (!capture || slot === AUDITION_SLOT) continue;
-        result.push({slot, name: capture.name || profiles[slot] || 'Capture', gear: capture.gear || ''});
+        result.push({slot, name: capture.name || profiles[slot] || 'Capture', gear: capture.gear || '', icon: capture.icon || ''});
       }
       return result;
     },

@@ -28,8 +28,10 @@ APP_FILES = (
     'navigation_host.py', 'floor_inventory.py', 'device_connection_watch.py',
     'library_slot_state.js', 'automatic_slot_discovery.js', 'native_export_observer.js',
     'nav_resources.py', 'nav_banner.js', 'target_binding.js',
-    'nam_sidebar.py', 'nam_sidebar.js', 'NamLibrary.cs', 'floor_memory.py',
+    'nam_sidebar.py', 'nam_sidebar.js', 'NamLibrary.cs', 'floor_memory.py', 'capture_icons.py',
 )
+# Pictures the app's patches and the library read at run time (capture_icons, nam_catalog, nav_resources).
+ASSET_FOLDERS = ('nam_capture_icons', 'nam_category_icons', 'nav_images')
 FIRMWARE_FILES = (
     'LICENSE', 'tools/nam2ir.py', 'tools/nam_refine.py', 'tools/nam_pedal.py', 'tools/nam_v3_input.wav', 'tools/hx_ctl.py', 'tools/hx_dfu_reboot.py',
     'tools/sharc/nam_lite.py', 'tools/sharc/nam_pack.py', 'tools/sharc/sasm.py',
@@ -85,6 +87,8 @@ def package_windows(version, worktree=False):
         app.mkdir(parents=True)
         for name in APP_FILES:
             shutil.copyfile(ROOT / name, app / name)
+        for name in ASSET_FOLDERS:
+            shutil.copytree(ROOT / name, app / name)
         shutil.copyfile(sidebar, app / sidebar.name)
         shutil.copyfile(sidebar.with_suffix('.exe.sha256'), app / (sidebar.name + '.sha256'))
         shutil.copyfile(ROOT / 'README.md', stage / 'README.md')

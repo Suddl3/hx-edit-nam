@@ -157,6 +157,7 @@ NAM_CATEGORY_GROUPS = (('NAM Amp', 'FX_HX_Category_NAM_Amp.png'), ('NAM Amp + ca
                        ('NAM Pedal', 'FX_HX_Category_NAM_Pedal.png'), ('NAM Other', 'FX_HX_Category_NAM_Other.png'))
 NAM_CATEGORY_COLOR = '0xB070E0'
 NAM_CATEGORY_ICONS = ROOT / 'nam_category_icons'
+CAPTURE_ICONS = ROOT / 'nam_capture_icons'  # capture_icons.py
 # The row after which the NAM categories start. tone_view.js asks HX Edit to draw its own
 # one-pixel separator along the bottom of this row (list item flag bit 1), so the divider costs
 # no row of its own and cannot be hovered or chosen.
@@ -247,6 +248,14 @@ def patch_model_lock(resources):
         slider.write_bytes(patched)
 
 
+def add_capture_pictures(resources):
+    """The gear pictures of nam_capture_icons/, as res/icons_models/NAMCAP_<id>.png: tone_view
+    loads them by name for the capture rows of the NAM categories."""
+    models = resources / 'icons_models'
+    for picture in sorted(CAPTURE_ICONS.glob('*.png')):
+        shutil.copyfile(picture, models / f'NAMCAP_{picture.name}')
+
+
 def patch_nam_category(resources):
     """Experiment: NAM capture categories in the block selector, under their own heading.
 
@@ -276,6 +285,7 @@ def patch_nam_category(resources):
     icons = resources / 'icons_category'
     for _, name in NAM_CATEGORY_GROUPS:
         shutil.copyfile(NAM_CATEGORY_ICONS / name, icons / name)
+    add_capture_pictures(resources)
 
     identifier = max(category['id\0'] for category in categories)
     after_stock = next(index for index, category in enumerate(categories)

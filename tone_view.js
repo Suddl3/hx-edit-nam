@@ -37,6 +37,9 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   const selectRow = method(0x3821d0, 'void', ['int', 'int', 'int', 'int']);
   const clearSelection = method(0x37f690, 'void', ['int', 'int']);
   const appendRow = method(0x380940, 'void', ['int', 'pointer', 'pointer', 'int', 'int', 'pointer', 'int', 'int']);
+  const imageCache = new NativeFunction(base.add(0x37d2f0), 'pointer', []);   // HX Edit's image cache
+  const imageNamed = method(0x37d3e0, 'pointer', ['pointer']);                 // cache, bare file name -> image
+  const retainImage = method(0x37c8a0, 'void', []);                           // image reference +1
   const findWidget = method(0x3b7ae0, 'pointer', ['uint', 'int']);
   const widgetOrigin = method(0x3b7e00, 'pointer', ['pointer']);
   const isVisible = method(0x3ba100, 'uint8', ['int']);
@@ -583,6 +586,29 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       .sort((a, b) => String(a.name).localeCompare(String(b.name)) || a.slot - b.slot);
   }
 
+  // Gear pictures for capture rows (capture_icons.py picks the id from the capture's name; the
+  // build copies the pictures into res/icons_models as NAMCAP_<id>.png). Loaded the way HX Edit
+  // loads a model's own picture: its image cache by bare file name. Each is retained once and
+  // kept for the session. A missing picture leaves the NAM block's own picture on the row.
+  const captureImages = new Map();   // icon id -> image object (or NULL)
+
+  function captureImage(icon) {
+    if (!/^[a-z0-9_]{1,40}$/.test(icon || '')) return NULL;
+    if (!captureImages.has(icon)) {
+      let image = NULL;
+      try {
+        const cache = imageCache();
+        image = cache.isNull() ? NULL : imageNamed(cache, Memory.allocUtf8String(`NAMCAP_${icon}.png`));
+        if (!image.isNull()) retainImage(image);
+      } catch (error) {
+        image = NULL;
+        send({type: 'toneTrace', reason: 'nam-category', stage: 'icon-skipped', icon, error: String(error.message)});
+      }
+      captureImages.set(icon, image);
+    }
+    return captureImages.get(icon);
+  }
+
   function appendCaptureRows(frame) {
     try {
       namView.requestSlotCheck?.();          // remembered slots make this immediate after the first run
@@ -591,7 +617,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         const label = captureRowLabel(capture);
         if (!captureLabels.has(label)) captureLabels.set(label, Memory.allocUtf8String(label));
         captureRows.set(label, {slot: capture.slot, header: frame.header});
-        appendRow(frame.list, -1, captureLabels.get(label), frame.image, 0, frame.index, frame.model, 0, 0);
+        const image = captureImage(capture.icon);
+        appendRow(frame.list, -1, captureLabels.get(label), image.isNull() ? frame.image : image, 0, frame.index, frame.model, 0, 0);
       }
     } catch (error) {
       send({type: 'toneTrace', reason: 'nam-category', stage: 'rows-skipped', error: String(error.message)});
