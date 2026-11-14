@@ -58,10 +58,11 @@ class NamLibrary : Form
     bool applying;
     bool fittingColumns;
     // Type, IR slot and Date as the user last sized them. A narrow pane borrows from
-    // Date, then Type, so the Name column keeps room for the icon and a readable name;
-    // widening the pane gives the borrowed width back.
+    // Type, then Date (never below a whole date such as 12/31/26), so the Name column
+    // keeps room for the icon and a readable name; widening the pane gives it back.
     readonly int[] preferredWidths={0,78,50,100};
-    const int NameMinimum=140,BorrowedMinimum=50;
+    const int NameMinimum=120,TypeMinimum=40;
+    int DateFit(){ return TextRenderer.MeasureText("12/31/26",table.Font).Width+12; }
     bool waiting;
     bool busy;
     bool targetReady;
@@ -258,7 +259,7 @@ class NamLibrary : Form
     public static string[] DateLabel(Dictionary<string,object> row) {
         DateTimeOffset parsed;
         if (DateTimeOffset.TryParse(TextOf(row, "addedAt"), CultureInfo.InvariantCulture, DateTimeStyles.None, out parsed))
-            return new[]{parsed.LocalDateTime.ToString("MMM d, yyyy", CultureInfo.InvariantCulture), parsed.ToString("yyyy-MM-dd"), "Added to library"};
+            return new[]{parsed.LocalDateTime.ToString("M/d/yy", CultureInfo.InvariantCulture), parsed.ToString("yyyy-MM-dd"), "Added to library"};
         object evidence;
         if (row.TryGetValue("dateEvidence", out evidence) && evidence is Dictionary<string,object>) {
             var item = (Dictionary<string,object>)evidence;
@@ -270,7 +271,7 @@ class NamLibrary : Form
                     "File modified date; estimated library date, not a confirmed download. Copies/clones can change it.":kind=="file-created"?
                     "File created date; estimated library date, not a confirmed download. Copies/clones can change it.":
                     "Present in a retained library record by this date; exact added date unavailable";
-                return new[]{day.ToString("MMM d, yyyy",CultureInfo.InvariantCulture), day.ToString("yyyy-MM-dd"),evidenceText};
+                return new[]{day.ToString("M/d/yy",CultureInfo.InvariantCulture), day.ToString("yyyy-MM-dd"),evidenceText};
             }
         }
         return new[]{"—", "", "No dated library record available"};
@@ -351,7 +352,7 @@ class NamLibrary : Form
             FillHeader();
         };
         table.ColumnWidthChanging+=(sender,args)=>{
-            int minimum=args.ColumnIndex==2?44:50;
+            int minimum=args.ColumnIndex==2?44:args.ColumnIndex==1?TypeMinimum:50;
             if(args.NewWidth<minimum){args.Cancel=true;args.NewWidth=minimum;}
         };
         table.ListViewItemSorter=sorter;
@@ -461,9 +462,9 @@ class NamLibrary : Form
         try{
             var widths=(int[])preferredWidths.Clone();
             int spare=table.ClientSize.Width-widths[1]-widths[2]-widths[3]-NameMinimum;
-            foreach(int column in new[]{3,1}){
+            foreach(int column in new[]{1,3}){
                 if(spare>=0)break;
-                int cut=Math.Min(-spare,Math.Max(0,widths[column]-BorrowedMinimum));
+                int cut=Math.Min(-spare,Math.Max(0,widths[column]-(column==1?TypeMinimum:DateFit())));
                 widths[column]-=cut;spare+=cut;
             }
             for(int column=1;column<4;column++)
@@ -938,8 +939,8 @@ class NamLibrary : Form
             if(pane.table.Items[0].SubItems[2].Text.Contains("17")||!pane.status.Text.Contains("now empty"))throw new Exception("Cleared destination still displayed");
         }
         var row=new Dictionary<string,object>{{"dateEvidence",new Dictionary<string,object>{{"day","2026-11-09"},{"kind","seen-by"}}}};
-        if(DateLabel(row)[0]!="Nov 9, 2026"||!DateLabel(row)[2].Contains("by this date"))throw new Exception("Date evidence lost");
-        row["addedAt"]="2026-11-09T12:00:00-05:00";if(DateLabel(row)[0]!="Nov 9, 2026")throw new Exception("Timestamp precedence");
+        if(DateLabel(row)[0]!="11/9/26"||!DateLabel(row)[2].Contains("by this date"))throw new Exception("Date evidence lost");
+        row["addedAt"]="2026-11-09T12:00:00-05:00";if(DateLabel(row)[0]!="11/9/26")throw new Exception("Timestamp precedence");
         if(DateLabel(new Dictionary<string,object>())[0]!="—")throw new Exception("Missing date");
         var absentFile=new Dictionary<string,object>{{"title","Match Brave Hi"},{"fileStatus","missing"}};
         if(CaptureTitle(absentFile)!="Match Brave Hi [file missing]"||LoadLabel(absentFile)!="File missing")throw new Exception("Missing file must be explicit");
@@ -972,7 +973,7 @@ class NamLibrary : Form
         b.SubItems[2].Text="?";sorter.Descending=true;
         if(sorter.Compare(a,b)>=0)throw new Exception("Unknown IR sort last");
         var fileDate=new Dictionary<string,object>{{"dateEvidence",new Dictionary<string,object>{{"day","2026-11-09"},{"kind","file-modified"}}}};
-        if(DateLabel(fileDate)[0]!="Nov 9, 2026"||!DateLabel(fileDate)[2].Contains("not a confirmed download"))throw new Exception("File date uncertainty");
+        if(DateLabel(fileDate)[0]!="11/9/26"||!DateLabel(fileDate)[2].Contains("not a confirmed download"))throw new Exception("File date uncertainty");
         using(var pane=new NamLibrary(IntPtr.Zero,new StringWriter())){
             // Native column-change notifications require a handle. This control
             // is never shown and never acquires mouse capture or device access.
@@ -995,8 +996,9 @@ class NamLibrary : Form
                     throw new Exception("Columns should fill the pane");
                 if(client-228>=NameMinimum){
                     if(columns[1].Width!=78||columns[3].Width!=100)throw new Exception("Default columns should come back after narrowing");
-                }else if(columns[0].Width<NameMinimum&&(columns[1].Width>BorrowedMinimum||columns[3].Width>BorrowedMinimum))
+                }else if(columns[0].Width<NameMinimum&&(columns[1].Width>TypeMinimum||columns[3].Width>pane.DateFit()))
                     throw new Exception("A narrow pane should keep room for names");
+                if(columns[3].Width<Math.Min(100,pane.DateFit()))throw new Exception("A narrow pane should still show whole dates");
             }
         }
         using(var writer=new StringWriter())using(var pane=new NamLibrary(IntPtr.Zero,writer)){
