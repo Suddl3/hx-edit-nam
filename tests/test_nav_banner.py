@@ -34,6 +34,21 @@ def test_adds_only_navigation_widgets_preserving_existing_controls():
     assert navigation_xml(result) == result
 
 
+def test_image_buttons_draw_the_wordmark_and_stay_repeatable():
+    from nav_resources import BUTTON_IMAGES, IMAGES
+    result = navigation_xml(MINIMAL, images=True)
+    parent = ET.fromstring(result).find('panel_widget')
+    for identity, _, width in BUTTONS:
+        node = parent.find(f"pushbutton_widget[@id='{identity}']")
+        assert node.findtext('image') == str(BUTTON_IMAGES[identity][0])
+        assert node.find('text') is None and node.findtext('visible') == 'no'
+        data = (IMAGES / BUTTON_IMAGES[identity][1]).read_bytes()
+        assert struct.unpack('>II', data[16:24]) == (width, 29 * 4)      # four frames of the button
+    assert navigation_xml(result, images=True) == result
+    with pytest.raises(ValueError):
+        navigation_xml(result, images=False)                         # never mistaken for the text form
+
+
 @pytest.mark.parametrize('source', [MINIMAL.replace(b'id="edvw"', b'id="other"'),
                                    MINIMAL.replace(b'id="redb"', b'id="other"'),
                                    MINIMAL.replace(b'</xg>', b'<panel_widget id="edvw"/></xg>'),

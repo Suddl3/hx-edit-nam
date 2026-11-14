@@ -22,8 +22,17 @@ def _verify_executable(app: Path) -> None:
         raise ValueError('Navigation requires the supported HX Edit 3.82 executable')
 
 
-def navigation_xml(source: bytes) -> bytes:
-    """Validate the stock anchors before adding three mutually exclusive labels."""
+# Stylized "TONE3000" images for the three widths (make_category_icons.banner_buttons), added to
+# the copied main.imb. Four frames each. Without a bundle the buttons keep their text labels.
+IMAGES = Path(__file__).with_name('nav_images')
+BUTTON_IMAGES = {'t3bf': (7003, 't3_browse.png'), 't3bc': (7004, 't3_wordmark.png'), 't3bi': (7005, 't3_short.png')}
+
+
+def navigation_xml(source: bytes, images: bool = False) -> bytes:
+    """Validate the stock anchors before adding three mutually exclusive buttons.
+
+    images=True draws them from BUTTON_IMAGES (already added to the bundle); otherwise text.
+    """
     root = ET.fromstring(source)
     editors = root.findall("./panel_widget[@id='edvw']")
     if len(editors) != 1:
@@ -41,8 +50,9 @@ def navigation_xml(source: bytes) -> bytes:
             raise ValueError('Partial or duplicate navigation resources')
         for node in present:
             label, width = expected[node.get('id')]
+            drawn = (node.findtext('image') == str(BUTTON_IMAGES[node.get('id')][0])) if images else                 (node.findtext('text/label') == label)
             if (node not in list(editor) or node.tag != 'pushbutton_widget'
-                    or node.get('width') != str(width) or node.findtext('text/label') != label
+                    or node.get('width') != str(width) or not drawn
                     or node.findtext('visible') != 'no'):
                 raise ValueError('Navigation widget differs from the supported resource')
         return source
@@ -54,13 +64,16 @@ def navigation_xml(source: bytes) -> bytes:
         ET.SubElement(button, 'anchor_pos', left='591', top='8')
         # Initially hidden: an unexpected native layout must never cover Undo/Tempo.
         ET.SubElement(button, 'visible').text = 'no'
+        ET.SubElement(button, 'button_repeat').text = 'no'
+        if images:
+            # The image carries the key, the wordmark and the hover/pressed looks.
+            ET.SubElement(button, 'bg_color').text = '0x00000000'
+            ET.SubElement(button, 'image').text = str(BUTTON_IMAGES[identity][0])
+            continue
         ET.SubElement(button, 'corner_radius').text = '3'
-        # TONE3000's own look is a warm yellow wordmark on black. A native button has one flat
-        # background and one text colour; the gradient wordmark itself would need an image added
-        # to HX Edit's .imb bundles, which is not mapped yet.
+        # TONE3000's own look is a warm yellow wordmark on black: one flat background, one colour.
         ET.SubElement(button, 'bg_color').text = '0xFF000000'
         ET.SubElement(button, 'disabled_opacity').text = '91'
-        ET.SubElement(button, 'button_repeat').text = 'no'
         # Hover must stay clearly apart from the banner behind it (about #1C1C1C): at that
         # colour the button's outline vanished under the pointer. Stock buttons lighten on hover.
         ET.SubElement(ET.SubElement(button, 'active_state'), 'bg_color').text = '0xFF000000'
@@ -74,12 +87,21 @@ def navigation_xml(source: bytes) -> bytes:
 
 
 def patch_navigation_resources(app_directory: str | Path) -> Path:
-    """Patch only the copied, known executable's editor.xml; callers launch later."""
+    """Patch only the copied, known executable's editor.xml (and its image bundle); callers launch later."""
     app = Path(app_directory)
     _verify_executable(app)
     path = app / 'res' / 'editor.xml'
+    bundle = app / 'res' / 'main.imb'
+    images = bundle.is_file() and all((IMAGES / name).is_file() for _, name in BUTTON_IMAGES.values())
+    if images:
+        from nam_catalog import add_bundle_images
+        source = bundle.read_bytes()
+        patched = add_bundle_images(source, [(identity, (IMAGES / name).read_bytes(), 4)
+                                             for identity, name in BUTTON_IMAGES.values()])
+        if patched != source:
+            bundle.write_bytes(patched)
     original = path.read_bytes()
-    patched = navigation_xml(original)
+    patched = navigation_xml(original, images=images)
     if patched != original:
         path.write_bytes(patched)
     return path

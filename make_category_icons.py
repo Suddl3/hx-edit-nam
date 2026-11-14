@@ -106,7 +106,60 @@ def lock_buttons():
         strip.save(OUT / name)
 
 
+# Browse TONE3000 banner buttons (nav_resources): TONE3000's own wordmark
+# (nav_images/tone3000-logo.png, taken from the header of tone3000.com, keyed from its black
+# background; TONE3000's logo and trademark) on a black key. Three widths as before (the banner
+# picks the widest that fits): "BROWSE" and the wordmark, the wordmark, and its T. Four frames
+# stacked like HX Edit's push buttons: normal, disabled, pressed, hover. "BROWSE" is drawn with a
+# Windows font (needs Pillow).
+BANNER_OUT = Path(__file__).with_name('nav_images')
+BANNER_SIZES = (('t3_browse.png', 158), ('t3_wordmark.png', 84), ('t3_short.png', 32))
+LOGO_T_WIDTH = 0.133          # the T's share of the wordmark's width
+
+
+def _font(name, size):
+    from PIL import ImageFont
+    return ImageFont.truetype(str(Path(r'C:\Windows\Fonts') / name), size)
+
+
+def banner_frame(width, height, state):
+    scale = 4
+    w, h = width * scale, height * scale
+    image = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    fill = {'normal': (0, 0, 0, 255), 'disabled': (0, 0, 0, 160), 'pressed': (0, 0, 0, 255), 'hover': (30, 30, 30, 255)}[state]
+    edge = {'normal': (64, 64, 64, 255), 'disabled': (48, 48, 48, 160), 'pressed': (255, 255, 0, 255), 'hover': (255, 255, 0, 255)}[state]
+    draw.rounded_rectangle([0, 0, w - 1, h - 1], radius=4 * scale, fill=fill, outline=edge, width=scale)
+    logo = Image.open(BANNER_OUT / 'tone3000-logo.png').convert('RGBA')
+    if width < 60:
+        logo = logo.crop((0, 0, round(logo.width * LOGO_T_WIDTH), logo.height))
+    mark_h = (15 if width >= 150 else 12 if width >= 80 else 17) * scale
+    mark = logo.resize((round(logo.width * mark_h / logo.height), mark_h), Image.LANCZOS)
+    if width >= 150:
+        small = _font('seguisb.ttf', 9 * scale)
+        label, gap = 'BROWSE', 6 * scale
+        lw = draw.textlength(label, font=small)
+        x = round((w - (lw + gap + mark.width)) / 2)
+        draw.text((x, h / 2), label, font=small, anchor='lm', fill=(220, 220, 220, 255))
+        image.alpha_composite(mark, (round(x + lw + gap), (h - mark.height) // 2))
+    else:
+        image.alpha_composite(mark, ((w - mark.width) // 2, (h - mark.height) // 2))
+    if state == 'disabled':
+        image.putalpha(image.getchannel('A').point(lambda a: a * 55 // 100))
+    return image.resize((width, height), Image.LANCZOS)
+
+
+def banner_buttons():
+    height = 29
+    BANNER_OUT.mkdir(exist_ok=True)
+    for name, width in BANNER_SIZES:
+        strip = Image.new('RGBA', (width, height * 4), (0, 0, 0, 0))
+        for index, state in enumerate(('normal', 'disabled', 'pressed', 'hover')):
+            strip.alpha_composite(banner_frame(width, height, state), (0, height * index))
+        strip.save(BANNER_OUT / name)
+
+
 if __name__ == '__main__':
-    for draw_icon in (amp, amp_cab, pedal, other, section, lock_buttons):
+    for draw_icon in (amp, amp_cab, pedal, other, section, lock_buttons, banner_buttons):
         draw_icon()
     print(sorted(path.name for path in OUT.glob('*.png')))

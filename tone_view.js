@@ -699,6 +699,20 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     clearSelection(list, 0, 0);
     selectRow(list, 1, index, 0, 1);
   }
+  function markCurrentRow(list, index) {
+    // Selecting a row from code moves the selection but not the list's current row (+0x180 and
+    // +0x184 kept the row HX Edit chose at startup), which keeps its arrow and lighter background:
+    // NAM Other stayed marked next to the category actually shown (Floor, November 13).
+    try {
+      const count = rowCount(list);
+      if (!Number.isInteger(index) || index < 0 || index >= count) return;
+      for (const offset of [0x180, 0x184]) {
+        const value = list.add(offset).readS32();
+        if (value >= 0 && value < count) list.add(offset).writeS32(index);
+      }
+      redrawList(list);
+    } catch (_) { /* presentation only */ }
+  }
   function refreshCaptureList() {
     // UI thread, from the message hook.
     const now = Date.now();
@@ -740,6 +754,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         clearSelection(categoryList, 0, 0);
         selectRow(categoryList, 1, index, 0, 1);
         modelEvent(controller, selectionEvent, categoryList, NULL, NULL);
+        markCurrentRow(categoryList, index);
         const header = rowIndex(list, text => text.trimEnd() === tiles[0].block);
         if (header >= 0) {
           const row = getIrRow(list, header);
@@ -764,6 +779,11 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // editor's, per block of the loaded preset, and is never written to the preset or the device.
   // A block with no entry is locked; a preset or device change forgets every entry.
   const modelLocks = new Map();      // block key -> 'unlocked' | 'plain' (absent: locked)
+  // block key -> {undo, previous}: where HX Edit's undo history stood just after a plain NAM A2
+  // Lite pick, and the state before it. Undoing that pick took the block back to its capture while
+  // it stayed "plain" (no padlock) until the preset was loaded again; below that point the earlier
+  // state returns.
+  const plainMarks = new Map();
   let lockCursor = NULL, pendingPlain = null, lockEventReports = 40;
 
   function noteCursor(controller) {
@@ -779,14 +799,39 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   function namBlockSlot(controller) {
     return targetBinding.peekSlot(controller.add(0x34).readPointer(), controller.add(0x80).readS32(), block(controller));
   }
+  function undoPosition(controller) {
+    try {
+      const editor = controller.add(0x34).readPointer();
+      return editor.isNull() ? null : editor.add(0x294).readS32();
+    } catch (_) { return null; }
+  }
   function lockState(controller) {
-    return modelLocks.get(lockKey(controller)) || 'locked';
+    const key = lockKey(controller), mark = plainMarks.get(key);
+    if (mark) {
+      const position = undoPosition(controller);
+      // HX Edit can record the step a moment after the change (as previews also see): settle on
+      // the first rise within 1.5 s, then watch for the history going below it.
+      if (!mark.armed && Number.isInteger(position) && Number.isInteger(mark.undo)) {
+        if (position > mark.undo && Date.now() - mark.at < 1500) { mark.undo = position; mark.armed = true; }
+        else if (Date.now() - mark.at >= 1500) mark.armed = true;
+      }
+      if (mark.armed && Number.isInteger(position) && Number.isInteger(mark.undo) && position < mark.undo) {
+        plainMarks.delete(key);
+        if (mark.previous === 'locked') modelLocks.delete(key); else modelLocks.set(key, mark.previous);
+        send({type: 'toneTrace', reason: 'model-lock', stage: mark.previous, why: 'plain-undone', block: block(controller)});
+      }
+    }
+    return modelLocks.get(key) || 'locked';
   }
   function setLockState(controller, state, why) {
     try {
       if (!controllerReady(controller)) return;
       const key = lockKey(controller);
+      const before = modelLocks.get(key) || 'locked';
       if (state === 'locked') modelLocks.delete(key); else modelLocks.set(key, state);
+      if (state === 'plain') plainMarks.set(key, {undo: undoPosition(controller), at: Date.now(), armed: false,
+        previous: before === 'plain' ? 'locked' : before});
+      else plainMarks.delete(key);
       send({type: 'toneTrace', reason: 'model-lock', stage: state, why, block: block(controller)});
       namView.applyModelLock?.(true);
     } catch (error) { send({type: 'toneTrace', reason: 'model-lock', stage: 'state-skipped', error: String(error.message)}); }
@@ -1208,7 +1253,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         // PresetContentsWillChange is the one seen when a preset loads (Floor traces, November
         // 13); none of these came with Model, capture or lock changes, or a plain block pick.
         if (/^EditBuffer_(?:TargetDeviceChanged|DevicePresetChanged|PresetChanged|PresetContentsWillChange)$/.test(event)) {
-          modelLocks.clear(); pendingPlain = null;
+          modelLocks.clear(); plainMarks.clear(); pendingPlain = null;
         }
       }
       if (!contextEvent.test(event)) return;

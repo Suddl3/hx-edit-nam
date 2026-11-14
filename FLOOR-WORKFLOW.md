@@ -45,13 +45,13 @@ An experiment added after Candidate63, off unless the launcher is given
   a NAM category, the NAM tab and previews still change a locked block.
 
 Seen on one Floor: all of the above, on both DSPs, across snapshot changes and a
-block drag. Known flaws: just after launch HX Edit's own marker in the category
-list can stay on NAM Other; a capture that is not in the PC library shows as NAM
-Other; while locked, the Model control's right-click menu is unavailable too; an
-Undo of a plain NAM A2 Lite pick keeps that block without a padlock until the
-preset is loaded again; an older WAV import and the original .nam of the same
-capture are not recognised as one (saving the .nam to the Floor adds a second
-slot). The icons are placeholders drawn for this project.
+block drag. The Model caption is shortened by its measured width so it always ends
+before the padlock. A right click on a locked Model still opens HX Edit's own menu
+(controller assignment); undoing a plain NAM A2 Lite pick brings the block's earlier
+lock state back. Known limits: a capture that is not in the PC library shows as NAM
+Other; an older WAV import and the original .nam of the same capture are not
+recognised as one (saving the .nam to the Floor adds a second slot). The category
+icons are placeholders drawn for this project.
 
 ### Previews: tested on the Floor
 
@@ -62,14 +62,12 @@ during the preview, switching to another profile of the tone, and closing HX Edi
 during a preview (the next launch restores the block). Save to PC + Floor wrote the
 capture to the lowest free slot and the NAM category list showed it at once.
 
-### Still to test on the Floor
-
-- Load on Floor from the NAM tab for a capture that is not on the Floor yet:
-  only that row should go amber, then green.
+Load on Floor from the NAM tab for a capture not yet on the Floor wrote it to the
+lowest free slot, set the selected block to it, and the open NAM category list
+showed it at once.
 
 ### Known gaps
 
-- Notices can open behind HX Edit.
 - Remembered slots are trusted by slot name, and one Floor is assumed.
 - The NAM categories are an opt-in experiment (above). No storage or DSP counters yet.
 

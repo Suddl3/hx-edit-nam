@@ -16,8 +16,37 @@ TITLE = 'HX Edit NAM'
 TRACE = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'HX Edit NAM' / 'trace.log'
 
 
+def editor_window():
+    """The visible HX Edit main window ("HX Edit - <device>"), or None.
+
+    Notices from this background process opened behind HX Edit when they had no owner; owned by
+    the editor's window they always open in front of it.
+    """
+    if os.name != 'nt':
+        return None
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    found = []
+    buffer = ctypes.create_unicode_buffer(256)
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def visit(hwnd, _):
+        if user32.IsWindowVisible(hwnd) and not user32.GetWindow(hwnd, 4):     # GW_OWNER: top level
+            user32.GetWindowTextW(hwnd, buffer, 256)
+            if buffer.value.startswith('HX Edit - '):
+                found.append(hwnd)
+                return False
+        return True
+    try:
+        user32.EnumWindows(visit, 0)
+    except OSError:
+        return None
+    return found[0] if found else None
+
+
 def message(text, flags):
-    return ctypes.windll.user32.MessageBoxW(None, str(text), TITLE, flags)
+    # MB_SETFOREGROUND (0x10000): bring the notice forward when this process may.
+    return ctypes.windll.user32.MessageBoxW(editor_window(), str(text), TITLE, flags | 0x10000)
 
 
 def trace(payload):

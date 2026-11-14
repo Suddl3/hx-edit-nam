@@ -899,7 +899,19 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
   // parameter row (slider.xml); only a NAM block's Model row shows one.
   let modelLockQuery = null, modelLockOwn = 0, modelLockCheckAt = 0, modelLockReports = 20;
   let padlockPainted = '', padlockReshows = [];
-  let captionRefit = false;
+  let captionRefit = false, rightClickOpen = false, rightClickUntil = 0;
+  function openForRightClick() {
+    try {
+      if (!hasActiveModel()) return false;
+      let opened = false;
+      for (const offset of MODEL_VALUE_CHILDREN) {
+        const child = activeModel.add(offset).readPointer();
+        if (!child.isNull() && modelLockDisabled.has(child.toString())) { setEnabled(child, 1, 0); opened = true; }
+      }
+      if (opened) { rightClickOpen = true; rightClickUntil = Date.now() + 10000; }
+      return opened;
+    } catch (_) { return false; }
+  }
   const modelLockDisabled = new Set();      // value children this code disabled (only these are re-enabled)
   const MODEL_VALUE_EVENTS = [0x21617663, 0x21766362, 0x21766365];   // cva! / bcv! / ecv!
   const MODEL_VALUE_CHILDREN = [0x13c, 0x140, 0x144];                // sldr, edit, menu
@@ -923,7 +935,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       if (!hasActiveModel()) return;
       const view = activeModel, state = modelLockState();
       if (state === null) return;
-      const locked = state === 'locked';
+      const locked = state === 'locked' && !rightClickOpen;
       for (const offset of MODEL_VALUE_CHILDREN) {
         const child = view.add(offset).readPointer();
         if (child.isNull()) continue;
@@ -966,6 +978,24 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       if (captionRefit) { captionRefit = false; refreshDisplayedModelName(); }
     } catch (error) { modelLockTrace('apply-skipped', {error: String(error.message)}); }
   }
+
+  // A right click on a locked Model: its value controls take it as usual (HX Edit's own menu,
+  // controller assignment), so they are enabled for it. Locked, they ignored right clicks, and the
+  // menu's items too, since the menu belongs to the value control. They stay enabled until the
+  // next left click (a choice, or a click elsewhere), Escape, or ten seconds; changes of the Model
+  // value are refused throughout by the value-event guard.
+  Interceptor.attach(user32.getExportByName('DispatchMessageW'), {
+    onEnter(args) {
+      if (!modelLockQuery) return;
+      try {
+        const msg = args[0], event = msg.add(4).readU32();
+        if ((event === 0x204 || event === 0x205 || event === 0x206) && modelLockDisabled.size > 0) openForRightClick();
+        if (rightClickOpen && (event === 0x202 || (event === 0x100 && msg.add(8).readU32() === 0x1b) ||
+            Date.now() > rightClickUntil)) this.rightClickDone = true;
+      } catch (_) { /* not a message this cares about */ }
+    },
+    onLeave() { if (this.rightClickDone) { rightClickOpen = false; applyModelLock(true); } },
+  });
 
   Interceptor.attach(address(0x26c440), {                // the row's double-click / Enter: edit or popup
     onEnter() {

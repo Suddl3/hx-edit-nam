@@ -77,8 +77,10 @@ let query=null;
 const namView={setModelLockQuery:q=>{query=q;},applyModelLock:()=>{},modelSlot:()=>slots[current.name]};
 const sent=[],send=value=>sent.push(value);
 const slots={block1:22,block2:9,block3:null};
+let undo=5;
+const editor={isNull:()=>false,toString:()=>'editor',add:()=>({readS32:()=>undo})};
 const controller=name=>({name,isNull:()=>false,equals:o=>o===current,
-  add:offset=>({readPointer:()=>'editor',readS32:()=>0})});
+  add:offset=>({readPointer:()=>editor,readS32:()=>0})});
 let current=controller('block1'),selectedController=NULL;
 const controllerReady=c=>!!c&&!c.isNull(),block=c=>c.name;
 const targetBinding={peekSlot:(editor,dsp,name)=>slots[name]};
@@ -101,6 +103,13 @@ query.toggle();
 assert.equal(query.state(),'plain');
 setLockState(current,'locked','capture-row');
 assert.equal(query.state(),'locked');
+// Undoing a plain pick brings the earlier state back (HX Edit records the step a moment later).
+query.toggle(); assert.equal(query.state(),'unlocked');
+plainPicked(current); assert.equal(query.state(),'plain');
+undo=6; assert.equal(query.state(),'plain');          // the pick's undo step is recorded
+undo=7; assert.equal(query.state(),'plain');          // a later edit
+undo=6; assert.equal(query.state(),'plain');          // undoing that edit
+undo=5; assert.equal(query.state(),'unlocked');       // undoing the pick itself
 // Not a NAM block: no padlock. The control on screen belongs to another block: no answer yet.
 current=controller('block3');noteCursor(current);
 assert.equal(query.state(),'none');

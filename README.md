@@ -16,10 +16,12 @@ Our fork controls the Floor workflow. Useful upstream improvements are reviewed 
 
 ## Current milestone
 
-One NAM collection across the NAM tab and its expanded view, full HX Edit controls, and consistent TONE3000 browsing, preview and save actions. Next: a NAM category in the block selector, then storage and DSP display.
+One NAM collection across the NAM tab and its expanded view, full HX Edit controls, and consistent TONE3000 browsing, preview and save actions. Opt-in NAM categories in the block selector with a Model lock. Next: storage and DSP display.
 
 Volume leveling remains an isolated offline prototype; it is not live preset normalization. Optional optimization and new runtime models require separately verified Floor compatibility. Read PRODUCT-VISION.md before broadening scope.
 
 ## Attribution
 
 This work builds on [andreidevs/hx-edit-nam](https://github.com/andreidevs/hx-edit-nam) and the NAM/converter projects it credits. The prior README is preserved in [README_UPSTREAM.md](README_UPSTREAM.md) as upstream reference, not the current Floor setup guide. This documentation change does not change licensing. Stock HX Edit, firmware, personal captures and credentials are not distributed here.
+
+The TONE3000 name and wordmark (`nav_images/tone3000-logo.png`, used on the Browse TONE3000 button) belong to TONE3000 and are used only to identify and open their service.
