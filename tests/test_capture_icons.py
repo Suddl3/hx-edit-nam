@@ -153,7 +153,8 @@ class CaptureIconPlumbingTests(unittest.TestCase):
             resources = Path(folder)
             (resources / 'icons_models').mkdir()
             add_capture_pictures(resources)
-            copied = sorted(p.name for p in (resources / 'icons_models').iterdir())
+            # (uploaded pictures of this PC's real library, NAMCAP_u_*, may be copied too)
+            copied = sorted(p.name for p in (resources / 'icons_models').iterdir() if not p.name.startswith('NAMCAP_u_'))
             self.assertIn('NAMCAP_green_screamer.png', copied)
             self.assertEqual(len(copied), len(list(FOLDER.glob('*.png'))))
 
@@ -162,6 +163,83 @@ class CaptureIconPlumbingTests(unittest.TestCase):
         self.assertIn('`NAMCAP_${icon}.png`', source)
         self.assertIn('image.isNull() ? frame.image : image', source)
         self.assertIn("icon: capture.icon || ''", (ROOT / 'nam_view.js').read_text(encoding='utf-8'))
+
+
+def tiny_png(width=2, height=2, red=200):
+    import struct, zlib
+    def chunk(kind, data):
+        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
+    rows = b''.join(b'\x00' + bytes([red, 40, 40, 255]) * width for _ in range(height))
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0)) +
+            chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b''))
+
+
+class UploadedPictureTests(unittest.TestCase):
+    def setUp(self):
+        from nam_library import Library
+        self.folder = tempfile.TemporaryDirectory()
+        self.library = Library(Path(self.folder.name))
+        self.library.catalog.parent.mkdir(parents=True, exist_ok=True)
+        self.library.catalog.write_text(json.dumps({'abc': {'name': 'Ibanez TS9', 'gear': 'pedal'}}), encoding='utf-8')
+
+    def tearDown(self):
+        self.folder.cleanup()
+
+    def test_upload_is_kept_once_and_chosen(self):
+        first = self.library.add_picture(tiny_png())
+        self.assertRegex(first, r'^u_[0-9a-f]{16}$')
+        self.assertEqual(self.library.add_picture(tiny_png()), first)
+        self.assertEqual([p.name for p in self.library.pictures.iterdir()], [f'{first}.png'])
+        self.library.set_icon('abc', first)
+        entry = self.library.entries()['abc']
+        self.assertEqual(self.library.icon_for(entry), first)
+        self.assertTrue(self.library.picture_path(first).endswith(f'{first}.png'))
+        self.library._payload_index['abc'] = {'payload-1'}
+        self.assertEqual(self.library.payload_metadata()['payload-1']['icon'], first)
+        from nam_sidebar import sidebar_rows
+        self.assertEqual(Path(sidebar_rows(self.library)[0]['icon']).name, f'{first}.png')
+
+    def test_missing_upload_falls_back_to_the_automatic_picture(self):
+        ident = self.library.add_picture(tiny_png())
+        self.library.set_icon('abc', ident)
+        (self.library.pictures / f'{ident}.png').unlink()
+        self.assertEqual(self.library.icon_for(self.library.entries()['abc']), 'green_screamer')
+        self.assertEqual(icon_for({'name': 'x', 'icon': ident}), pick('x'))   # no pictures folder given
+
+    def test_rejects_what_the_page_would_not_send(self):
+        for data in (b'not a png', tiny_png(300, 2), tiny_png(2, 0), tiny_png()[:16] + b'0' * (600 * 1024)):
+            with self.subTest(size=len(data)), self.assertRaises(ValueError):
+                self.library.add_picture(data)
+        with self.assertRaises(ValueError):
+            self.library.set_icon('abc', 'u_0123456789abcdef')   # never uploaded
+        self.assertFalse(self.library.pictures.exists())
+
+    def test_upload_reaches_the_running_editor_and_the_page(self):
+        earlier = self.library.add_picture(tiny_png(red=10))
+        models = Path(self.folder.name) / 'icons_models'
+        models.mkdir()
+        self.library.publish_pictures(models)          # editor start: earlier uploads
+        self.assertTrue((models / f'NAMCAP_{earlier}.png').is_file())
+        ident = self.library.add_picture(tiny_png())   # and the next ones as they come
+        self.assertTrue((models / f'NAMCAP_{ident}.png').is_file())
+        self.library.set_icon('abc', ident)
+        from nam_library import render_library
+        page = render_library(self.library.entries(), None, self.library.pictures)
+        self.assertIn(f'"label": "Your pictures", "ids": ["{ident}", "{earlier}"]', page)
+        self.assertIn(f'"{ident}": "data:image/png;base64,', page)
+        self.assertIn(f'"icon": "{ident}", "iconChosen": true, "iconAuto": "green_screamer"', page)
+
+    def test_page_and_preview_carry_the_upload(self):
+        page = (ROOT / 'library_card.html').read_text(encoding='utf-8')
+        self.assertIn("host?.postMessage('iconUpload:' + row.id + ':' + base64)", page)
+        self.assertIn('createImageBitmap(file)', page)
+        self.assertIn('Upload picture', page)
+        source = (ROOT / 'tone_preview.py').read_text(encoding='utf-8')
+        self.assertIn('self.library.set_icon(identity, self.library.add_picture(picture))', source)
+        self.assertIn('base64.b64decode(value, validate=True)', source)
+        self.assertIn('render_library(entries, self.library.view_state(), self.library.pictures)', source)
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        self.assertIn("library.publish_pictures(exe.parent / 'res' / 'icons_models')", launcher)
 
 
 if __name__ == '__main__':

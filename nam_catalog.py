@@ -254,6 +254,7 @@ def add_capture_pictures(resources):
     models = resources / 'icons_models'
     for picture in sorted(CAPTURE_ICONS.glob('*.png')):
         shutil.copyfile(picture, models / f'NAMCAP_{picture.name}')
+    # Pictures uploaded in the library window are added when the editor starts (Library.publish_pictures).
 
 
 def patch_nam_category(resources):

@@ -1,5 +1,6 @@
 """Run the catalog off the HX Edit GUI thread and show the active audition."""
 
+import base64
 from html import escape
 import json
 import os
@@ -489,7 +490,8 @@ class TonePreview:
             if library:
                 entries = self.library.entries()
                 library_content = library_signature(entries)
-                browser.send('card', html=render_library(entries, self.library.view_state()), has_tone=False, library=True)
+                browser.send('card', html=render_library(entries, self.library.view_state(), self.library.pictures),
+                             has_tone=False, library=True)
             elif current:
                 browser.send('card', html=render_card(*current[:2], library=bool(self.library)), has_tone=True)
             else:
@@ -871,6 +873,12 @@ class TonePreview:
                         self.library.update(identity, gear=value)
                     elif command == 'icon' and identity in self.library.entries():
                         self.library.set_icon(identity, value)
+                    elif command == 'iconUpload' and identity in self.library.entries():
+                        try:
+                            picture = base64.b64decode(value, validate=True)
+                        except ValueError:
+                            raise ValueError('The picture could not be read.')
+                        self.library.set_icon(identity, self.library.add_picture(picture))
                     elif command == 'light' and identity in self.library.entries() and light_job is None:
                         layers, _, quality = value.partition(':')
                         start_light(identity, layers, quality)

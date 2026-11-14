@@ -10,7 +10,9 @@ import shutil
 from string import Template
 from threading import Lock
 
-from capture_icons import icon_for, known_icons, picker_groups, small_data_uri
+import base64
+import capture_icons
+from capture_icons import UPLOADED, icon_for, known_icons, picker_groups, small_data_uri
 from nam_convert import IR_NAME_LIMIT
 
 
@@ -40,6 +42,8 @@ class Library:
     def __init__(self, folder=FOLDER):
         self.folder = Path(folder)
         self.catalog = self.folder / 'catalog.json'
+        self.pictures = self.folder / 'pictures'   # uploaded gear pictures, u_<hash>.png
+        self.editor_pictures = None   # the running HX Edit copy's res/icons_models (publish_pictures)
         self.backup = self.folder / 'catalog.json.bak'
         self.lock = Lock()
         self._slot_inventory = {'entries': [], 'state': 'unverified', 'generation': -1}
@@ -182,7 +186,7 @@ class Library:
             payload_index = {identity: set(payloads) for identity, payloads in self._payload_index.items()}
         return {payload: dict(id=identity, name=entries[identity].get('name', ''),
                               gear=entries[identity].get('gear', ''),
-                              icon=icon_for(entries[identity]))
+                              icon=icon_for(entries[identity], self.pictures))
                 for identity, payloads in payload_index.items() if identity in entries
                 for payload in payloads}
 
@@ -266,9 +270,54 @@ class Library:
             self._write(entries)
         self._changed()
 
+    def picture_path(self, ident):
+        """The PNG file of a built-in or uploaded picture ('' when there is none)."""
+        if UPLOADED.fullmatch(str(ident or '')):
+            path = self.pictures / f'{ident}.png'
+            return str(path) if path.is_file() else ''
+        return capture_icons.icon_path('', ident=ident) if ident in known_icons() else ''
+
+    def icon_for(self, entry):
+        return icon_for(entry, self.pictures)
+
+    def add_picture(self, data):
+        """Keep an uploaded picture (a PNG of at most MAX_PICTURE pixels a side, already shrunk by the
+        library page) and return its id. The same picture uploaded twice is kept once."""
+        if len(data) > 512 * 1024 or data[:8] != b'\x89PNG\r\n\x1a\n' or data[12:16] != b'IHDR':
+            raise ValueError('The picture must be a PNG made by the library window.')
+        width, height = int.from_bytes(data[16:20], 'big'), int.from_bytes(data[20:24], 'big')
+        if not (0 < width <= MAX_PICTURE and 0 < height <= MAX_PICTURE):
+            raise ValueError(f'The picture must be at most {MAX_PICTURE} pixels a side.')
+        ident = 'u_' + sha256(data).hexdigest()[:16]
+        path = self.pictures / f'{ident}.png'
+        with self.lock:
+            if not path.is_file():
+                self.pictures.mkdir(parents=True, exist_ok=True)
+                temporary = path.with_suffix('.tmp')
+                temporary.write_bytes(data)
+                temporary.replace(path)
+        self._publish(ident)
+        return ident
+
+    def publish_pictures(self, models):
+        """Give the running HX Edit copy (its res/icons_models) every uploaded picture, as
+        NAMCAP_<id>.png like the built-in ones, and later uploads as they come."""
+        self.editor_pictures = Path(models)
+        for ident in uploaded_pictures(self.pictures):
+            self._publish(ident)
+
+    def _publish(self, ident):
+        if self.editor_pictures is None:
+            return
+        try:
+            shutil.copyfile(self.pictures / f'{ident}.png', self.editor_pictures / f'NAMCAP_{ident}.png')
+        except OSError:
+            pass   # the lists then show the block's own picture for this capture
+
     def set_icon(self, identity, icon):
         """The capture's picture, chosen in the library window; '' goes back to the automatic one."""
-        if icon and icon not in known_icons():
+        if icon and icon not in known_icons() and not (
+                UPLOADED.fullmatch(icon) and (self.pictures / f'{icon}.png').is_file()):
             raise ValueError(f'Unknown icon: {icon}')
         with self.lock:
             entries = self._read(for_write=True)
@@ -326,22 +375,45 @@ class Library:
         return destination
 
 
-def render_library(entries, view_state=None):
+MAX_PICTURE = 256
+
+
+def uploaded_pictures(pictures):
+    """Ids of the uploaded pictures in a library's pictures folder, oldest first."""
+    try:
+        files = [path for path in Path(pictures).glob('u_*.png') if UPLOADED.fullmatch(path.stem)]
+        return [path.stem for path in sorted(files, key=lambda path: (path.stat().st_mtime, path.name))]
+    except OSError:
+        return []
+
+
+def uploaded_data_uri(path):
+    try:
+        return 'data:image/png;base64,' + base64.b64encode(Path(path).read_bytes()).decode('ascii')
+    except OSError:
+        return ''
+
+
+def render_library(entries, view_state=None, pictures=None):
+    """The library page. pictures: the library's folder of uploaded pictures, if any."""
+    uploaded = uploaded_pictures(pictures) if pictures else []
     rows = [dict(id=key, name=value.get('name', ''), gear=value.get('gear', ''),
                  gearLabel=GEARS.get(value.get('gear', ''), 'Unsorted'), aliases=[value.get('irName', '')],
                  added=value.get('added', ''), source=value.get('source', ''),
                  irSlots=value.get('irSlots', []), slotState=value.get('slotState', 'unverified'),
                  canTrain=value.get('canTrain', True), pendingSlots=value.get('pendingSlots', []),
-                 icon=icon_for(value), iconChosen=value.get('icon') in known_icons(),
+                 icon=icon_for(value, pictures), iconChosen=icon_for(value, pictures) == value.get('icon'),
                  iconAuto=icon_for({key: item for key, item in value.items() if key != 'icon'}))
             for key, value in entries.items()]
     # Every gear picture once, as a small data: URI (the picker shows them all); rows refer to them by id.
     icons = {ident: small_data_uri(ident) for ident in known_icons()}
+    icons.update({ident: uploaded_data_uri(Path(pictures) / f'{ident}.png') for ident in uploaded})
     options = ''.join(f'<option value="{escape(key)}">{escape(label)}</option>' for key, label in GEARS.items())
     # JSON inside <script>: escape "<" so a capture name cannot close the element.
     data = json.dumps(rows, ensure_ascii=False).replace('<', '\\u003c')
     view = json.dumps(view_state or {}, ensure_ascii=False).replace('<', '\\u003c')
     pictures = json.dumps(icons).replace('<', '\\u003c')
-    groups = json.dumps(picker_groups())   # fixed labels and [a-z0-9_] ids: nothing to escape
+    groups = ([dict(label='Your pictures', ids=uploaded[::-1])] if uploaded else []) + picker_groups()
+    groups = json.dumps(groups)   # fixed labels and [a-z0-9_] ids: nothing to escape
     return Template(PAGE.read_text(encoding='utf-8')).substitute(rows=data, gears=options, view=view, icons=pictures,
                                                                  iconGroups=groups)

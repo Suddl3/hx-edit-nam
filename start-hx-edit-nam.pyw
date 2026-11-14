@@ -115,6 +115,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
     if navigation and not floor_reference:
         raise ValueError('Navigation requires the Floor reference profile.')
     library = library if library is not None else Library()
+    if (exe.parent / 'res' / 'icons_models' / 'NAMCAP_green_screamer.png').is_file():
+        library.publish_pictures(exe.parent / 'res' / 'icons_models')   # uploads reach the NAM model lists
     if navigation:
         from floor_inventory import prime_library
         from navigation_host import NavigationHost

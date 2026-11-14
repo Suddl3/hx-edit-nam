@@ -6,7 +6,8 @@ that select it. The longest matching keyword wins, weak words (boost, reverb, ca
 and a capture category rules out icons of another kind (a pedal never gets an amp head). Cab or
 IR captures (and unsorted ones) whose names mention a cab (4x12, cab, IR, speaker) prefer cab icons. A name that matches nothing gets one
 of its group's generic icons, chosen from a hash of the name so it never changes. A picture the
-user chose in the library window (the entry's "icon") wins over all of this.
+user chose in the library window (the entry's "icon") wins over all of this: one of these, or a
+picture the user uploaded (u_<16 hex>, kept in the library's pictures folder).
 """
 import base64
 from functools import lru_cache
@@ -22,6 +23,7 @@ GEAR_GROUPS = {'amp': 'amp', 'preamp': 'amp', 'amp-cab': 'rig', 'amp-pedal-cab':
                'outboard': 'other', 'experimental': 'other', 'space': 'other'}
 ALLOWED = {'pedal': {'pedal'}, 'amp': {'amp', 'rig', 'cab', 'other'}, 'rig': {'amp', 'rig', 'cab', 'other'},
            'other': {'amp', 'rig', 'cab', 'pedal', 'other'}}
+UPLOADED = re.compile(r'u_[0-9a-f]{16}')
 CAB_CUE = re.compile(r'(?<![a-z0-9])(\dx\d\d?|cab|cabinet|ir|irs|impulse|speaker)(?![a-z])')
 
 
@@ -75,10 +77,15 @@ def known_icons():
     return tuple(icon['id'] for icon in json.loads((FOLDER / 'icons.json').read_text(encoding='utf-8'))['icons'])
 
 
-def icon_for(entry):
-    """The library entry's picture: the user's choice, else the one picked from its name."""
+def icon_for(entry, pictures=None):
+    """The library entry's picture: the user's choice (an uploaded one only while its file is in
+    the pictures folder), else the one picked from its name."""
     chosen = entry.get('icon')
-    return chosen if chosen in known_icons() else pick(entry.get('name', ''), entry.get('gear') or None)
+    if chosen in known_icons():
+        return chosen
+    if pictures and UPLOADED.fullmatch(str(chosen or '')) and (Path(pictures) / f'{chosen}.png').is_file():
+        return chosen
+    return pick(entry.get('name', ''), entry.get('gear') or None)
 
 
 PICKER_GROUPS = (('amp', 'Amps'), ('rig', 'Amp + cab'), ('cab', 'Cabs'), ('pedal', 'Pedals'), ('other', 'Other gear'))

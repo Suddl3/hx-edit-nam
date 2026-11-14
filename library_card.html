@@ -40,6 +40,11 @@
   #pickerBody button.pick img { width: 44px; height: 44px; }
   #pickerBody button.pick.auto { width: auto; gap: 8px; padding: 2px 12px 2px 4px; margin-top: 6px; }
   #pickerBody button.pick[aria-pressed="true"] { border-color: #e05a5b; background: #4a2425; }
+  #pickerBody .choices { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+  #pickerBody .choices button.pick.auto { margin-top: 0; }
+  #pickerBody button.upload { height: 52px; padding: 2px 14px; }
+  #pickerNote { margin: 6px 0 0; color: #aaa; font-size: 12px; min-height: 1em; }
+  #pickerNote.error { color: #f2bc57; }
   tbody tr { cursor: pointer; }
   tbody tr:hover { background: #262626; }
   tbody tr[aria-selected="true"] { background: #4a2425; }
@@ -78,6 +83,7 @@
   <div class="panel">
     <div class="top"><h2 id="pickerTitle">Picture</h2><button id="pickerClose">Cancel</button></div>
     <div id="pickerBody"></div>
+    <input id="pickerFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" hidden>
   </div>
 </div>
 <section id="light" hidden aria-label="Lighter version">
@@ -228,7 +234,19 @@
     auto.setAttribute('aria-pressed', String(!row.iconChosen));
     auto.append(pictureOf(row.iconAuto), 'Automatic');
     auto.onclick = () => choose('');
-    const parts = [auto];
+    const upload = document.createElement('button');
+    upload.className = 'upload';
+    upload.textContent = 'Upload picture…';
+    upload.title = 'Use your own picture (PNG, JPEG, WebP, GIF or BMP). It is kept on this PC with your library.';
+    upload.onclick = () => { pickerFile.value = ''; pickerFile.click(); };
+    pickerFile.onchange = () => uploadPicture(row, pickerFile.files[0]);
+    const choices = document.createElement('div');
+    choices.className = 'choices';
+    choices.append(auto, upload);
+    const note = document.createElement('p');
+    note.id = 'pickerNote';
+    note.setAttribute('role', 'status');
+    const parts = [choices, note];
     for (const group of iconGroups) {
       const heading = document.createElement('h3');
       heading.textContent = group.label;
@@ -252,6 +270,35 @@
     picker.hidden = false;
     host?.postMessage('dialog:open');   // the pane's Escape now closes the picker, not the pane
     (pickerBody.querySelector('[aria-pressed="true"]') || auto).focus();
+  }
+  // An uploaded picture is shrunk here to fit PICTURE_SIZE pixels (transparent margins keep its
+  // shape) and sent as PNG; nam_library.add_picture keeps it with the library.
+  const PICTURE_SIZE = 128, pickerFile = q('#pickerFile');
+  async function uploadPicture(row, file) {
+    const note = q('#pickerNote');
+    const fail = text => { note.textContent = text; note.className = 'error'; };
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) return fail('That file is too large. Choose a picture under 25 MB.');
+    note.textContent = 'Reading the picture…'; note.className = '';
+    let bitmap;
+    try { bitmap = await createImageBitmap(file); }
+    catch (_) { return fail('That file could not be read as a picture. Try a PNG or JPEG.'); }
+    const scale = Math.min(PICTURE_SIZE / bitmap.width, PICTURE_SIZE / bitmap.height);
+    const width = Math.max(1, Math.round(bitmap.width * scale)), height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = PICTURE_SIZE;
+    const context = canvas.getContext('2d');
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(bitmap, (PICTURE_SIZE - width) / 2, (PICTURE_SIZE - height) / 2, width, height);
+    bitmap.close?.();
+    const png = canvas.toDataURL('image/png');
+    const base64 = png.slice(png.indexOf(',') + 1);
+    // Shown at once; the library page reloads with it once it is saved.
+    const ident = 'pending_upload';
+    icons[ident] = png;
+    row.icon = ident; row.iconChosen = true;
+    host?.postMessage('iconUpload:' + row.id + ':' + base64);
+    closePicker(); render();
   }
   function closePicker() {
     if (picker.hidden) return;
