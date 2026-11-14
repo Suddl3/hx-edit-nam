@@ -1100,7 +1100,10 @@ class DspMeter : Form
     // The span HX Edit allows (parent client pixels) and the parent's width when it said so: on a
     // resize the right end moves with the window (the tempo controls are right-anchored).
     int spanLeft, spanRight, spanTop, spanHeight, spanWidth = -1, placedWidth = -1;
-    public const int MeterMax = 300, MeterMin = 220;
+    // Full: labels and bars, 220..300 px. Compact: "DSP1 36%" text only, coloured by level, in the
+    // narrower gaps of smaller windows (124..219 px, at most 150). Under 124 px: hidden.
+    public const int MeterMax = 300, MeterMin = 220, CompactMax = 150, CompactMin = 124;
+    bool compact;
     static readonly Color Back = Color.FromArgb(29, 29, 29), Track = Color.FromArgb(58, 58, 58),
         Ink = Color.FromArgb(200, 200, 200), Dim = Color.FromArgb(130, 130, 130);
 
@@ -1152,16 +1155,26 @@ class DspMeter : Form
     int ParentWidth(){ ClientRect rect; return GetClientRect(parent,out rect)?rect.Right-rect.Left:-1; }
     // Where the meter goes in the span for the parent's current width, or empty when it does not fit.
     public static Rectangle Placement(int left,int right,int top,int height,int widthThen,int widthNow){
-        int end=right+(widthNow-widthThen), width=Math.Min(MeterMax,end-left);
-        return widthThen<0||widthNow<0||width<MeterMin||height<=0?Rectangle.Empty:new Rectangle(end-width,top,width,height);
+        int end=right+(widthNow-widthThen), room=end-left;
+        int width=room>=MeterMin?Math.Min(MeterMax,room):room>=CompactMin?Math.Min(CompactMax,room):0;
+        return widthThen<0||widthNow<0||width==0||height<=0?Rectangle.Empty:new Rectangle(end-width,top,width,height);
     }
+    public static bool IsCompact(Rectangle place){ return !place.IsEmpty&&place.Width<MeterMin; }
     void Place(){
         placedWidth=ParentWidth();
         var place=spanWidth<0?Rectangle.Empty:Placement(spanLeft,spanRight,spanTop,spanHeight,spanWidth,placedWidth);
         shown=!place.IsEmpty;
+        compact=IsCompact(place);
         // Above the editor's own drawing, without taking focus.
         if(shown)SetWindowPos(Handle,IntPtr.Zero,place.X,place.Y,place.Width,place.Height,0x0010|0x0040);   // NOACTIVATE|SHOWWINDOW
         else ShowWindow(Handle,0);
+    }
+    // Compact: "DSP1 36%", the used share of the 75 as a percentage (the full meter's 27/75).
+    public static string CompactLabel(object item,int index){
+        var view=item as Dictionary<string,object>;
+        if(view==null)return "DSP"+(index+1)+" —";
+        double share=Convert.ToDouble(view["used"],CultureInfo.InvariantCulture)/Convert.ToDouble(view["budget"],CultureInfo.InvariantCulture);
+        return "DSP"+(index+1)+" "+Math.Round(100*share).ToString(CultureInfo.InvariantCulture)+"%";
     }
     // "DSP 1  27/75": the share of the 75 a DSP's blocks may use on the Floor (its own meter's figure).
     public static string Label(object item,int index){
@@ -1191,6 +1204,13 @@ class DspMeter : Form
     protected override void OnPaint(PaintEventArgs args){
         var g=args.Graphics;g.Clear(Back);
         int half=ClientSize.Width/2, bar=Math.Max(40,half-96), barHeight=6;
+        if(compact){
+            // No bars: the text itself is green, yellow or red.
+            for(int i=0;i<2;i++)
+                TextRenderer.DrawText(g,CompactLabel(dsp[i],i),Font,new Rectangle(i*half,0,half,ClientSize.Height),LevelColor(dsp[i]),
+                    TextFormatFlags.VerticalCenter|TextFormatFlags.Right|TextFormatFlags.NoPadding|TextFormatFlags.EndEllipsis);
+            return;
+        }
         for(int i=0;i<2;i++){
             int x=i*half+2, mid=ClientSize.Height/2;
             var view=dsp[i] as Dictionary<string,object>;
@@ -1215,8 +1235,13 @@ class DspMeter : Form
         // the right edge; by 900: only 178 px are left, hidden; widened again: back.
         if(Placement(310,1388,9,24,1920,1920)!=new Rectangle(1088,9,300,24))throw new Exception("DSP meter placement");
         if(Placement(310,1388,9,24,1920,1420)!=new Rectangle(588,9,300,24))throw new Exception("DSP meter follows a narrower window");
-        if(Placement(310,1388,9,24,1920,1080)!=new Rectangle(310,9,238,24))throw new Exception("DSP meter squeezes");
-        if(!Placement(310,1388,9,24,1920,1020).IsEmpty)throw new Exception("DSP meter hides when it does not fit");
+        if(Placement(310,1388,9,24,1920,1080)!=new Rectangle(310,9,238,24)||IsCompact(Placement(310,1388,9,24,1920,1080)))throw new Exception("DSP meter squeezes");
+        // 178 px left: too few for bars, enough for the compact text (150 wide, right-aligned).
+        var small=Placement(310,1388,9,24,1920,1020);
+        if(small!=new Rectangle(338,9,150,24)||!IsCompact(small))throw new Exception("DSP meter compact");
+        if(Placement(310,1388,9,24,1920,975)!=new Rectangle(310,9,133,24))throw new Exception("DSP meter compact squeezes");
+        if(!Placement(310,1388,9,24,1920,960).IsEmpty)throw new Exception("DSP meter hides when even text does not fit");
+        if(CompactLabel(ok,0)!="DSP1 36%"||CompactLabel(half,1)!="DSP2 57%"||CompactLabel(null,0)!="DSP1 —")throw new Exception("DSP meter compact labels");
         if(!Placement(310,1388,9,24,-1,1920).IsEmpty)throw new Exception("DSP meter without a span");
         var parsed=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>("{\"dsp\":[{\"load\":42,\"used\":27,\"budget\":75,\"level\":\"green\"},null]}");
         if(!(parsed["dsp"] is IList)||Label(((IList)parsed["dsp"])[0],0)!="DSP 1  27/75")throw new Exception("DSP meter input lists");

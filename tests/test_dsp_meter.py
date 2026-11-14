@@ -53,6 +53,7 @@ class DspMeterScriptTests(unittest.TestCase):
         helper = (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8')
         self.assertIn('if(spanWidth>=0&&ParentWidth()!=placedWidth)Place();', helper)   # follows window resizes
         self.assertIn('if(shown)Invalidate();', helper)   # recovers from HX Edit's repaints over it
+        self.assertIn('CompactMax = 150, CompactMin = 124', helper)   # coloured text when bars do not fit
 
     def test_reads_only_through_guarded_native_code(self):
         source = (ROOT / 'dsp_meter.js').read_text(encoding='utf-8')
