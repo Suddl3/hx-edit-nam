@@ -10,7 +10,7 @@ import shutil
 from string import Template
 from threading import Lock
 
-from capture_icons import pick as pick_icon, small_data_uri
+from capture_icons import icon_for, known_icons, picker_groups, small_data_uri
 from nam_convert import IR_NAME_LIMIT
 
 
@@ -182,7 +182,7 @@ class Library:
             payload_index = {identity: set(payloads) for identity, payloads in self._payload_index.items()}
         return {payload: dict(id=identity, name=entries[identity].get('name', ''),
                               gear=entries[identity].get('gear', ''),
-                              icon=pick_icon(entries[identity].get('name', ''), entries[identity].get('gear', '')))
+                              icon=icon_for(entries[identity]))
                 for identity, payloads in payload_index.items() if identity in entries
                 for payload in payloads}
 
@@ -266,6 +266,19 @@ class Library:
             self._write(entries)
         self._changed()
 
+    def set_icon(self, identity, icon):
+        """The capture's picture, chosen in the library window; '' goes back to the automatic one."""
+        if icon and icon not in known_icons():
+            raise ValueError(f'Unknown icon: {icon}')
+        with self.lock:
+            entries = self._read(for_write=True)
+            if icon:
+                entries[identity]['icon'] = icon
+            else:
+                entries[identity].pop('icon', None)
+            self._write(entries)
+        self._changed()
+
     def reset_gear(self, identity):
         with self.lock:
             entries = self._read(for_write=True)
@@ -319,13 +332,16 @@ def render_library(entries, view_state=None):
                  added=value.get('added', ''), source=value.get('source', ''),
                  irSlots=value.get('irSlots', []), slotState=value.get('slotState', 'unverified'),
                  canTrain=value.get('canTrain', True), pendingSlots=value.get('pendingSlots', []),
-                 icon=pick_icon(value.get('name', ''), value.get('gear', '')))
+                 icon=icon_for(value), iconChosen=value.get('icon') in known_icons(),
+                 iconAuto=icon_for({key: item for key, item in value.items() if key != 'icon'}))
             for key, value in entries.items()]
-    # Each gear picture once, as a small data: URI; rows refer to it by id.
-    icons = {row['icon']: small_data_uri(row['icon']) for row in rows}
+    # Every gear picture once, as a small data: URI (the picker shows them all); rows refer to them by id.
+    icons = {ident: small_data_uri(ident) for ident in known_icons()}
     options = ''.join(f'<option value="{escape(key)}">{escape(label)}</option>' for key, label in GEARS.items())
     # JSON inside <script>: escape "<" so a capture name cannot close the element.
     data = json.dumps(rows, ensure_ascii=False).replace('<', '\\u003c')
     view = json.dumps(view_state or {}, ensure_ascii=False).replace('<', '\\u003c')
     pictures = json.dumps(icons).replace('<', '\\u003c')
-    return Template(PAGE.read_text(encoding='utf-8')).substitute(rows=data, gears=options, view=view, icons=pictures)
+    groups = json.dumps(picker_groups())   # fixed labels and [a-z0-9_] ids: nothing to escape
+    return Template(PAGE.read_text(encoding='utf-8')).substitute(rows=data, gears=options, view=view, icons=pictures,
+                                                                 iconGroups=groups)

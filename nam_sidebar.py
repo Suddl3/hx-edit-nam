@@ -13,7 +13,7 @@ import subprocess
 from threading import Event, Lock, Thread
 from time import monotonic
 
-from capture_icons import icon_path
+from capture_icons import icon_for, icon_path
 from nam_library import GEARS
 
 
@@ -74,7 +74,7 @@ def sidebar_rows(library, *, can_load=False):
                          verifiedSlots=slots if verified else [], pendingSlots=pending,
                          fileStatus='available' if exists else 'missing',
                          fileDetail='Kept on this PC' if exists else 'The kept capture file is unavailable',
-                         icon=icon_path(entry.get('name', ''), gear),
+                         icon=icon_path('', ident=icon_for(entry)),
                          locationDetail=detail, canLoad=bool(can_load and (exists or verified) and state != 'refreshing' and not pending)))
     return rows
 

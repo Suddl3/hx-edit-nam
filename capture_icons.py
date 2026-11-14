@@ -5,7 +5,8 @@ and icons.json, the rules: each icon's group (amp, rig, cab, pedal, other) and t
 that select it. The longest matching keyword wins, weak words (boost, reverb, cab...) count little,
 and a capture category rules out icons of another kind (a pedal never gets an amp head). Cab or
 IR captures (and unsorted ones) whose names mention a cab (4x12, cab, IR, speaker) prefer cab icons. A name that matches nothing gets one
-of its group's generic icons, chosen from a hash of the name so it never changes.
+of its group's generic icons, chosen from a hash of the name so it never changes. A picture the
+user chose in the library window (the entry's "icon") wins over all of this.
 """
 import base64
 from functools import lru_cache
@@ -68,8 +69,31 @@ def pick(name, gear=None):
     return pool[int(hashlib.sha1(name.encode('utf-8')).hexdigest(), 16) % len(pool)]
 
 
-def icon_path(name, gear=None):
-    path = FOLDER / f'{pick(name, gear)}.png'
+@lru_cache(maxsize=1)
+def known_icons():
+    """Every picture id, in icons.json order."""
+    return tuple(icon['id'] for icon in json.loads((FOLDER / 'icons.json').read_text(encoding='utf-8'))['icons'])
+
+
+def icon_for(entry):
+    """The library entry's picture: the user's choice, else the one picked from its name."""
+    chosen = entry.get('icon')
+    return chosen if chosen in known_icons() else pick(entry.get('name', ''), entry.get('gear') or None)
+
+
+PICKER_GROUPS = (('amp', 'Amps'), ('rig', 'Amp + cab'), ('cab', 'Cabs'), ('pedal', 'Pedals'), ('other', 'Other gear'))
+
+
+@lru_cache(maxsize=1)
+def picker_groups():
+    """[{label, ids}] for the library window's picture picker."""
+    icons = json.loads((FOLDER / 'icons.json').read_text(encoding='utf-8'))['icons']
+    return [dict(label=label, ids=[icon['id'] for icon in icons if icon['group'] == group])
+            for group, label in PICKER_GROUPS]
+
+
+def icon_path(name, gear=None, ident=None):
+    path = FOLDER / f'{ident or pick(name, gear)}.png'
     return str(path) if path.is_file() else ''
 
 

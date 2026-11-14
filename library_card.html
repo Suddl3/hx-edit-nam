@@ -23,7 +23,23 @@
   th:nth-child(3) { min-width: 62px; white-space: nowrap; }
   td { padding: 3px 8px; border-bottom: 1px solid #262626; white-space: nowrap; }
   td.name { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; }
-  td.name img.gear-icon { width: 24px; height: 24px; vertical-align: middle; margin: -3px 7px -3px 0; }
+  td.name img.gear-icon { width: 24px; height: 24px; vertical-align: middle; }
+  td.name button.icon-pick { all: unset; display: inline-block; width: 26px; height: 26px; margin: -3px 7px -3px 0;
+    vertical-align: middle; text-align: center; border-radius: 4px; cursor: pointer; }
+  td.name button.icon-pick:hover, td.name button.icon-pick:focus-visible { background: #3a3a3a; outline: 1px solid #6a6a6a; }
+  #picker { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 5; }
+  #picker[hidden] { display: none; }
+  #picker .panel { background: #232323; border: 1px solid #575757; border-radius: 6px; width: min(640px, calc(100vw - 24px));
+    max-height: calc(100vh - 24px); display: flex; flex-direction: column; }
+  #picker .top { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid #404040; }
+  #pickerTitle { flex: 1; margin: 0; font-size: inherit; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #pickerBody { overflow: auto; padding: 4px 10px 10px; }
+  #pickerBody h3 { margin: 8px 0 4px; font-size: 12px; font-weight: 600; color: #aaa; }
+  #pickerBody .grid { display: flex; flex-wrap: wrap; gap: 4px; }
+  #pickerBody button.pick { width: 52px; height: 52px; padding: 2px; display: flex; align-items: center; justify-content: center; background: #2b2b2b; }
+  #pickerBody button.pick img { width: 44px; height: 44px; }
+  #pickerBody button.pick.auto { width: auto; gap: 8px; padding: 2px 12px 2px 4px; margin-top: 6px; }
+  #pickerBody button.pick[aria-pressed="true"] { border-color: #e05a5b; background: #4a2425; }
   tbody tr { cursor: pointer; }
   tbody tr:hover { background: #262626; }
   tbody tr[aria-selected="true"] { background: #4a2425; }
@@ -57,6 +73,12 @@
     <tbody></tbody>
   </table>
   <p class="empty" hidden>No captures yet. NAM files you import and TONE3000 profiles you save or add appear here.</p>
+</div>
+<div id="picker" role="dialog" aria-modal="true" aria-labelledby="pickerTitle" hidden>
+  <div class="panel">
+    <div class="top"><h2 id="pickerTitle">Picture</h2><button id="pickerClose">Cancel</button></div>
+    <div id="pickerBody"></div>
+  </div>
 </div>
 <section id="light" hidden aria-label="Lighter version">
   <span id="lightTitle"></span>
@@ -101,6 +123,7 @@
 <script>
   const rows = $rows;
   const icons = $icons;   // gear picture id -> data: URI (capture_icons.py)
+  const iconGroups = $iconGroups;   // [{label, ids}] for the picture picker
   const initialView = $view;
   const host = window.chrome?.webview;
   const q = selector => document.querySelector(selector);
@@ -122,11 +145,18 @@
       const name = tr.insertCell();
       name.className = 'name';
       name.title = row.name;
+      const iconButton = document.createElement('button');
+      iconButton.className = 'icon-pick';
+      iconButton.title = 'Change picture';
+      iconButton.setAttribute('aria-label', 'Change picture for ' + row.name);
       if (icons[row.icon]) {
         const picture = document.createElement('img');
         picture.className = 'gear-icon'; picture.alt = ''; picture.src = icons[row.icon];
-        name.append(picture);
+        iconButton.append(picture);
       }
+      iconButton.onclick = event => { event.stopPropagation(); selected = row.id; render(); publishView(); openPicker(row); };
+      iconButton.ondblclick = event => event.stopPropagation();
+      name.append(iconButton);
       name.append(row.name);
       const gear = document.createElement('select');
       gear.innerHTML = q('#gears').innerHTML;
@@ -176,6 +206,70 @@
       'This kept capture is a converted WAV. Its original .nam file is needed to train a lighter version.' : '';
     renderLight();
   }
+
+  // Picture picker: a capture's own choice, or Automatic (picked from its name by capture_icons.py).
+  const picker = q('#picker'), pickerBody = q('#pickerBody');
+  let pickerReturn = null;
+  function pictureOf(ident) {
+    const picture = document.createElement('img');
+    picture.alt = ''; picture.src = icons[ident] || '';
+    return picture;
+  }
+  function openPicker(row) {
+    q('#pickerTitle').textContent = 'Picture for ' + row.name;
+    const choose = ident => {
+      row.icon = ident || row.iconAuto; row.iconChosen = !!ident;
+      host?.postMessage('icon:' + row.id + ':' + (ident || ''));
+      closePicker(); render();
+    };
+    const auto = document.createElement('button');
+    auto.className = 'pick auto';
+    auto.title = 'Picked from the capture name';
+    auto.setAttribute('aria-pressed', String(!row.iconChosen));
+    auto.append(pictureOf(row.iconAuto), 'Automatic');
+    auto.onclick = () => choose('');
+    const parts = [auto];
+    for (const group of iconGroups) {
+      const heading = document.createElement('h3');
+      heading.textContent = group.label;
+      const grid = document.createElement('div');
+      grid.className = 'grid';
+      for (const ident of group.ids) {
+        if (!icons[ident]) continue;
+        const button = document.createElement('button');
+        button.className = 'pick';
+        button.title = ident.replace(/_/g, ' ');
+        button.setAttribute('aria-label', button.title);
+        button.setAttribute('aria-pressed', String(!!row.iconChosen && row.icon === ident));
+        button.append(pictureOf(ident));
+        button.onclick = () => choose(ident);
+        grid.append(button);
+      }
+      parts.push(heading, grid);
+    }
+    pickerBody.replaceChildren(...parts);
+    pickerReturn = document.activeElement;
+    picker.hidden = false;
+    host?.postMessage('dialog:open');   // the pane's Escape now closes the picker, not the pane
+    (pickerBody.querySelector('[aria-pressed="true"]') || auto).focus();
+  }
+  function closePicker() {
+    if (picker.hidden) return;
+    picker.hidden = true;
+    host?.postMessage('dialog:closed');
+    pickerReturn?.focus?.();
+    pickerReturn = null;
+  }
+  window.hxCloseDialog = closePicker;
+  q('#pickerClose').onclick = closePicker;
+  picker.onclick = event => { if (event.target === picker) closePicker(); };
+  // Escape closes the picker, not the pane: the pane is told while it is open (dialog:open), and the
+  // page's own Escape listener (on document) never sees the key while the picker is up.
+  window.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || picker.hidden) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    closePicker();
+  }, true);
 
   function renderLight() {
     const running = !!light?.running;

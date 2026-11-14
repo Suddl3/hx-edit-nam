@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import capture_icons  # noqa: E402
-from capture_icons import FOLDER, icon_path, pick  # noqa: E402
+from capture_icons import FOLDER, icon_for, icon_path, known_icons, picker_groups, pick  # noqa: E402
 
 
 class CaptureIconRulesTests(unittest.TestCase):
@@ -65,6 +65,37 @@ class CaptureIconRulesTests(unittest.TestCase):
         self.assertEqual(pick('', None), pick('', None))
 
 
+class ChosenPictureTests(unittest.TestCase):
+    def test_a_chosen_picture_wins_and_an_unknown_one_is_ignored(self):
+        entry = {'name': 'Ibanez TS9', 'gear': 'pedal'}
+        self.assertEqual(icon_for(entry), 'green_screamer')
+        self.assertEqual(icon_for(dict(entry, icon='wah_pedal')), 'wah_pedal')
+        self.assertEqual(icon_for(dict(entry, icon='../../evil')), 'green_screamer')
+
+    def test_picker_lists_every_picture_once(self):
+        listed = [ident for group in picker_groups() for ident in group['ids']]
+        self.assertEqual(sorted(listed), sorted(known_icons()))
+        self.assertEqual([group['label'] for group in picker_groups()],
+                         ['Amps', 'Amp + cab', 'Cabs', 'Pedals', 'Other gear'])
+
+    def test_library_stores_and_clears_the_choice(self):
+        from nam_library import Library
+        with tempfile.TemporaryDirectory() as folder:
+            library = Library(Path(folder))
+            library.catalog.parent.mkdir(parents=True, exist_ok=True)
+            library.catalog.write_text(json.dumps({'abc': {'name': 'Ibanez TS9', 'gear': 'pedal'}}), encoding='utf-8')
+            library.set_icon('abc', 'wah_pedal')
+            self.assertEqual(library.entries()['abc']['icon'], 'wah_pedal')
+            library._payload_index['abc'] = {'payload-1'}
+            self.assertEqual(library.payload_metadata()['payload-1']['icon'], 'wah_pedal')
+            with self.assertRaises(ValueError):
+                library.set_icon('abc', 'not_a_picture')
+            self.assertEqual(library.entries()['abc']['icon'], 'wah_pedal')
+            library.set_icon('abc', '')
+            self.assertNotIn('icon', library.entries()['abc'])
+            self.assertEqual(library.payload_metadata()['payload-1']['icon'], 'green_screamer')
+
+
 class CaptureIconPlumbingTests(unittest.TestCase):
     def test_payload_metadata_and_sidebar_rows_carry_the_icon(self):
         from nam_library import Library
@@ -92,6 +123,29 @@ class CaptureIconPlumbingTests(unittest.TestCase):
         self.assertIn('"small_blackface_combo": "data:image/png;base64,', page)
         self.assertIn('"icon": "green_screamer"', page)
         self.assertIn("picture.src = icons[row.icon]", page)
+
+    def test_library_page_offers_the_picker(self):
+        from nam_library import render_library
+        page = render_library({'a': {'name': 'Ibanez TS9', 'gear': 'pedal', 'icon': 'wah_pedal'}})
+        for ident in known_icons():
+            self.assertIn(f'"{ident}": "data:image/png;base64,', page)
+        self.assertIn('"icon": "wah_pedal", "iconChosen": true, "iconAuto": "green_screamer"', page)
+        self.assertIn('"label": "Pedals"', page)
+        self.assertIn("host?.postMessage('icon:' + row.id + ':' + (ident || ''))", page)
+        self.assertNotIn('$iconGroups', page)
+
+    def test_escape_closes_the_picker_not_the_pane(self):
+        page = (ROOT / 'library_card.html').read_text(encoding='utf-8')
+        self.assertIn("host?.postMessage('dialog:open')", page)
+        self.assertIn("host?.postMessage('dialog:closed')", page)
+        self.assertIn('window.hxCloseDialog = closePicker', page)
+        pane = (ROOT / 'tone_browser.cs').read_text(encoding='utf-8')
+        self.assertIn('if (reason == "escape" && CloseCardDialog()) return;', pane)
+        self.assertIn('window.hxCloseDialog && window.hxCloseDialog()', pane)
+
+    def test_preview_saves_the_choice(self):
+        source = (ROOT / 'tone_preview.py').read_text(encoding='utf-8')
+        self.assertIn("self.library.set_icon(identity, value)", source)
 
     def test_prepared_editor_gets_the_pictures(self):
         from nam_catalog import add_capture_pictures

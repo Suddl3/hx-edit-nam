@@ -869,6 +869,8 @@ class TonePreview:
                         install_local(identity, use_only=command == 'use')
                     elif command == 'gear':
                         self.library.update(identity, gear=value)
+                    elif command == 'icon' and identity in self.library.entries():
+                        self.library.set_icon(identity, value)
                     elif command == 'light' and identity in self.library.entries() and light_job is None:
                         layers, _, quality = value.partition(':')
                         start_light(identity, layers, quality)

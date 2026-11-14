@@ -70,6 +70,7 @@ sealed class ToneBrowser : Form
     Dictionary<string, object> status = new Dictionary<string, object>();
     string cardHtml, servedCard;
     int cardReloads;
+    bool cardDialog; // the card has a dialog open (the library's picture picker): Escape closes that
     bool closing;
     bool hostClosing;
     bool cancelRequested;
@@ -279,8 +280,17 @@ sealed class ToneBrowser : Form
         if (browser.IsHandleCreated) browser.Focus();
     }
 
+    bool CloseCardDialog()
+    {
+        if (!cardDialog || details.CoreWebView2 == null) return false;
+        cardDialog = false;
+        details.CoreWebView2.ExecuteScriptAsync("window.hxCloseDialog && window.hxCloseDialog()");
+        return true;
+    }
+
     void RequestCancel(string reason)
     {
+        if (reason == "escape" && CloseCardDialog()) return;
         if (cancelRequested || IsDisposed) return;
         cancelRequested = true;
         SendAction(new Dictionary<string, object> { { "close", reason } });
@@ -289,7 +299,8 @@ sealed class ToneBrowser : Form
     void HandleCardAction(string action)
     {
         if (action == null) return;
-        if (action == EscapeMessage) RequestCancel("escape");
+        if (action == "dialog:open" || action == "dialog:closed") cardDialog = action == "dialog:open";
+        else if (action == EscapeMessage) RequestCancel("escape");
         else if (action == "finish") RequestCancel("close-button");
         else if (action != "back") SendAction(action);
         else if (catalogPage != null)
@@ -553,6 +564,7 @@ sealed class ToneBrowser : Form
                 library = message.ContainsKey("library") && (bool)message["library"];
                 LayoutPane(true);
                 cardReloads = 1;
+                cardDialog = false;
                 details.CoreWebView2.Navigate(CardUrl);
                 break;
             case "source":
