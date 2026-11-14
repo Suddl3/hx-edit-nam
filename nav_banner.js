@@ -28,14 +28,15 @@ function navigationBannerLayout(redo, limits) {
   return null; // Never overlap existing controls in a window too narrow to fit.
 }
 
-// The DSP meter (dsp_meter.js, drawn by NamLibrary.exe --dsp-meter) sits right of the TONE3000
-// button, on its row, and only where it fits whole before the tempo/tuner controls.
+// The DSP meter (dsp_meter.js, drawn by NamLibrary.exe --dsp-meter) is a readout, so it sits with
+// HX Edit's others: on the TONE3000 button's row, right-aligned against the tempo/tuner controls,
+// and only where it fits whole without reaching the button.
 function dspMeterLayout(banner, redo, limits) {
   if (!banner || !redo || !limits) return null;
-  const left = banner.left + banner.width + 14;
-  const width = Math.min(300, Math.floor(limits.right - 10 - left));
+  const start = banner.left + banner.width + 14, end = Math.floor(limits.right - 12);
+  const width = Math.min(300, end - start);
   if (width < 220) return null;
-  return { left, top: banner.top, width, height: Math.max(16, Math.round(redo.h)) };
+  return { left: end - width, top: banner.top, width, height: Math.max(16, Math.round(redo.h)) };
 }
 
 function installNavigationBanner(options) {

@@ -42,9 +42,11 @@ class DspMeterScriptTests(unittest.TestCase):
             dspMeterLayout({left: 100, top: 9, width: 196}, {h: 24}, {right: 1400}),
             dspMeterLayout({left: 100, top: 9, width: 196}, {h: 24}, {right: 500}),
             dspMeterLayout(null, {h: 24}, {right: 1400})]''')
-        self.assertEqual(layout[0], {'left': 310, 'top': 9, 'width': 300, 'height': 24})
-        self.assertEqual(layout[1]['width'], 300)
-        self.assertIsNone(layout[2])           # 500 - 10 - 310 = 180: too narrow, hidden
+        self.assertEqual(layout[0], {'left': 588, 'top': 9, 'width': 300, 'height': 24})   # ends 12 px before the tempo
+        self.assertEqual(layout[1], {'left': 1088, 'top': 9, 'width': 300, 'height': 24})
+        self.assertIsNone(layout[2])           # 488 - 310 = 178 between button and tempo: too narrow, hidden
+        squeezed = run_js(['nav_banner.js'], 'dspMeterLayout({left: 100, top: 9, width: 196}, {h: 24}, {right: 560})')
+        self.assertEqual(squeezed, {'left': 310, 'top': 9, 'width': 238, 'height': 24})   # never over the button
         self.assertIsNone(layout[3])           # no banner, no meter
 
     def test_reads_only_through_guarded_native_code(self):
