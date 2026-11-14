@@ -47,6 +47,7 @@ def rules():
     return compiled, data['generic']
 
 
+@lru_cache(maxsize=8192)   # the rules never change while running; pages and lists ask again on every refresh
 def pick(name, gear=None):
     """Icon id for a capture name; gear is the library's gear name when known."""
     compiled, generic = rules()

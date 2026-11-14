@@ -12,7 +12,7 @@ from threading import Lock
 
 import base64
 import capture_icons
-from capture_icons import UPLOADED, icon_for, known_icons, picker_groups, small_data_uri
+from capture_icons import UPLOADED, icon_for, known_icons, pick as pick_icon, picker_groups, small_data_uri
 from nam_convert import IR_NAME_LIMIT
 
 
@@ -418,14 +418,17 @@ def uploaded_data_uri(path):
 def render_library(entries, view_state=None, pictures=None):
     """The library page. pictures: the library's folder of uploaded pictures, if any."""
     uploaded = uploaded_pictures(pictures) if pictures else []
-    rows = [dict(id=key, name=value.get('name', ''), gear=value.get('gear', ''),
-                 gearLabel=GEARS.get(value.get('gear', ''), 'Unsorted'), aliases=[value.get('irName', '')],
-                 added=value.get('added', ''), source=value.get('source', ''),
-                 irSlots=value.get('irSlots', []), slotState=value.get('slotState', 'unverified'),
-                 canTrain=value.get('canTrain', True), pendingSlots=value.get('pendingSlots', []),
-                 icon=icon_for(value, pictures), iconChosen=icon_for(value, pictures) == value.get('icon'),
-                 iconAuto=icon_for({key: item for key, item in value.items() if key != 'icon'}))
-            for key, value in entries.items()]
+
+    def row(key, value):
+        icon = icon_for(value, pictures)
+        return dict(id=key, name=value.get('name', ''), gear=value.get('gear', ''),
+                    gearLabel=GEARS.get(value.get('gear', ''), 'Unsorted'), aliases=[value.get('irName', '')],
+                    added=value.get('added', ''), source=value.get('source', ''),
+                    irSlots=value.get('irSlots', []), slotState=value.get('slotState', 'unverified'),
+                    canTrain=value.get('canTrain', True), pendingSlots=value.get('pendingSlots', []),
+                    icon=icon, iconChosen=icon == value.get('icon'),
+                    iconAuto=pick_icon(value.get('name', ''), value.get('gear') or None))
+    rows = [row(key, value) for key, value in entries.items()]
     # Every gear picture once, as a small data: URI (the picker shows them all); rows refer to them by id.
     icons = {ident: small_data_uri(ident) for ident in known_icons()}
     icons.update({ident: uploaded_data_uri(Path(pictures) / f'{ident}.png') for ident in uploaded})

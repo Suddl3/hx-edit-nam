@@ -30,7 +30,8 @@ FIRMWARE_FILES = (
 APP_FILES = ('start-hx-edit-nam-macos.py', 'prepare_editor_macos.py', 'nam_catalog.py',
              'nam_inventory_macos.py', 'nam_inventory.py', 'nam_convert.py', 'nam_library.py', 'nam_macos.js',
              'tone3000.py', 'tone_browser.py',
-             'tone_browser_macos.py', 'tone_card.html', 'tone_macos.js', 'tone_preview.py')
+             'tone_browser_macos.py', 'tone_card.html', 'tone_macos.js', 'tone_preview.py',
+             'capture_icons.py')   # nam_library imports it; it reads nam_capture_icons/
 
 
 def add_runtime(resources):
@@ -99,6 +100,7 @@ def package(source, checkout, release_version):
         add_converter(resources / 'helix-lt-nam', checkout)
         for name in APP_FILES:
             shutil.copyfile(ROOT / name, resources / name)
+        shutil.copytree(ROOT / 'nam_capture_icons', resources / 'nam_capture_icons')
         browser = resources / 'tone-browser-macos.dylib'
         run('/usr/bin/clang', '-arch', 'arm64', '-mmacosx-version-min=11.0', '-fobjc-arc',
             '-framework', 'Cocoa', '-framework', 'WebKit', '-dynamiclib',
