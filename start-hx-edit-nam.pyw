@@ -209,6 +209,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             if payload.get('type') == 'ready':
                 ready.set()
             if payload.get('type') in {'toneTrace', 'navigationBanner', 'automaticSlotStatus', 'floorInventoryPresentation',
+                                       'dspMeterLayout',
                                        'libraryConnectionGuard', 'librarySlotEvidenceResult'}:
                 trace(payload)
             if payload.get('type') == 'irExportObservation' and payload.get('stage') in {'invalidated', 'discarded', 'slot-changed'}:

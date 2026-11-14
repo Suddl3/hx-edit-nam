@@ -48,6 +48,11 @@ class DspMeterScriptTests(unittest.TestCase):
         squeezed = run_js(['nav_banner.js'], 'dspMeterLayout({left: 100, top: 9, width: 196}, {h: 24}, {right: 560})')
         self.assertEqual(squeezed, {'left': 310, 'top': 9, 'width': 238, 'height': 24})   # never over the button
         self.assertIsNone(layout[3])           # no banner, no meter
+        banner = (ROOT / 'nav_banner.js').read_text(encoding='utf-8')
+        self.assertIn('minLeft: Math.max(view.x + layout.left + layout.width, buttonRight) + 14', banner)   # never over the button
+        helper = (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8')
+        self.assertIn('if(spanWidth>=0&&ParentWidth()!=placedWidth)Place();', helper)   # follows window resizes
+        self.assertIn('if(shown)Invalidate();', helper)   # recovers from HX Edit's repaints over it
 
     def test_reads_only_through_guarded_native_code(self):
         source = (ROOT / 'dsp_meter.js').read_text(encoding='utf-8')
@@ -97,13 +102,14 @@ class DspMeterHostTests(unittest.TestCase):
         meter = DspMeter(exe='NamLibrary.exe', process_factory=lambda command, **kw: processes.append(FakeProcess(command)) or processes[-1])
         try:
             meter.receive({'type': 'dspLoad', 'dsp': [{'used': 27}, None]})
-            meter.receive({'type': 'dspMeterLayout', 'window': 0, 'visible': False})
+            meter.receive({'type': 'dspMeterLayout', 'window': 0, 'visible': False, 'span': None})
             time.sleep(.1)
             self.assertEqual(processes, [])      # nowhere to draw yet
-            meter.receive({'type': 'dspMeterLayout', 'window': 1234, 'visible': True, 'x': 300, 'y': 9, 'w': 300, 'h': 24})
+            span = {'minLeft': 310, 'right': 1388, 'top': 9, 'height': 24}
+            meter.receive({'type': 'dspMeterLayout', 'window': 1234, 'visible': True, 'x': 300, 'y': 9, 'w': 300, 'h': 24, 'span': span})
             self.wait_for(lambda: processes and processes[0].lines)
             self.assertEqual(processes[0].command, ['NamLibrary.exe', '--dsp-meter', '1234'])
-            self.assertEqual(processes[0].lines[-1], {'visible': True, 'x': 300, 'y': 9, 'w': 300, 'h': 24,
+            self.assertEqual(processes[0].lines[-1], {'visible': True, 'x': 300, 'y': 9, 'w': 300, 'h': 24, 'span': span,
                                                       'dsp': [{'used': 27}, None]})
             meter.receive({'type': 'dspLoad', 'dsp': [{'used': 30}, {'used': 36}]})
             self.wait_for(lambda: processes[0].lines[-1]['dsp'][1] == {'used': 36})

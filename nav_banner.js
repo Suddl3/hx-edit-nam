@@ -161,14 +161,23 @@ function installNavigationBanner(options) {
       }
       const layout = navigationBannerLayout({ ...rb, x: rb.x - view.x, y: rb.y - view.y }, { right: right - view.x });
       const meter = dspMeterLayout(layout, rb, { right: right - view.x });
-      const meterKey = meter && !mainWindow.isNull()
-        ? `${mainWindow.toUInt32()}:${view.x + meter.left}:${view.y + meter.top}:${meter.width}:${meter.height}` : 'hidden';
+      // The span the meter may use, in window client pixels: from past the TONE3000 button (left-
+      // anchored) to before the tempo/tuner controls (right-anchored). A resize reaches HX Edit as a
+      // sent message, never through here, so the helper follows the window's width itself (span.right
+      // moves with it) and no native work is added to HX Edit's paints.
+      // The button's own bounds can sit right of its computed anchor (seen: 1155 vs 1092 in a 1440 px
+      // window), so the meter starts past whichever is further right: it never covers the button.
+      const shownButton = layout ? buttons[layout.id] : NULL;
+      const buttonRight = shownButton && !shownButton.isNull() ? (b => b.x + b.w)(bounds(shownButton)) : 0;
+      const span = layout && !mainWindow.isNull()
+        ? { minLeft: Math.max(view.x + layout.left + layout.width, buttonRight) + 14, right: Math.floor(right - 12),
+            top: view.y + layout.top, height: Math.max(16, Math.round(rb.h)) } : null;
+      const meterKey = JSON.stringify([mainWindow.isNull() ? 0 : mainWindow.toUInt32(), span, meter && meter.width]);
       if (meterKey !== dspMeterKey) {
         dspMeterKey = meterKey;
-        // Window client pixels, like the docked library pane.
-        send({ type: 'dspMeterLayout', window: mainWindow.isNull() ? 0 : mainWindow.toUInt32(), visible: meterKey !== 'hidden',
-               x: meter ? view.x + meter.left : 0, y: meter ? view.y + meter.top : 0,
-               w: meter ? meter.width : 0, h: meter ? meter.height : 0 });
+        send({ type: 'dspMeterLayout', window: mainWindow.isNull() ? 0 : mainWindow.toUInt32(), visible: !!(meter && span),
+               x: meter && span ? view.x + meter.left : 0, y: span ? span.top : 0,
+               w: meter && span ? meter.width : 0, h: span ? span.height : 0, span });
       }
       const key = layout ? `${layout.id}:${layout.left}:${layout.top}` : 'hidden';
       layoutDirty = false;

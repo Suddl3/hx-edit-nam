@@ -46,7 +46,7 @@ class DspMeter:
     def _send(self):
         if self.process is None or self.process.poll() is not None or self.layout is None:
             return
-        state = {key: self.layout.get(key) for key in ('visible', 'x', 'y', 'w', 'h')}
+        state = {key: self.layout.get(key) for key in ('visible', 'x', 'y', 'w', 'h', 'span')}
         state['dsp'] = self.dsp
         try:
             self.process.stdin.write(json.dumps(state) + '\n')
@@ -66,7 +66,8 @@ class DspMeter:
             if kind == 'layout':
                 self.layout = value
                 parent = value.get('window')
-                if not started and value.get('visible') and type(parent) is int and parent > 0:
+                # A span is enough: a window too narrow now may be widened later (the helper follows).
+                if not started and (value.get('visible') or value.get('span')) and type(parent) is int and parent > 0:
                     started = True
                     try:
                         self._start(parent)

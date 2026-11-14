@@ -1089,12 +1089,18 @@ class DspMeter : Form
     [DllImport("user32.dll")] static extern IntPtr SetParent(IntPtr child, IntPtr parent);
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int w, int h, uint flags);
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
+    [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr hwnd, out ClientRect rect);
+    [StructLayout(LayoutKind.Sequential)] struct ClientRect { public int Left, Top, Right, Bottom; }
     readonly IntPtr parent;
     readonly StreamReader input;
     readonly JavaScriptSerializer json = new JavaScriptSerializer();
     readonly ToolTip tip = new ToolTip();
     object[] dsp = new object[2];
     bool shown;   // only once a layout says where
+    // The span HX Edit allows (parent client pixels) and the parent's width when it said so: on a
+    // resize the right end moves with the window (the tempo controls are right-anchored).
+    int spanLeft, spanRight, spanTop, spanHeight, spanWidth = -1, placedWidth = -1;
+    public const int MeterMax = 300, MeterMin = 220;
     static readonly Color Back = Color.FromArgb(29, 29, 29), Track = Color.FromArgb(58, 58, 58),
         Ink = Color.FromArgb(200, 200, 200), Dim = Color.FromArgb(130, 130, 130);
 
@@ -1104,7 +1110,11 @@ class DspMeter : Form
         BackColor=Back; DoubleBuffered=true; Font=new Font("Segoe UI", 8.25f); Bounds=new Rectangle(0,0,1,1);
         var handle=Handle;   // the child window exists before any line arrives (BeginInvoke needs it)
         var reader=new System.Threading.Thread(Read){IsBackground=true};reader.Start();
-        var watch=new Timer{Interval=1000};watch.Tick+=(sender,e)=>{if(!IsWindow(parent))Close();};watch.Start();
+        var watch=new Timer{Interval=250};
+        // HX Edit repaints its whole window after a resize or maximize, over this child (it does not clip
+        // children), so a shown meter redraws itself every tick; 300 x 29 pixels, double-buffered.
+        watch.Tick+=(sender,e)=>{if(!IsWindow(parent)){Close();return;} if(spanWidth>=0&&ParentWidth()!=placedWidth)Place(); if(shown)Invalidate();};
+        watch.Start();
     }
     protected override CreateParams CreateParams {get{var settings=base.CreateParams;settings.Parent=parent;
         settings.Style=(settings.Style&~unchecked((int)0x80000000))|0x40000000;return settings;}}   // WS_CHILD
@@ -1128,16 +1138,30 @@ class DspMeter : Form
         object value;
         // JavaScriptSerializer gives arrays as ArrayList (or object[]): any list will do.
         if(state.TryGetValue("dsp",out value)&&value is IList){var list=(IList)value;dsp=new object[]{list.Count>0?list[0]:null,list.Count>1?list[1]:null};}
-        bool visible=state.TryGetValue("visible",out value)&&value is bool&&(bool)value;
-        int w=Number(state,"w"),h=Number(state,"h");
-        shown=visible&&w>0&&h>0;
-        // WinForms parks a hidden child under its own placeholder window: attach to HX Edit
-        // explicitly, then place and show it above the editor's own drawing without taking focus.
+        var span=state.TryGetValue("span",out value)?value as Dictionary<string,object>:null;
+        if(span!=null){
+            spanLeft=Number(span,"minLeft");spanRight=Number(span,"right");spanTop=Number(span,"top");spanHeight=Number(span,"height");
+            spanWidth=ParentWidth();
+        }else spanWidth=-1;
+        // WinForms parks a hidden child under its own placeholder window: attach to HX Edit explicitly.
         if(GetParent(Handle)!=parent)SetParent(Handle,parent);
-        if(shown)SetWindowPos(Handle,IntPtr.Zero,Number(state,"x"),Number(state,"y"),w,h,0x0010|0x0040);   // NOACTIVATE|SHOWWINDOW
-        else ShowWindow(Handle,0);
+        Place();
         tip.SetToolTip(this,Describe(dsp));
         Invalidate();
+    }
+    int ParentWidth(){ ClientRect rect; return GetClientRect(parent,out rect)?rect.Right-rect.Left:-1; }
+    // Where the meter goes in the span for the parent's current width, or empty when it does not fit.
+    public static Rectangle Placement(int left,int right,int top,int height,int widthThen,int widthNow){
+        int end=right+(widthNow-widthThen), width=Math.Min(MeterMax,end-left);
+        return widthThen<0||widthNow<0||width<MeterMin||height<=0?Rectangle.Empty:new Rectangle(end-width,top,width,height);
+    }
+    void Place(){
+        placedWidth=ParentWidth();
+        var place=spanWidth<0?Rectangle.Empty:Placement(spanLeft,spanRight,spanTop,spanHeight,spanWidth,placedWidth);
+        shown=!place.IsEmpty;
+        // Above the editor's own drawing, without taking focus.
+        if(shown)SetWindowPos(Handle,IntPtr.Zero,place.X,place.Y,place.Width,place.Height,0x0010|0x0040);   // NOACTIVATE|SHOWWINDOW
+        else ShowWindow(Handle,0);
     }
     // "DSP 1  27/75": the share of the 75 a DSP's blocks may use on the Floor (its own meter's figure).
     public static string Label(object item,int index){
@@ -1187,6 +1211,13 @@ class DspMeter : Form
         var text=Describe(new object[]{ok,null});
         if(!text.Contains("blocks use 27 of 75 (42% of the DSP")||!text.Contains("DSP 2: not reported"))throw new Exception("DSP meter tooltip");
         if(LevelColor(half).R!=222||LevelColor(null)!=Dim)throw new Exception("DSP meter colours");
+        // Span 310..1388 at width 1920: full size at the right; the window narrows by 500: it moves with
+        // the right edge; by 900: only 178 px are left, hidden; widened again: back.
+        if(Placement(310,1388,9,24,1920,1920)!=new Rectangle(1088,9,300,24))throw new Exception("DSP meter placement");
+        if(Placement(310,1388,9,24,1920,1420)!=new Rectangle(588,9,300,24))throw new Exception("DSP meter follows a narrower window");
+        if(Placement(310,1388,9,24,1920,1080)!=new Rectangle(310,9,238,24))throw new Exception("DSP meter squeezes");
+        if(!Placement(310,1388,9,24,1920,1020).IsEmpty)throw new Exception("DSP meter hides when it does not fit");
+        if(!Placement(310,1388,9,24,-1,1920).IsEmpty)throw new Exception("DSP meter without a span");
         var parsed=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>("{\"dsp\":[{\"load\":42,\"used\":27,\"budget\":75,\"level\":\"green\"},null]}");
         if(!(parsed["dsp"] is IList)||Label(((IList)parsed["dsp"])[0],0)!="DSP 1  27/75")throw new Exception("DSP meter input lists");
     }
