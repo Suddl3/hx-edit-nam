@@ -188,7 +188,7 @@
   const destination = q('#destination'), save = q('#save'), audition = q('#audition'), remove = q('#remove');
   let sort = { key: 'name', direction: 1 };
   let selected = null, trial = null, busy = false, light = null, lightShown = false, canInstall = false, canTrain = true;
-  let optimizing = null, canOptimize = false;
+  let optimizing = null, canOptimize = false, pedalBlock = false;   // pedalBlock: the Floor's firmware has NAM Pedal
   const lighter = q('#lighter'), lightPanel = q('#light');
   const pct = value => value == null ? '—' : (100 * value).toFixed(2) + '%';
 
@@ -210,7 +210,7 @@
       chip.textContent = version.label + (version.quality === 'different' ? ' ⚠' : '');
       chip.title = version.label + ' version: ' + qualityText(version) +
         (version.error != null ? ' (' + pct(version.error) + ' error)' : '') + '. Plays in a ' + version.block +
-        ' block, which needs Floor firmware with that block.';
+        (pedalBlock ? ' block.' : ' block, which needs Floor firmware with that block.');
       cell.append(chip);
     }
   }
@@ -233,7 +233,7 @@
     q('#versionRemove').hidden = running || !pedal;
     q('#optimizeInfo').textContent = running ? 'Optimizing… step ' + (optimizing.step || 0) + ' of ' + (optimizing.steps || 400) :
       pedal ? 'Pedal version: ' + qualityText(pedal) + (pedal.error != null ? ' (' + pct(pedal.error) + ' error)' : '') +
-        '. It plays in a NAM Pedal block; using it needs Floor firmware with that block.' :
+        (pedalBlock ? '. It plays in a NAM Pedal block.' : '. It plays in a NAM Pedal block; using it needs Floor firmware with that block.') :
       optimizing?.error ? 'Optimize: ' + optimizing.error : '';
   }
 
@@ -654,6 +654,7 @@
     canInstall = data.can_install === true;
     canTrain = data.can_train !== false;
     canOptimize = data.can_optimize === true;
+    pedalBlock = data.pedal_block === true;
     optimizing = data.optimize || null;
     q('#status').textContent = q('#status').title = data.text || '';
     q('#target').textContent = data.target || '';

@@ -76,9 +76,12 @@ def render_card(tone=None, models=(), library=False):
 
 class TonePreview:
     def __init__(self, script, workspace, converter, detached, message, *, browser_factory=ToneBrowser, client_id='',
-                 library=None, payload_callback=None, trace_callback=None, optimize=False):
+                 library=None, payload_callback=None, trace_callback=None, optimize=False, pedal_block=False):
         self.script = script
         self.optimize = bool(optimize)   # Optimize (versions of a capture): experiment builds only for now
+        # The Floor's firmware has the NAM Pedal block (builds for it: res/nam-pedal.flag); until a
+        # firmware marker can be read, the build says so.
+        self.pedal_block = bool(pedal_block)
         self.library = library  # nam_library.Library on Windows; None hides the library
         self.payload_callback = payload_callback
         self.workspace = workspace
@@ -485,7 +488,7 @@ class TonePreview:
                          can_audition=not self.navigation or bool(self.navigation_state.get('bound')),
                          installed=loaded_now,
                          can_train=not self.navigation,
-                         optimize=optimizing, can_optimize=self.optimize,
+                         optimize=optimizing, can_optimize=self.optimize, pedal_block=self.pedal_block,
                          can_install=self.navigation and bool(self.navigation_state.get('bound')) and
                          not self.navigation_state.get('preview') and not self.navigation_state.get('quarantined'))
 
@@ -756,7 +759,8 @@ class TonePreview:
                     message = ('Pedal version ready: it sounds the same as the original.' if quality == 'same' else
                                'Pedal version ready, but it may sound different from the original. Compare '
                                'before using it.' if quality == 'different' else 'Pedal version ready.')
-                    message += ' It plays in a NAM Pedal block, which needs Floor firmware with that block.'
+                    message += (' It plays in a NAM Pedal block.' if self.pedal_block else
+                                ' It plays in a NAM Pedal block, which needs Floor firmware with that block.')
                 except (OSError, ValueError, KeyError) as error:
                     optimizing['error'] = str(error)
                     message = f'Could not keep the optimized version: {error}'

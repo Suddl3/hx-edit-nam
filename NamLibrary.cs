@@ -658,7 +658,7 @@ class NamLibrary : Form
             string quality=TextOf(version,"quality");
             lines.Add(TextOf(version,"label")+" version: "+(quality=="same"?"sounds the same as the original":
                 quality=="different"?"may sound different from the original":"not compared")+
-                "; plays in a "+TextOf(version,"block")+" block, which needs Floor firmware with that block.");
+                "; plays in a "+TextOf(version,"block")+" block.");
         }
         return lines.Count>0?"\n"+string.Join("\n",lines):"";
     }

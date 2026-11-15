@@ -27,7 +27,8 @@ NAM_LAYER_MODELS = (('HD2_AmpNAMLite20', 382, 'NAM Lite 20', 33.0), ('HD2_AmpNAM
                     ('HD2_AmpNAMLite14', 572, 'NAM Lite 14', 27.7))
 NAM_LAYERS_LOAD = 36.5                    # NAM A2 Lite on that firmware (3650: its layer check)
 # The NAM5_PEDAL firmware (lt_port.py --pedal) adds a fifth block for pedal models (tools/nam_pedal.py).
-# On with "namPedal": true or HX_EDIT_NAM_PEDAL=1 (it implies the three lighter blocks).
+# On with "namPedal": true or HX_EDIT_NAM_PEDAL=1 (on the Helix LT it implies the three lighter blocks:
+# nam_layers()). The Floor's pedal port has the pedal block only, so patch_catalog takes them apart.
 NAM_PEDAL_MODEL = ('HD2_AmpNAMPedal', 768, 'NAM Pedal', 8.5)    # the firmware's 850, from the LT meter
 HX_NAM_ID = 555
 HX_NAM_SYMBOL = 'HD2_DistNAMLite'
@@ -122,7 +123,7 @@ def patch_catalog(resources, layers=False, pedal=False):
     model['params\0'] = parameters + [amp_params['@enabled\0'], amp_params['@bypassvolume\0']]
     del model['cablink\0'], model['ircablink\0']
     blocks = [(NAM_SYMBOL, NAM_ID, 'NAM A2 Lite', NAM_LAYERS_LOAD if layers else 36.0)]
-    blocks += list(NAM_LAYER_MODELS) if layers or pedal else []
+    blocks += list(NAM_LAYER_MODELS) if layers else []
     blocks += [NAM_PEDAL_MODEL] if pedal else []
     for symbol, sym_id, name, load in blocks:
         if sym_id != NAM_ID and not symbols[sym_id]['symbol'].startswith(('Helix', 'HD2_MikeFiller')):
@@ -322,9 +323,12 @@ def patch_nam_category(resources):
                     'image\0': nul(icon), 'color\0': nul(NAM_CATEGORY_COLOR)}
         # Each side holds the NAM A2 Lite row tagged with group + 4 x side spaces (All 1-4, Guitar
         # 5-8, Bass 9-12): tone_view.captureView reads the group and side back from it.
+        # The NAM Pedal block (pedal firmware builds) is listed in NAM Pedal only: everywhere else a
+        # capture is reached through its own row, and a pedal version through its library chip.
+        rows = models if name == 'NAM Pedal' else [m for m in models if m['id\0'] == nul(NAM_SYMBOL)]
         category['subcategories\0'] = [
             {'name\0': nul(side), 'id\0': ident,
-             'models\0': nam_category_rows(index + len(NAM_CATEGORY_GROUPS) * position, models)}
+             'models\0': nam_category_rows(index + len(NAM_CATEGORY_GROUPS) * position, rows)}
             for position, (side, ident) in enumerate(PICKER_SIDES)]
         section.append(category)
     categories[after_stock:after_stock] = section
