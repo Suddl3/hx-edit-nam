@@ -273,3 +273,21 @@ class UploadedPictureTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ModelArtTests(unittest.TestCase):
+    def test_the_replacement_art_keeps_the_stock_names_and_sizes_and_copies_only_existing_files(self):
+        import shutil, tempfile
+        from pathlib import Path
+        import nam_catalog
+        art = sorted(nam_catalog.MODEL_ART.glob('*.png'))
+        if not art:
+            self.skipTest('helix_model_icons/hxedit not present')
+        with tempfile.TemporaryDirectory() as folder:
+            models = Path(folder, 'icons_models'); models.mkdir()
+            (models / art[0].name).write_bytes(b'stock')
+            (models / 'icon-inputs_%18.png').write_bytes(b'strip')          # no replacement: stays stock
+            self.assertEqual(nam_catalog.patch_model_art(Path(folder)), 1)
+            self.assertEqual((models / art[0].name).read_bytes(), art[0].read_bytes())
+            self.assertEqual((models / 'icon-inputs_%18.png').read_bytes(), b'strip')
+            self.assertFalse((models / art[1].name).exists())                  # never adds new files

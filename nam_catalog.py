@@ -153,9 +153,17 @@ def patch_catalog(resources, layers=False, pedal=False):
 # Each is a top-level category of its own, so a capture type is one click, with no dropdown. The
 # block row in category n is the model name followed by n spaces; tone_view.js (captureGroup)
 # maps a capture's type to the same number and lists that type's captures under the row.
+# Numbered in this order (tone_view.captureGroup, the row tags); NAM Favorites lists starred captures
+# of every type and is shown first in the list.
 NAM_CATEGORY_GROUPS = (('NAM Amp', 'FX_HX_Category_NAM_Amp.png'), ('NAM Amp + cab', 'FX_HX_Category_NAM_AmpCab.png'),
-                       ('NAM Pedal', 'FX_HX_Category_NAM_Pedal.png'), ('NAM Other', 'FX_HX_Category_NAM_Other.png'))
+                       ('NAM Cab', 'FX_HX_Category_NAM_Cab.png'), ('NAM Pedal', 'FX_HX_Category_NAM_Pedal.png'),
+                       ('NAM Other', 'FX_HX_Category_NAM_Other.png'), ('NAM Favorites', 'FX_HX_Category_NAM_Favorites.png'))
+NAM_SHOWN_FIRST = 'NAM Favorites'
 NAM_CATEGORY_COLOR = '0xB070E0'
+# The block picker's side dropdown: All (first, so a category opens on it the first time), Guitar
+# and Bass. Ids: stock Amp's Guitar 1 and Bass 2; All is 99 (no stock subcategory uses it).
+PICKER_SIDES = (('All', 99), ('Guitar', 1), ('Bass', 2))
+SIDED_STOCK_CATEGORIES = ('Amp', 'Preamp')   # get an All side over their own subcategories
 NAM_CATEGORY_ICONS = ROOT / 'nam_category_icons'
 CAPTURE_ICONS = ROOT / 'nam_capture_icons'  # capture_icons.py
 # The row after which the NAM categories start. tone_view.js asks HX Edit to draw its own
@@ -257,6 +265,23 @@ def add_capture_pictures(resources):
     # Pictures uploaded in the library window are added when the editor starts (Library.publish_pictures).
 
 
+MODEL_ART = ROOT / 'helix_model_icons' / 'hxedit'   # helix_model_icons/README.md
+
+
+def patch_model_art(resources):
+    """Optional: HX Edit's own model pictures (res/icons_models) replaced by the matching 3D renders
+    of helix_model_icons, each made at its stock picture's size and named after it. Pictures with no
+    replacement (the input/output frame strips) stay stock. Returns how many were replaced."""
+    models = resources / 'icons_models'
+    replaced = 0
+    for picture in sorted(MODEL_ART.glob('*.png')):
+        target = models / picture.name
+        if target.is_file():
+            shutil.copyfile(picture, target)
+            replaced += 1
+    return replaced
+
+
 def patch_nam_category(resources):
     """Experiment: NAM capture categories in the block selector, under their own heading.
 
@@ -268,7 +293,9 @@ def patch_nam_category(resources):
         None, Favorites, Distortion ... Looper     stock, unchanged; a thin line under Looper
         NAM Amp / NAM Amp + cab / NAM Pedal / NAM Other
 
-    Each NAM category holds the NAM A2 Lite block row directly (no subcategory, so no dropdown).
+    Every NAM category has All, Guitar and Bass sides (the dropdown HX Edit's own Amp has), and
+    stock Amp and Preamp get an All side first. Each side holds the NAM A2 Lite block row, tagged by
+    trailing spaces: the group's number plus 4 per side (tone_view.captureView).
     The Amp > NAM subcategory that patch_catalog adds is removed, so the stock section is stock.
     No model, parameter or firmware identity changes. Only with the launcher's --nam-category.
     """
@@ -293,10 +320,25 @@ def patch_nam_category(resources):
                        if category['name\0'] == nul(NAM_SECTION_AFTER)) + 1
     section = []
     for index, (name, icon) in enumerate(NAM_CATEGORY_GROUPS, 1):
-        section.append({'id\0': identifier + index, 'name\0': nul(name), 'shortName\0': 'NAM\0',
-                        'image\0': nul(icon), 'color\0': nul(NAM_CATEGORY_COLOR),
-                        'models\0': nam_category_rows(index, models)})
+        category = {'id\0': identifier + index, 'name\0': nul(name), 'shortName\0': 'NAM\0',
+                    'image\0': nul(icon), 'color\0': nul(NAM_CATEGORY_COLOR)}
+        # Each side holds the NAM A2 Lite row tagged with group + 4 x side spaces (All 1-4, Guitar
+        # 5-8, Bass 9-12): tone_view.captureView reads the group and side back from it.
+        category['subcategories\0'] = [
+            {'name\0': nul(side), 'id\0': ident,
+             'models\0': nam_category_rows(index + len(NAM_CATEGORY_GROUPS) * position, models)}
+            for position, (side, ident) in enumerate(PICKER_SIDES)]
+        section.append(category)
+    section.sort(key=lambda category: category['name\0'] != nul(NAM_SHOWN_FIRST))   # stable: the rest keep their order
     categories[after_stock:after_stock] = section
+    # HX Edit's own Amp and Preamp: an All side first, listing every model of their subcategories.
+    for category in categories:
+        if category['name\0'].rstrip('\0') in SIDED_STOCK_CATEGORIES and category.get('subcategories\0'):
+            folders = category['subcategories\0']
+            if any(folder['name\0'] == 'All\0' for folder in folders):
+                continue
+            every = [copy.deepcopy(model) for folder in folders for model in folder['models\0']]
+            folders.insert(0, {'name\0': 'All\0', 'id\0': PICKER_SIDES[0][1], 'models\0': every})
     catalog_path.write_bytes(msgpack.packb(catalog, use_single_float=True))
 
 

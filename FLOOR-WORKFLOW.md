@@ -39,8 +39,47 @@ Added on this branch since November 13, each checked on one Helix Floor:
   the Floor reconnected. Now a reconnect leaves the window as it is: maximized, a custom size and
   position, or minimized (without popping up or taking focus). Checked with smart-plug power
   cycles of the Floor; startup is unchanged.
+- **Favorites.** A star on each capture in the expanded library (click it), or right-click a
+  capture in the NAM tab. "★ Favorites" (library) and "★ Favorites only" (NAM tab filter menu)
+  show just those; the two views share the filter.
+- **NAM Favorites and NAM Cab in the block picker.** NAM Favorites, first in the NAM section, lists
+  every starred capture of any type (with the same All / Guitar / Bass sides); picking one loads it
+  like any capture row. Starred captures stay out of HX Edit's own Favorites, whose Rename and
+  Clear act on saved favorites by position. NAM Cab holds cab captures, which used to land in NAM
+  Other. Checked on the Floor: a starred capture listed in NAM Favorites and loaded from there.
+- **Guitar, bass or both.** Each capture is Guitar, Bass or Both. Automatic: Bass when the name
+  says so (the word "bass", or SVT, Darkglass, B7K, Aguilar, Gallien-Krueger, Markbass; a Fender
+  Bassman or Bassbreaker stays guitar); otherwise Guitar for amps and cabs and Both for pedals,
+  studio gear and the rest. Change it in the library's Instrument column or the NAM tab's
+  right-click menu (or Edit…). Filters: "All / Guitar / Bass" (Both captures show under each).
+  In the block picker every NAM category, and HX Edit's own Amp and Preamp, have an All /
+  Guitar / Bass dropdown (Preamp keeps its Mic side; Amp+Cab, which HX Edit builds from Amp,
+  gets All and All+Legacy beside its Guitar/Bass and +Legacy sides, and remembers its side too). A category opens on All the first time,
+  then on the side you last picked there, remembered between launches (`floor-memory.json`).
+  Selecting a block opens its category on that remembered side when its capture or model is on
+  it, otherwise on All. Checked on the Floor: first open on All, a side remembered across
+  categories, stock Amp's All listing guitar and bass amps, NAM and stock amp blocks opening on
+  their side (or All when the block's model is not on it). Known edge: right after launch, the
+  block HX Edit already has selected keeps HX Edit's own side until another block is selected.
+  The library window and NAM tab remember their filters, grid/list and sort between launches
+  (`library-view.json`); search text and selection start empty.
+- **Grid views.** The block picker's own grid view now shows each capture's picture (it showed
+  the NAM rack for all of them), lists every capture when a NAM block is selected (it showed only
+  NAM A2 Lite), and clicking a capture tile loads that capture (it loaded slot 1). The expanded
+  library has its own grid view (⊞ by the filters): picture, name, IR slot and type per tile.
+- **Warning before clearing a slot other presets use.** Each preset opened or saved in this editor
+  is recorded with the IR slots it uses (`floor-memory.json`, read from the preset HX Edit loaded;
+  nothing is sent to the Floor). Clear (IR tab or NAM tab) then lists the opened presets that use
+  a slot and asks first, with No as the default; Replace in the library window does the same.
+  The current preset is still refused outright, as before. Presets never opened here are not
+  known, and the warning says so. Remove in the library window now says the capture stays on the
+  Floor. Checked on the Floor: presets 003, 012, 028 and 030 recorded (028 uses slot 16); the
+  Clear and Replace dialogs themselves were not run on the Floor, since a wrong step there would
+  delete a capture.
+- **Slot numbers right after connecting** (see "Remembered slots show as soon as the Floor
+  connects" below).
 
-The offline suite is 285 tests (268 run in a fresh clone; the other 17 need local fixtures).
+The offline suite is 301 tests.
 
 ## Status, November 13
 
@@ -119,6 +158,11 @@ Made by the owner (Suddl3) after the Candidate59–61 test sessions. Built into 
   This supersedes "invalidate session proof … never load disk mappings" in item
   6 for slots whose name is unchanged. Slots the Floor reports as changed are
   still read back.
+- **Remembered slots show as soon as the Floor connects.** Each connect (and each
+  full refresh from the Floor) accepts the slots this PC remembers by itself, with
+  no tab opened; a launch with the Floor off showed all 22 slot numbers 8 s after
+  it connected. This pass never reads a slot back: a new or renamed slot still
+  waits for the NAM tab or the library to ask, as before.
 - **Card wording:** Save to PC / Save to PC + Floor, always the lowest free slot,
   no slot picker. The NAM tab keeps Load on Floor / Use on Floor.
 - Adding or removing a block, or loading another preset, does not discard slot

@@ -20,7 +20,27 @@
   table { width: 100%; border-collapse: collapse; }
   th { position: sticky; top: 0; background: #1e1e1e; text-align: left; font-weight: 600; }
   th button { all: unset; cursor: pointer; display: block; padding: 5px 8px; }
-  th:nth-child(3) { min-width: 62px; white-space: nowrap; }
+  th:nth-child(5) { min-width: 62px; white-space: nowrap; }
+  th.star, td.star { width: 22px; padding: 0 0 0 6px; }
+  td.star button { all: unset; cursor: pointer; display: block; width: 22px; text-align: center; font-size: 15px; color: #6a6a6a; }
+  td.star button[aria-pressed="true"] { color: #f2bc57; }
+  td.star button:hover { color: #f2bc57; }
+  td.star button:focus-visible { outline: 2px solid #fa8585; }
+  #favorites[aria-pressed="true"] { background: #4a3a1a; border-color: #f2bc57; color: #f2bc57; }
+  #layout { min-width: 34px; padding: 3px 6px; }
+  #tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; padding: 10px; }
+  #tiles[hidden] { display: none; }
+  .tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 6px 6px;
+    border: 1px solid #333; border-radius: 6px; background: #1f1f1f; cursor: pointer; min-width: 0; }
+  .tile:hover { background: #262626; }
+  .tile[aria-selected="true"] { background: #4a2425; border-color: #b54545; }
+  .tile img { width: 72px; height: 72px; object-fit: contain; }
+  .tile .label { width: 100%; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .meta { color: #9a9a9a; font-size: 11px; }
+  .tile .meta .slot { color: #9edb9c; }
+  .tile .star { position: absolute; top: 2px; left: 4px; }
+  .tile .star button { all: unset; cursor: pointer; font-size: 15px; color: #6a6a6a; }
+  .tile .star button[aria-pressed="true"], .tile .star button:hover { color: #f2bc57; }
   td { padding: 3px 8px; border-bottom: 1px solid #262626; white-space: nowrap; }
   td.name { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; }
   td.name img.gear-icon { width: 24px; height: 24px; vertical-align: middle; margin: -3px 7px -3px 0; }
@@ -71,18 +91,24 @@
 </style>
 <header>
   <input id="search" type="search" placeholder="Search the library" aria-label="Search the library">
+  <select id="instrument" aria-label="Instrument"><option value="*">All</option><option value="guitar">Guitar</option><option value="bass">Bass</option></select>
   <select id="filter" aria-label="Type"><option value="*">All types</option>$gears</select>
+  <button id="favorites" aria-pressed="false" title="Show only your favorite captures">★ Favorites</button>
+  <button id="layout" aria-pressed="false" title="Show as a grid of pictures">⊞</button>
 </header>
 <div class="rows">
   <table>
     <thead><tr>
+      <th class="star" title="Favorites"></th>
       <th aria-sort="ascending"><button data-key="name">Name</button></th>
       <th><button data-key="gear">Type</button></th>
+      <th><button data-key="instrument">Instrument</button></th>
       <th><button data-key="irSlots">IR slot</button></th>
       <th><button data-key="added">Date</button></th>
     </tr></thead>
     <tbody></tbody>
   </table>
+  <div id="tiles" role="listbox" aria-label="Captures" hidden></div>
   <p class="empty" hidden>No captures yet. NAM files you import and TONE3000 profiles you save or add appear here.</p>
 </div>
 <div id="picker" role="dialog" aria-modal="true" aria-labelledby="pickerTitle" hidden>
@@ -140,21 +166,73 @@
   const initialView = $view;
   const host = window.chrome?.webview;
   const q = selector => document.querySelector(selector);
-  const body = q('tbody'), search = q('#search'), filter = q('#filter');
+  const body = q('tbody'), search = q('#search'), filter = q('#filter'), instrument = q('#instrument'), favorites = q('#favorites');
+  const layout = q('#layout'), tiles = q('#tiles'), table = q('table');
+  const gridShown = () => layout.getAttribute('aria-pressed') === 'true';
   const destination = q('#destination'), save = q('#save'), audition = q('#audition'), remove = q('#remove');
   let sort = { key: 'name', direction: 1 };
   let selected = null, trial = null, busy = false, light = null, lightShown = false, canInstall = false, canTrain = true;
   const lighter = q('#lighter'), lightPanel = q('#light');
   const pct = value => value == null ? '—' : (100 * value).toFixed(2) + '%';
 
+  function starButton(row) {
+    const star = document.createElement('button');
+    star.textContent = row.favorite ? '★' : '☆';
+    star.setAttribute('aria-pressed', String(!!row.favorite));
+    star.setAttribute('aria-label', 'Favorite: ' + row.name);
+    star.title = row.favorite ? 'Remove from favorites' : 'Add to favorites';
+    star.onclick = event => {
+      event.stopPropagation();
+      row.favorite = !row.favorite;
+      host?.postMessage('favorite:' + row.id + ':' + (row.favorite ? '1' : '0'));
+      render();
+    };
+    return star;
+  }
+  function slotText(row) {
+    return [...new Set([...(row.irSlots || []), ...(row.pendingSlots || [])])].sort((a, b) => a - b).join(', ');
+  }
+  // Grid view: one tile per capture (picture, name, slot), the same selection, star and double-click.
+  function renderTiles(shown) {
+    tiles.replaceChildren(...shown.map(row => {
+      const tile = document.createElement('div');
+      tile.className = 'tile';
+      tile.setAttribute('role', 'option');
+      tile.setAttribute('aria-selected', String(row.id === selected));
+      tile.title = row.name;
+      const star = document.createElement('span');
+      star.className = 'star';
+      star.append(starButton(row));
+      const picture = document.createElement('img');
+      picture.alt = ''; picture.src = icons[row.icon] || '';
+      const label = document.createElement('span');
+      label.className = 'label'; label.textContent = row.name;
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      const slots = slotText(row);
+      if (slots) { const slot = document.createElement('span'); slot.className = 'slot'; slot.textContent = 'IR ' + slots; meta.append(slot, ' · '); }
+      meta.append((row.gearLabel || 'Unsorted') + (row.instrument === 'bass' ? ' · Bass' : ''));   // guitar/any: no tag
+      tile.append(star, picture, label, meta);
+      tile.onclick = () => { selected = row.id; render(); publishView(); };
+      tile.ondblclick = () => { selected = row.id; publishView(); pick(); };
+      return tile;
+    }));
+  }
+
   function render() {
     const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+    const favoritesOnly = favorites.getAttribute('aria-pressed') === 'true';
     const shown = rows.filter(row => (filter.value === '*' || row.gear === filter.value) &&
+      (instrument.value === '*' || row.instrument === instrument.value || row.instrument === 'any') &&
+      (!favoritesOnly || row.favorite) &&
       words.every(word => [row.name, row.gearLabel || row.gear, ...(row.aliases || [])].join(' ').toLowerCase().includes(word)));
     shown.sort((a, b) => sort.direction * String(a[sort.key]).localeCompare(String(b[sort.key]), undefined, { numeric: true }));
     body.replaceChildren(...shown.map(row => {
       const tr = document.createElement('tr');
       tr.setAttribute('aria-selected', String(row.id === selected));
+      const starCell = tr.insertCell();
+      starCell.className = 'star';
+      starCell.append(starButton(row));
       const name = tr.insertCell();
       name.className = 'name';
       name.title = row.name;
@@ -171,6 +249,18 @@
       gear.onclick = event => event.stopPropagation();
       gear.onchange = () => { row.gear = gear.value; host.postMessage('gear:' + row.id + ':' + gear.value); render(); };
       tr.insertCell().append(gear);
+      const kind = document.createElement('select');
+      kind.append(new Option('Guitar', 'guitar'), new Option('Bass', 'bass'), new Option('Both', 'any'));
+      kind.value = row.instrument || 'guitar';
+      kind.setAttribute('aria-label', 'Instrument for ' + row.name);
+      kind.title = row.instrumentChosen ? 'Your choice' :
+        'Automatic: bass when the name says so; otherwise guitar for amps and cabs, both for pedals and the rest';
+      kind.onclick = event => event.stopPropagation();
+      kind.onchange = () => {
+        row.instrument = kind.value; row.instrumentChosen = true;
+        host?.postMessage('instrument:' + row.id + ':' + kind.value); render();
+      };
+      tr.insertCell().append(kind);
       const installed = tr.insertCell();
       installed.className = 'slots';
       installed.dataset.state = row.slotState || 'unverified';
@@ -194,8 +284,13 @@
       tr.ondblclick = () => { selected = row.id; publishView(); pick(); };
       return tr;
     }));
+    table.hidden = gridShown();
+    tiles.hidden = !gridShown();
+    layout.textContent = gridShown() ? '☰' : '⊞';
+    layout.title = gridShown() ? 'Show as a list' : 'Show as a grid of pictures';
+    if (gridShown()) renderTiles(shown); else tiles.replaceChildren();
     q('.empty').hidden = shown.length > 0;
-    q('.empty').textContent = rows.length ? 'No captures match this search or type.' :
+    q('.empty').textContent = rows.length ? 'No captures match this search and these filters.' :
       'No captures kept on this PC. Browse TONE3000 and choose Save to PC, or import a NAM capture.';
     audition.disabled = busy || !selected;
     const capture = rows.find(row => row.id === selected);
@@ -402,14 +497,19 @@
 
   function publishView() {
     host?.postMessage('libraryView:' + JSON.stringify({selected, query: search.value,
-      filter: filter.value, sortKey: sort.key, sortDirection: sort.direction}));
+      filter: filter.value, instrument: instrument.value, favorites: favorites.getAttribute('aria-pressed') === 'true',
+      layout: gridShown() ? 'grid' : 'list',
+      sortKey: sort.key, sortDirection: sort.direction}));
   }
   function applyView(view) {
     if (!view || typeof view !== 'object') return;
     selected = view.selected || null;
     search.value = typeof view.query === 'string' ? view.query : '';
     filter.value = typeof view.filter === 'string' ? view.filter : '*';
-    if (['name','gear','irSlots','added'].includes(view.sortKey)) sort.key = view.sortKey;
+    instrument.value = ['guitar', 'bass'].includes(view.instrument) ? view.instrument : '*';
+    favorites.setAttribute('aria-pressed', String(view.favorites === true));
+    layout.setAttribute('aria-pressed', String(view.layout === 'grid'));
+    if (['name','gear','instrument','irSlots','added'].includes(view.sortKey)) sort.key = view.sortKey;
     if (view.sortDirection === -1 || view.sortDirection === 1) sort.direction = view.sortDirection;
     for (const button of document.querySelectorAll('th button')) {
       button.parentElement.removeAttribute('aria-sort');
@@ -427,7 +527,15 @@
       publishView();
     };
   }
-  search.oninput = filter.onchange = () => { render(); publishView(); };
+  search.oninput = filter.onchange = instrument.onchange = () => { render(); publishView(); };
+  layout.onclick = () => {
+    layout.setAttribute('aria-pressed', String(!gridShown()));
+    render(); publishView();
+  };
+  favorites.onclick = () => {
+    favorites.setAttribute('aria-pressed', String(favorites.getAttribute('aria-pressed') !== 'true'));
+    render(); publishView();
+  };
   audition.onclick = pick;
   q('#install').onclick = () => {
     const capture = rows.find(row => row.id === selected);
@@ -438,7 +546,10 @@
   q('#changeIcon').onclick = () => { const capture = rows.find(row => row.id === selected); if (capture) openPicker(capture); };
   remove.onclick = () => {
     const index = rows.findIndex(row => row.id === selected);
-    if (index < 0 || !confirm('Remove "' + rows[index].name + '" from the library on this PC?')) return;
+    const onFloor = index < 0 ? '' : slotText(rows[index]);
+    // Only the PC copy goes: the Floor keeps the capture, so presets that use it keep working.
+    if (index < 0 || !confirm('Remove "' + rows[index].name + '" from the library on this PC?' +
+        (onFloor ? '\n\nIt stays on the Floor in User IR ' + onFloor + ', so presets that use it keep working.' : ''))) return;
     host.postMessage('remove:' + selected);
     rows.splice(index, 1);
     selected = null;
@@ -448,7 +559,15 @@
   q('#catalog').onclick = () => host.postMessage('catalog');
   q('#finish').onclick = () => host.postMessage('finish');
   save.onclick = () => host.postMessage('save:' + trial + ':' + destination.value);
-  q('#replaceGo').onclick = () => host.postMessage('replace:' + q('#replace').value);
+  let replaceUsers = new Map();   // slot -> opened presets that use it (learned as presets are opened)
+  q('#replaceGo').onclick = () => {
+    const slot = Number(q('#replace').value), users = replaceUsers.get(slot) || [];
+    if (users.length && !confirm('User IR ' + slot + ' is used by ' + (users.length === 1 ? 'a preset' : users.length + ' presets') +
+        ' you have opened in this editor:\n\n' + users.slice(0, 12).map(label => '  ' + label).join('\n') +
+        (users.length > 12 ? '\n  …and ' + (users.length - 12) + ' more' : '') +
+        '\n\n' + (users.length === 1 ? 'It' : 'They') + ' will lose that capture. Presets not opened here are not checked.\n\nReplace anyway?')) return;
+    host.postMessage('replace:' + slot);
+  };
 
   window.hxToneStatus = data => {
     if (data.libraryView) applyView(data.libraryView);
@@ -468,7 +587,9 @@
     q('#target').hidden = !data.target || !!data.navigation;
     // Every User IR slot taken: pick one to replace with the audition (128 first, the old audition slot).
     const taken = data.replace || [];
-    q('#replace').replaceChildren(...taken.map(([slot, name]) => new Option('User IR ' + slot + ' · ' + name, slot)));
+    replaceUsers = new Map(taken.map(([slot, , users]) => [slot, Array.isArray(users) ? users : []]));
+    q('#replace').replaceChildren(...taken.map(([slot, name, users]) => new Option('User IR ' + slot + ' · ' + name +
+      (users?.length ? ' · used by ' + users.length + (users.length === 1 ? ' preset' : ' presets') : ''), slot)));
     if (taken.length) q('#replace').value = taken[taken.length - 1][0];
     q('#replace').parentElement.hidden = !taken.length;
     q('#replace').disabled = q('#replaceGo').disabled = busy;

@@ -3,7 +3,7 @@
 // HX Edit 3.82 x86, verified by the launcher before these offsets are used.
 // Read HX Edit's in-memory edit buffer (SF variant tree) without native calls.
 // Layout from the Helix Floor library contribution (PR #4), pinned to HX Edit 3.82 x86.
-function readPresetTree(root) {
+function readPresetTree(root, lenient = false) {
   const limits = { nodes: 512, properties: 512, array: 2048, depth: 24, string: 8192 };
   let budget = 30000;
   const fail = reason => { throw new Error(reason); };
@@ -38,7 +38,7 @@ function readPresetTree(root) {
     if (tag === 4) return v.readS32();
     if (tag === 5) return v.readU32();
     if (tag === 8) return v.readFloat();
-    if (tag === 9) return v.readU32() === 0 ? null : fail('opaque-pointer');
+    if (tag === 9) return v.readU32() === 0 ? null : lenient ? {unread: 9} : fail('opaque-pointer');
     if (tag === 11) return v.readU8() === 1;
     if (tag === 10) {
       const rep = present(v.readPointer()).add(4).readPointer();
@@ -60,7 +60,10 @@ function readPresetTree(root) {
         node => put(out, value(node.add(8), depth + 1), value(node.add(24), depth + 1)));
       return out;
     }
-    fail('unsupported-variant-' + tag); // unknown values are never silently dropped
+    // Unknown values are never silently dropped, except for the advisory preset record (lenient),
+    // which only looks for IR slot numbers and marks what it could not read.
+    if (lenient) return {unread: tag};
+    fail('unsupported-variant-' + tag);
   }
   function properties(array) {
     const [first, last] = bounds(array, 20, 24, limits.properties);
@@ -138,6 +141,39 @@ function presetIrSlots(tree, irParameters) {
       }
     } else if (Object.keys(node).length && (!metadata.has(name) || Object.values(node).some(value => !scalar(value)))) {
       return { reason: 'unsupported-global-node' };
+    }
+  }
+  return { slots };
+}
+
+// The IR slots a preset uses, for the record of opened presets (the warning before a Clear):
+// every IR parameter of every known IR block, and snapshot values of those parameters. Anything
+// else is skipped, not refused; the Clear protection of the current preset keeps presetIrSlots.
+function presetIrSlotsLenient(tree, irParameters) {
+  const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const slotOf = value => { const slot = record(value) ? value['@value'] : value; return Number.isInteger(slot) && slot >= 1 && slot <= 127 ? slot : null; };
+  const parametersOf = node => {
+    const model = record(node) ? node['@model'] : undefined;
+    return typeof model === 'string' ? irParameters[model] ?? irParameters[model.replace(/(Mono|Stereo)$/, '')] ?? [] : [];
+  };
+  const slots = new Set();
+  for (const dsp of ['dsp0', 'dsp1']) {
+    for (const node of Object.values(record(tree[dsp]) ? tree[dsp] : {})) {
+      for (const parameter of parametersOf(node)) { const slot = slotOf(node[parameter]); if (slot) slots.add(slot); }
+    }
+  }
+  for (const [name, node] of Object.entries(record(tree.globalNodes) ? tree.globalNodes : {})) {
+    if (!/^snapshot\d+$/.test(name) || !record(node) || !record(node.controllers)) continue;
+    for (const [dsp, blocks] of Object.entries(node.controllers)) {
+      if (!['dsp0', 'dsp1'].includes(dsp) || !record(blocks)) continue;
+      for (const [block, controlled] of Object.entries(blocks)) {
+        if (!record(controlled)) continue;
+        const parameters = parametersOf(record(tree[dsp]) ? tree[dsp][block] : undefined);
+        for (const [parameter, control] of Object.entries(controlled)) {
+          if (!parameters.includes(parameter)) continue;
+          const slot = slotOf(control); if (slot) slots.add(slot);
+        }
+      }
     }
   }
   return { slots };
@@ -1253,11 +1289,16 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
   let trustedClear = false;
 
   Interceptor.attach(address(0x218a00), {
-    onEnter() {
+    onEnter(args) {
       const editor = this.context.ecx.add(0x34).readPointer();
       if (!editor.isNull() && editor.readPointer().equals(editorVtable)) presetEditor = editor;
       presetRevision++;
       presetNotifying++;
+      try {
+        const data = args[0].add(4).readPointer();
+        const event = data.isNull() ? '' : data.add(0x10).readPointer().readUtf8String();
+        if (presetUsageEvent.test(event)) schedulePresetUsage();
+      } catch (_) { /* an unreadable event name records nothing */ }
     },
     onLeave() {
       presetRevision++;
@@ -1265,7 +1306,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     },
   });
 
-  function readCurrentPreset() {
+  function readCurrentPreset(lenient = false) {
     const editor = presetEditor;
     if (editor.isNull() || !editor.readPointer().equals(editorVtable)) return { reason: 'editor-unavailable' };
     if (presetNotifying) return { reason: 'preset-changing' };
@@ -1285,16 +1326,145 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       const root = engine.add(0x30);
       if (root.add(4).readU32() !== 6) return { reason: 'unsupported-preset' };
       const revision = presetRevision;
-      const first = readPresetTree(root), second = readPresetTree(root);
+      const first = readPresetTree(root, lenient), second = readPresetTree(root, lenient);
       if (JSON.stringify(first) !== JSON.stringify(second) || revision !== presetRevision) {
         return { reason: 'preset-changing' };
       }
-      return presetIrSlots(first, irParameters);
+      return lenient ? presetIrSlotsLenient(first, irParameters) : presetIrSlots(first, irParameters);
     } catch (error) {
       return { reason: String(error.message) };
     } finally {
       for (const handle of held.reverse()) releaseMutex(handle);
     }
+  }
+
+  // --- Which presets use each IR slot, learned as presets are opened ---
+  // HX Edit keeps the loaded preset's header as the Floor sent it, packed as MessagePack, at
+  // [[editor+0x140]+0x3c]: {0x66: n, 0x67: n, 0x68: {0x6b: setlist, 0x6c: preset, 0x6d: name, …}}
+  // (Floor, November 14: 3 / 30 / "New Preset"). Each preset that loads or is saved is recorded
+  // with the IR slots it uses (presetIrSlots), here and in floor-memory.json, so a Clear can say
+  // which other presets use a slot. Only presets opened in this editor are known.
+  const presetUsageEvent = /^EditBuffer_(?:DevicePresetChanged|PresetContentsWillChange|PresetContentsDidChange|PresetSavedToDevice|DevicePresetIrReport)$/;   // a load sends WillChange only (Floor, Nov 14); read 1.5 s later
+  const presetUses = new Map();   // "setlist:preset" -> {setlist, preset, name, slots: number[] | null}
+  for (const entry of Array.isArray(profile.presetUsage) ? profile.presetUsage : []) {
+    if (Array.isArray(entry) && Number.isInteger(entry[0]) && Number.isInteger(entry[1]) && typeof entry[2] === 'string')
+      presetUses.set(entry[0] + ':' + entry[1], {setlist: entry[0], preset: entry[1], name: entry[2],
+        slots: Array.isArray(entry[3]) ? entry[3].filter(Number.isInteger) : null});
+  }
+  function unpackPresetHeader(bytes) {
+    // Just enough MessagePack for the header: ints, short strings and the two maps. Anything else
+    // before the three fields stops the read (null): an unknown layout records nothing.
+    let at = 0;
+    const next = () => {
+      if (at >= bytes.length) throw new Error('short');
+      const b = bytes[at++];
+      if (b <= 0x7f) return b;
+      if (b >= 0xe0) return b - 256;
+      if ((b & 0xf0) === 0x80) return {map: b & 0x0f};
+      if ((b & 0xe0) === 0xa0 || b === 0xd9) {
+        const length = b === 0xd9 ? bytes[at++] : b & 0x1f, start = at;
+        at += length;
+        if (at > bytes.length) throw new Error('short');
+        return {start, length};
+      }
+      if (b === 0xcc) return bytes[at++];
+      if (b === 0xcd) { at += 2; return bytes[at - 2] << 8 | bytes[at - 1]; }
+      if (b === 0xd0) { const v = bytes[at++]; return v > 127 ? v - 256 : v; }
+      if (b === 0xc2 || b === 0xc3) return b === 0xc3;
+      throw new Error('unsupported');
+    };
+    try {
+      const top = next();
+      if (!top || top.map === undefined) return null;
+      for (let pair = 0; pair < top.map; pair++) {
+        const key = next(), value = next();
+        if (key !== 0x68) { if (typeof value === 'object') return null; continue; }
+        if (!value || value.map === undefined) return null;
+        const found = {};
+        for (let inner = 0; inner < value.map && Object.keys(found).length < 3; inner++) {
+          const field = next(), item = next();
+          if (field === 0x6b || field === 0x6c) found[field] = item;
+          else if (field === 0x6d) found[field] = item;
+          else if (typeof item === 'object') return null;
+        }
+        const name = found[0x6d];
+        if (!Number.isInteger(found[0x6b]) || !Number.isInteger(found[0x6c]) || !name || name.length === undefined) return null;
+        if (found[0x6b] < 0 || found[0x6b] > 31 || found[0x6c] < 0 || found[0x6c] > 255 || name.length > 48) return null;
+        return {setlist: found[0x6b], preset: found[0x6c], nameStart: name.start, nameLength: name.length};
+      }
+    } catch (_) { /* fall through */ }
+    return null;
+  }
+  function currentPresetHeader() {
+    const editor = presetEditor;
+    if (editor.isNull() || !editor.readPointer().equals(editorVtable)) return null;
+    const holder = editor.add(0x140).readPointer();
+    const data = holder.isNull() ? NULL : holder.add(0x3c).readPointer();
+    if (data.isNull()) return null;
+    const bytes = new Uint8Array(data.readByteArray(128));
+    const header = unpackPresetHeader(bytes);
+    if (!header) return null;
+    // The Floor's name field ends with a zero byte (11 bytes for "New Preset"), which the UTF-8
+    // reader refuses: read up to it.
+    let length = 0;
+    while (length < header.nameLength && bytes[header.nameStart + length] !== 0) length++;
+    const name = length ? data.add(header.nameStart).readUtf8String(length).trim() : '';
+    return {setlist: header.setlist, preset: header.preset, name};
+  }
+  let presetUsageTimer = null, presetUsageTries = 0, presetUsageReports = 8;
+  const presetUsageTrace = (stage, extra = {}) => { if (presetUsageReports-- > 0) send({type: 'presetUsage', stage, ...extra}); };
+  function schedulePresetUsage() {
+    if (presetUsageTimer !== null) clearTimeout(presetUsageTimer);
+    presetUsageTries = 0;
+    presetUsageTimer = setTimeout(recordPresetUsage, 1500);   // after the load has settled
+  }
+  function recordPresetUsage() {
+    presetUsageTimer = null;
+    let header = null, preset = null;
+    try { header = currentPresetHeader(); preset = readCurrentPreset(true); }
+    catch (error) { preset = {reason: String(error.message)}; presetUsageTrace('read-failed', {error: preset.reason}); }
+    if (!header) {
+      // Right after HX Edit starts, the header is not there yet for the first load: try again.
+      if (presetUsageTries++ < 5) presetUsageTimer = setTimeout(recordPresetUsage, 1000);
+      else presetUsageTrace('no-header', {editor: !presetEditor.isNull()});
+      return;
+    }
+    if (['preset-changing', 'preset-busy'].includes(preset?.reason) && presetUsageTries++ < 5) {
+      presetUsageTimer = setTimeout(recordPresetUsage, 1000);
+      return;
+    }
+    // An empty preset uses no slot; a shape presetIrSlots does not read is unknown (null).
+    const slots = preset?.slots instanceof Set ? [...preset.slots].filter(slot => slot >= 1 && slot <= 127).sort((a, b) => a - b) : null;
+    const key = header.setlist + ':' + header.preset, previous = presetUses.get(key);
+    const entry = {setlist: header.setlist, preset: header.preset, name: header.name, slots};
+    presetUses.set(key, entry);
+    if (!previous || JSON.stringify(previous) !== JSON.stringify(entry))
+      send({type: 'presetUsage', ...entry, reason: slots === null ? String(preset?.reason || 'unknown') : ''});
+  }
+  function presetLabel(entry, setlist) {
+    return String(entry.preset).padStart(3, '0') + ' ' + (entry.name || '(no name)') +
+      (setlist !== null && entry.setlist !== setlist ? ' (another setlist)' : '');
+  }
+  // Opened presets that use any of these slots, other than the one loaded now (checked live).
+  function presetsUsing(slots, skipCurrent = true) {
+    let current = null;
+    try { current = currentPresetHeader(); } catch (_) { current = null; }
+    const users = [];
+    for (const [key, entry] of presetUses) {
+      if (skipCurrent && current && key === current.setlist + ':' + current.preset) continue;
+      if (Array.isArray(entry.slots) && entry.slots.some(slot => slots.includes(slot))) users.push(entry);
+    }
+    users.sort((a, b) => a.setlist - b.setlist || a.preset - b.preset);
+    return users.map(entry => presetLabel(entry, current ? current.setlist : null));
+  }
+  function confirmClearUsed(selected, users) {
+    const listed = users.slice(0, 12).map(label => '  ' + label).join('\n') +
+      (users.length > 12 ? `\n  …and ${users.length - 12} more` : '');
+    const text = `User IR ${selected.join(', ')} ${selected.length === 1 ? 'is' : 'are'} used by ` +
+      `${users.length === 1 ? 'a preset' : users.length + ' presets'} you have opened in this editor:\n\n${listed}\n\n` +
+      `${users.length === 1 ? 'It' : 'They'} will lose this capture if you clear it. Presets not opened here are not checked.\n\nClear anyway?`;
+    // MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2: No is the default.
+    return messageBox(getActiveWindow(), Memory.allocUtf16String(text), Memory.allocUtf16String('IR slot in use'), 0x134) === 6;
   }
 
   function selectedClearSlots(vector) {
@@ -1321,7 +1491,11 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       const selected = selectedClearSlots(vector);
       const preset = readCurrentPreset();
       const used = selected && preset.slots ? selected.filter(slot => preset.slots.has(slot)) : [];
-      if (selected && preset.slots && !used.length) return submitClear(librarian, vector, selected);
+      if (selected && preset.slots && !used.length) {
+        const users = presetsUsing(selected);
+        if (users.length && !confirmClearUsed(selected, users)) return;   // the user kept the slot
+        return submitClear(librarian, vector, selected);
+      }
       text = used.length
         ? `User IR ${used.join(', ')} ${used.length === 1 ? 'is' : 'are'} used by the current preset.\n\n` +
           'Switch to a preset that does not use these slots, then try Clear again.'
@@ -1381,7 +1555,9 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       for (const [slot, contentId] of slotLedger.entries()) {
         const capture = payloadMetadata[contentId];
         if (!capture || slot === AUDITION_SLOT) continue;
-        result.push({slot, name: capture.name || profiles[slot] || 'Capture', gear: capture.gear || '', icon: capture.icon || ''});
+        result.push({slot, name: capture.name || profiles[slot] || 'Capture', gear: capture.gear || '', icon: capture.icon || '',
+          instrument: ['guitar', 'bass', 'any'].includes(capture.instrument) ? capture.instrument : 'guitar',
+          favorite: capture.favorite === true});
       }
       return result;
     },
@@ -1600,7 +1776,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       if (list.isNull()) return used;
       for (let slot = 1; slot <= AUDITION_SLOT; slot++) {
         const row = getIrRow(list, slot - 1);
-        if (!row.isNull() && row.add(0x10c).readU32()) used.push([slot, row.readUtf8String()]);
+        if (!row.isNull() && row.add(0x10c).readU32()) used.push([slot, row.readUtf8String(), presetsUsing([slot], false)]);
       }
       return used;
     },

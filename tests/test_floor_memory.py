@@ -102,6 +102,45 @@ assert.deepEqual(exportsMade,[20,127]);assert.equal(statuses.at(-1).state,'compl
                              encoding='utf-8', timeout=15)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
 
+    def test_connecting_recalls_remembered_slots_without_reading_any_back(self):
+        # Started with the Floor off, the slot check used to wait for the NAM tab. Now each connect
+        # (and each full refresh from the Floor) accepts what this PC remembers, by itself; a slot
+        # that would need reading back still waits for a request, as before.
+        code = r'''
+const assert=require('node:assert/strict');
+const plans=[],states=[];let now=0;
+const memory=new Map([[9,{name:'Deluxe',contentId:'a'.repeat(64)}],[40,{name:'Room IR',contentId:null}]]);
+const automatic=createAutomaticSlotDiscovery({now:()=>now,recallOnConnect:true,status:s=>states.push(s.state),
+  prepare:p=>plans.push(p),export:()=>true,
+  remembered:(slot,name)=>{const m=memory.get(slot);return !!m&&m.name===name;}});
+let names=[[9,'Deluxe'],[40,'Room IR']];
+const snap=()=>({device:0x210001,identity:'floor',signature:JSON.stringify(names),slots:names.map(n=>n[0]),slotSignatures:names,revision:0});
+const tick=(dt=0)=>{now+=dt;automatic.tick(snap());};
+tick(5000);assert.equal(automatic.needsSnapshot(),false,'nothing before the Floor is there');
+automatic.host({generation:0,ready:true,present:true});
+assert.equal(automatic.needsSnapshot(),true);tick();tick(1501);
+assert.equal(states.at(-1),'complete');assert.equal(plans.length,0);assert.equal(automatic.needsSnapshot(),false);
+// The Floor's full refresh right after connecting discards proof: recalled again.
+automatic.invalidate();assert.equal(automatic.needsSnapshot(),true);tick();tick(1501);
+assert.equal(states.at(-1),'complete');assert.equal(plans.length,0);
+// A recall completion does not make a later changed slot read back by itself.
+automatic.invalidate([9]);tick(5000);tick(5000);assert.equal(plans.length,0);
+// A slot this PC does not know: the recall stops without reading, keeping what it accepted.
+automatic.invalidate();names=[[9,'Deluxe'],[40,'Room IR'],[127,'Plexi']];tick();tick(1501);
+assert.equal(plans.length,0);assert.equal(states.at(-1),'verification-needed');assert.equal(automatic.needsSnapshot(),false);
+assert.deepEqual(automatic.inspect().done.sort((a,b)=>a-b),[9,40]);
+// The NAM tab's request then reads only the unknown slot.
+automatic.requestVerification();tick();tick(1501);assert.deepEqual(plans.map(p=>p.slot),[127]);
+// Off: nothing more. Without the option (the old contract) connecting asks nothing.
+automatic.host({generation:1,ready:true,present:false});assert.equal(automatic.needsSnapshot(),false);
+const plain=createAutomaticSlotDiscovery({now:()=>now,status:()=>{},prepare:()=>{},export:()=>true,remembered:()=>true});
+plain.host({generation:0,ready:true,present:true});assert.equal(plain.needsSnapshot(),false);
+'''
+        source = (ROOT / 'automatic_slot_discovery.js').read_text(encoding='utf-8')
+        run = subprocess.run(['node'], input=source + '\n' + code, capture_output=True, text=True,
+                             encoding='utf-8', timeout=15)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
     def test_the_native_view_remembers_by_the_slots_own_name_not_the_change_signature(self):
         # First Candidate62 session on the Floor: the slot check's signature is the name plus the
         # bytes after it in the row (about 250 characters, different on every launch). Using it as
@@ -154,3 +193,110 @@ delete names[40];discoverySnapshot(0);assert.equal(slotNames.has(40),false);asse
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PresetUsageTests(unittest.TestCase):
+    """Which presets use each IR slot, learned as presets are opened (the delete warning)."""
+
+    def test_usage_is_kept_between_launches_and_bad_records_are_ignored(self):
+        with tempfile.TemporaryDirectory() as folder:
+            memory = FloorMemory(folder)
+            self.assertEqual(memory.presets(), [])
+            self.assertTrue(memory.receive({'type': 'presetUsage', 'setlist': 3, 'preset': 12, 'name': "Bass Pre",
+                                            'slots': [24, 9, 24]}))
+            memory.receive({'type': 'presetUsage', 'setlist': 3, 'preset': 30, 'name': 'New Preset', 'slots': []})
+            memory.receive({'type': 'presetUsage', 'setlist': 3, 'preset': 7, 'name': 'Odd', 'slots': None})
+            for bad in ({'setlist': 99, 'preset': 1, 'name': 'x', 'slots': []}, {'setlist': 1, 'preset': 1, 'name': 'x', 'slots': [128]},
+                        {'setlist': 1, 'preset': 1, 'name': 7, 'slots': []}):
+                memory.receive({'type': 'presetUsage', **bad})
+            memory.receive({'type': 'presetUsage', 'setlist': 3, 'preset': 12, 'name': "Bass Pre", 'slots': [9]})  # saved again
+            again = FloorMemory(folder)
+            self.assertEqual(again.presets(), [[3, 7, 'Odd', None], [3, 12, "Bass Pre", [9]], [3, 30, 'New Preset', []]])
+            stored = json.loads(Path(folder, 'floor-memory.json').read_text(encoding='utf-8'))
+            self.assertRegex(stored['presets']['3:12']['seen'], r'^\d{4}-\d{2}-\d{2}$')
+
+    def test_the_preset_header_and_the_warning(self):
+        view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
+        unpack = view[view.index('  function unpackPresetHeader(bytes) {'):view.index('  function currentPresetHeader() {')]
+        using = view[view.index('  function presetLabel(entry, setlist) {'):view.index('  function confirmClearUsed(')]
+        code = r'''
+const assert=require('node:assert/strict');
+''' + unpack + r'''
+// The header as HX Edit held it for preset 030 on the test Floor (November 14).
+const bytes=Uint8Array.from('83 66 cd 0a 78 67 00 68 87 6b cd 00 03 6c cd 00 1e 6d ab 4e 65 77 20 50 72 65 73 65 74 00 75 c2'
+  .split(' ').map(h=>parseInt(h,16)));
+const header=unpackPresetHeader(bytes);
+assert.deepEqual(header,{setlist:3,preset:30,nameStart:0x13,nameLength:11});
+assert.equal(String.fromCharCode(...bytes.slice(0x13,0x13+10)),'New Preset');
+assert.deepEqual(unpackPresetHeader(Uint8Array.from([0x82,0x66,0x01,0x68,0x83,0x6c,0x05,0x6b,0x00,0x6d,0xa2,0x41,0x42])),
+  {setlist:0,preset:5,nameStart:11,nameLength:2});
+assert.equal(unpackPresetHeader(Uint8Array.from([0x92,1,2])),null);              // not a map
+assert.equal(unpackPresetHeader(Uint8Array.from([0x81,0x66,0xdc,0,1])),null);    // unknown value type
+assert.equal(unpackPresetHeader(bytes.slice(0,12)),null);                        // cut short
+let current={setlist:3,preset:30,name:'New Preset'};
+const currentPresetHeader=()=>current;
+const presetUses=new Map([['3:12',{setlist:3,preset:12,name:"Bass Pre",slots:[9,24]}],
+  ['3:30',{setlist:3,preset:30,name:'New Preset',slots:[24]}],['1:4',{setlist:1,preset:4,name:'Live',slots:[24]}],
+  ['3:7',{setlist:3,preset:7,name:'Odd',slots:null}]]);
+''' + using + r'''
+assert.deepEqual(presetsUsing([24]),['004 Live (another setlist)',"012 Bass Pre"]);   // not the loaded one
+assert.deepEqual(presetsUsing([24],false),['004 Live (another setlist)',"012 Bass Pre",'030 New Preset']);
+assert.deepEqual(presetsUsing([5]),[]);
+'''
+        run = subprocess.run(['node'], input=code, capture_output=True, text=True, encoding='utf-8', timeout=15)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn("if (users.length && !confirmClearUsed(selected, users)) return;", view)
+        self.assertIn('0x134) === 6', view)                 # Yes/No, No by default
+
+
+class LenientPresetSlotsTests(unittest.TestCase):
+    def test_the_record_reads_slots_where_the_strict_check_gives_up(self):
+        view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
+        strict = view[view.index('function presetIrSlots(tree, irParameters) {'):view.index('// The IR slots a preset uses, for the record')]
+        lenient = view[view.index('function presetIrSlotsLenient('):view.index('function previewSlotUnused(')]
+        code = strict + lenient + r'''
+const assert=require('node:assert/strict');
+const ir={NAM:['Index'],IRMono:['Index'],Amp:[]};
+// What 012 looked like to the strict reader: an unread value (variant 7) and a global node it
+// does not know. The strict check refuses it; the record still finds the slots.
+const tree={global:{'@tempo':120,odd:{unread:7}},globalNodes:{footswitch:{x:{unread:7}},
+  snapshot1:{'@name':'B',controllers:{dsp0:{block1:{Index:{'@value':40}}},dsp1:{x:{}}}}},
+  dsp0:{block0:{'@model':'Amp',Drive:5},block1:{'@model':'NAM',Index:12,Level:{unread:7}},block2:{'@model':'HelixPlugin_x'}},
+  dsp1:{block0:{'@model':'IRMonoStereo',Index:128},block1:{'@model':'IRMono',Index:9}}};
+assert.ok(presetIrSlots(tree,ir).reason);
+assert.deepEqual([...presetIrSlotsLenient(tree,ir).slots].sort((a,b)=>a-b),[9,12,40]);   // not 128: the preview slot
+assert.deepEqual([...presetIrSlotsLenient({global:{},globalNodes:{},dsp0:{},dsp1:{}},ir).slots],[]);
+'''
+        run = subprocess.run(['node'], input=code, capture_output=True, text=True, encoding='utf-8', timeout=15)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
+
+class PickerSideTests(unittest.TestCase):
+    def test_the_last_side_per_category_is_kept(self):
+        with tempfile.TemporaryDirectory() as folder:
+            memory = FloorMemory(folder)
+            self.assertEqual(memory.sides(), {})
+            memory.receive({'type': 'pickerSide', 'category': 'NAM Amp', 'value': 2})
+            memory.receive({'type': 'pickerSide', 'category': 'Amp', 'value': 1})
+            memory.receive({'type': 'pickerSide', 'category': 'NAM Amp', 'value': 99})
+            for bad in ({'category': '', 'value': 1}, {'category': 'Amp', 'value': '1'}, {'category': 'x' * 41, 'value': 1}):
+                memory.receive({'type': 'pickerSide', **bad})
+            self.assertEqual(FloorMemory(folder).sides(), {'Amp': 1, 'NAM Amp': 99})
+
+    def test_capture_sides_and_the_tagged_rows(self):
+        view = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
+        sides = view[view.index('  const SIDE_ALL = 99'):view.index('  function shownCategory() {')]
+        code = r'''
+const assert=require('node:assert/strict');
+const profile={pickerSides:{'NAM Amp':2,bad:'x'}};
+''' + sides + r'''
+assert.equal(rememberedSide('NAM Amp'),SIDE_BASS);
+assert.equal(rememberedSide('NAM Pedal'),SIDE_ALL);          // never picked: All
+assert.equal(rememberedSides.has('bad'),false);
+const bass={instrument:'bass'},guitar={instrument:'guitar'},any={instrument:'any'},old={};
+assert.deepEqual([bass,guitar,any,old].map(c=>onSide(c,SIDE_ALL)),[true,true,true,true]);
+assert.deepEqual([bass,guitar,any,old].map(c=>onSide(c,SIDE_BASS)),[true,false,true,false]);
+assert.deepEqual([bass,guitar,any,old].map(c=>onSide(c,SIDE_GUITAR)),[false,true,true,true]);
+'''
+        run = subprocess.run(['node'], input=code, capture_output=True, text=True, encoding='utf-8', timeout=15)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)

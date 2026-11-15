@@ -35,6 +35,12 @@ class NamLibrary : Form
     readonly Button categoryFilter = new Button();
     readonly ContextMenuStrip filterMenu = new ContextMenuStrip();
     int categoryIndex;
+    // Shared with the library window: favourites only, and "*" / "guitar" / "bass".
+    bool favoritesOnly;
+    string instrumentFilter="*";
+    static readonly string[] InstrumentCodes={"*","guitar","bass"};
+    static readonly string[] InstrumentLabels={"All","Guitar","Bass"};
+    string savedNotice="Local type saved. Source metadata preserved.";
     readonly Label count = new Label();
     readonly Button changeType = new Button();
     readonly Button expand = new Button();
@@ -187,6 +193,12 @@ class NamLibrary : Form
             graphics.InterpolationMode=mode;
             textBounds.X+=size+4;textBounds.Width=Math.Max(0,textBounds.Width-size-4);
         }
+        if(args.ColumnIndex==0&&row!=null&&Flag(row,"favorite")&&textBounds.Width>24){
+            // A favourite: a gold star before its name.
+            TextRenderer.DrawText(args.Graphics,"★",font,new Rectangle(textBounds.X,textBounds.Y,14,textBounds.Height),
+                Color.FromArgb(242,188,87),background,TextFormatFlags.Left|TextFormatFlags.VerticalCenter|TextFormatFlags.NoPrefix);
+            textBounds.X+=14;textBounds.Width-=14;
+        }
         TextRenderer.DrawText(args.Graphics,args.SubItem.Text,font,textBounds,foreground,background,
             TextFormatFlags.Left|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix);
     }
@@ -318,6 +330,14 @@ class NamLibrary : Form
         categoryFilter.FlatStyle=FlatStyle.Flat;categoryFilter.TextAlign=ContentAlignment.MiddleLeft;categoryFilter.Text="All types ▾";
         categoryFilter.Click+=(sender,args)=>{
             filterMenu.Items.Clear();
+            var favorites=new ToolStripMenuItem("★ Favorites only"){Checked=favoritesOnly};
+            favorites.Click+=(s,e)=>{favoritesOnly=!favoritesOnly;FilterChanged();};
+            filterMenu.Items.Add(favorites);filterMenu.Items.Add(new ToolStripSeparator());
+            for(int i=0;i<InstrumentCodes.Length;i++){
+                string code=InstrumentCodes[i];var item=new ToolStripMenuItem(InstrumentLabels[i]){Checked=code==instrumentFilter};
+                item.Click+=(s,e)=>{instrumentFilter=code;FilterChanged();};filterMenu.Items.Add(item);
+            }
+            filterMenu.Items.Add(new ToolStripSeparator());
             for(int i=0;i<FilterCodes.Length;i++){
                 int index=i;var item=new ToolStripMenuItem(FilterLabel(i)){Checked=i==categoryIndex};
                 item.Click+=(s,e)=>SetFilter(index);filterMenu.Items.Add(item);
@@ -327,7 +347,7 @@ class NamLibrary : Form
         foreach(var menu in new[]{filterMenu,typeMenu}){menu.BackColor=Color.FromArgb(35,35,35);menu.ForeColor=Color.Gainsboro;menu.Renderer=new ToolStripSystemRenderer();}
         count.ForeColor=Color.Silver;count.TextAlign=ContentAlignment.MiddleRight;
         toolbar.Controls.AddRange(new Control[]{search,clearSearch,categoryFilter,count});
-        changeType.Text="Type…";changeType.SetBounds(146,6,76,27);changeType.FlatStyle=FlatStyle.Flat;changeType.ForeColor=Color.Silver;
+        changeType.Text="Edit…";changeType.SetBounds(146,6,76,27);changeType.FlatStyle=FlatStyle.Flat;changeType.ForeColor=Color.Silver;
         changeType.Enabled=false;changeType.Click+=(sender,args)=>ShowTypeMenu();
         table.View=View.Details; table.FullRowSelect=true;
         table.MultiSelect=false; table.HideSelection=false; table.ShowItemToolTips=true;
@@ -380,6 +400,12 @@ class NamLibrary : Form
         };
         load.Click+=(sender,args)=>RequestCapture(false);
         table.DoubleClick+=(sender,args)=>RequestCapture(true);
+        // Right-click a capture: favourite, guitar/bass and type (the same menu as Edit…).
+        table.MouseUp+=(sender,args)=>{
+            if(args.Button!=MouseButtons.Right)return;
+            var hit=table.GetItemAt(args.X,args.Y);if(hit==null)return;
+            hit.Selected=true;hit.Focused=true;ShowTypeMenu(table,args.Location);
+        };
         status.ForeColor=Color.Silver; status.Text="";
         status.AutoEllipsis=true;
         status.TextChanged+=(sender,args)=>{gripHint.SetToolTip(status,status.Text);LayoutPane();};
@@ -418,6 +444,7 @@ class NamLibrary : Form
         timer.Tick+=(sender,args)=>{
             if(!IsWindow(parent)){timer.Stop(); Environment.Exit(0); return;}
             if(noticeUntil>0&&resizeClock.ElapsedMilliseconds>=noticeUntil){noticeUntil=0;status.Text="";}
+            ShowHeldProgress();
             bool expected=shown && !IsIconic(parent);if(Visible!=expected)Visible=expected;
             if(Visible&&Bounds!=dock) SetWindowPos(Handle,IntPtr.Zero,dock.X,dock.Y,dock.Width,dock.Height,0x10);
         };
@@ -499,15 +526,26 @@ class NamLibrary : Form
     }
     Dictionary<string,object> Selected(){return table.SelectedItems.Count==1 ? table.SelectedItems[0].Tag as Dictionary<string,object> : null;}
     static string FilterLabel(int index){return index==0?"All types":index==FilterCodes.Length-1?"Needs classification":GearLabels[index-1];}
+    // "★ · Bass · Pedal ▾": every active filter, or "All types ▾" when none.
+    string FilterText(){
+        var parts=new List<string>();
+        if(favoritesOnly)parts.Add("★");
+        int instrument=Array.IndexOf(InstrumentCodes,instrumentFilter);
+        if(instrument>0)parts.Add(InstrumentLabels[instrument]);
+        if(categoryIndex>0||parts.Count==0)parts.Add(FilterLabel(categoryIndex));
+        return String.Join(" · ",parts)+" ▾";
+    }
+    void FilterChanged(){categoryFilter.Text=FilterText();RenderRows();EmitView();}
     void SetFilter(int index){
         if(index<0||index>=FilterCodes.Length)return;
-        categoryIndex=index;categoryFilter.Text=FilterLabel(index)+" ▾";RenderRows();EmitView();
+        categoryIndex=index;FilterChanged();
     }
     void EmitView(){
         if(applying||applyingView)return;
         output.WriteLine(json.Serialize(new{type="action",action="view",view=new{
             selected=sharedSelected.Length==0?null:sharedSelected,query=search.Text,
-            filter=ViewFilters[categoryIndex],sortKey=new[]{"name","gear","irSlots","added"}[sorter.Column],
+            filter=ViewFilters[categoryIndex],instrument=instrumentFilter,favorites=favoritesOnly,
+            sortKey=new[]{"name","gear","irSlots","added"}[sorter.Column],
             sortDirection=sorter.Descending?-1:1}}));
     }
     void ApplyView(Dictionary<string,object> view){
@@ -517,7 +555,11 @@ class NamLibrary : Form
             sharedSelected=TextOf(view,"selected");
             search.Text=TextOf(view,"query");
             int index=Array.IndexOf(ViewFilters,TextOf(view,"filter"));
-            if(index>=0){categoryIndex=index;categoryFilter.Text=FilterLabel(index)+" ▾";}
+            if(index>=0)categoryIndex=index;
+            string instrument=TextOf(view,"instrument");
+            instrumentFilter=Array.IndexOf(InstrumentCodes,instrument)>=0?instrument:"*";
+            favoritesOnly=Flag(view,"favorites");
+            categoryFilter.Text=FilterText();
             int column=Array.IndexOf(new[]{"name","gear","irSlots","added"},TextOf(view,"sortKey"));
             if(column>=0)sorter.Column=column;
             sorter.Descending=TextOf(view,"sortDirection")=="-1";
@@ -527,7 +569,13 @@ class NamLibrary : Form
         }finally{applyingView=false;}
     }
     static bool Matches(Dictionary<string,object> row,string query,string group){
+        return Matches(row,query,group,"*",false);
+    }
+    static bool Matches(Dictionary<string,object> row,string query,string group,string instrument,bool favoritesOnly){
         if(group.Length>0&&TextOf(row,"category")!=group)return false;
+        // "any" captures (pedals and the like, by default) show under both instruments.
+        if(instrument!="*"&&TextOf(row,"instrument")!=instrument&&TextOf(row,"instrument")!="any")return false;
+        if(favoritesOnly&&!Flag(row,"favorite"))return false;
         query=query.Trim();if(query.Length==0)return true;
         var text=new StringBuilder(TextOf(row,"title")+" "+TextOf(row,"categoryLabel"));object aliases;
         if(row.TryGetValue("aliases",out aliases)&&aliases is IEnumerable&&!(aliases is string))
@@ -539,7 +587,7 @@ class NamLibrary : Form
     }
     static string CategoryDetail(Dictionary<string,object> row){
         var text=new StringBuilder(TextOf(row,"categoryOverride").Length>0?"Your type override. ":"Source-derived type. ");
-        text.Append("Type… changes the local label only. Sources:");object evidence;
+        text.Append("Edit… changes the local label only. Sources:");object evidence;
         if(row.TryGetValue("categoryEvidence",out evidence)&&evidence is IEnumerable)
             foreach(var item in (IEnumerable)evidence){var e=item as Dictionary<string,object>;if(e!=null)text.Append("\n").Append(TextOf(e,"source")).Append(": ").Append(TextOf(e,"gear"));}
         return text.ToString();
@@ -551,7 +599,7 @@ class NamLibrary : Form
         try{
             table.Items.Clear();
             foreach(var row in allRows){
-                if(!Matches(row,search.Text,filter))continue;
+                if(!Matches(row,search.Text,filter,instrumentFilter,favoritesOnly))continue;
                 var date=DateLabel(row);
                 var entry=new ListViewItem(CaptureTitle(row)){Name=TextOf(row,"contentId"),Tag=row,
                     ToolTipText=TextOf(row,"title")+"\n"+TextOf(row,"fileDetail")+"\n"+TextOf(row,"locationDetail")+"\n"+date[2]+"\n"+CategoryDetail(row)};
@@ -573,20 +621,39 @@ class NamLibrary : Form
         }finally{table.EndUpdate();applying=false;}
         FitColumns();RefreshLoad();
     }
-    void ShowTypeMenu(){
+    void ShowTypeMenu(){ShowTypeMenu(changeType,new Point(0,changeType.Height));}
+    void ShowTypeMenu(Control owner,Point at){
         var row=Selected();if(row==null||classificationWaiting)return;
         typeMenu.Items.Clear();
+        bool favorite=Flag(row,"favorite");
+        var star=new ToolStripMenuItem("★ Favorite"){Checked=favorite};
+        star.Click+=(sender,args)=>RequestFlag("favorite",!favorite,favorite?"Removed from favorites.":"Added to favorites.");
+        typeMenu.Items.Add(star);typeMenu.Items.Add(new ToolStripSeparator());
+        for(int i=1;i<=InstrumentCodes.Length;i++){
+            string code=i<InstrumentCodes.Length?InstrumentCodes[i]:"any",label=i<InstrumentLabels.Length?InstrumentLabels[i]:"Both";
+            var item=new ToolStripMenuItem(label){Checked=TextOf(row,"instrument")==code};
+            item.Click+=(sender,args)=>RequestFlag("instrument",code,code=="any"?"Marked for both guitar and bass.":"Marked as "+label.ToLowerInvariant()+".");
+            typeMenu.Items.Add(item);
+        }
+        typeMenu.Items.Add(new ToolStripSeparator());
         var reset=new ToolStripMenuItem("Use source metadata"){Checked=TextOf(row,"categoryOverride").Length==0};
         reset.Click+=(sender,args)=>RequestCategory(null);typeMenu.Items.Add(reset);typeMenu.Items.Add(new ToolStripSeparator());
         for(int i=0;i<GearCodes.Length;i++){
             string code=GearCodes[i];var item=new ToolStripMenuItem(GearLabels[i]){Checked=TextOf(row,"categoryOverride")==code};
             item.Click+=(sender,args)=>RequestCategory(code);typeMenu.Items.Add(item);
         }
-        typeMenu.Show(changeType,new Point(0,changeType.Height));
+        typeMenu.Show(owner,at);
+    }
+    void RequestFlag(string action,object value,string notice){
+        var row=Selected();if(row==null||classificationWaiting)return;
+        classificationWaiting=true;RefreshLoad();status.Text="Saving…";noticeUntil=0;savedNotice=notice;
+        if(action=="favorite")output.WriteLine(json.Serialize(new{type="action",action,contentId=TextOf(row,"contentId"),favorite=value}));
+        else output.WriteLine(json.Serialize(new{type="action",action,contentId=TextOf(row,"contentId"),instrument=value}));
     }
     void RequestCategory(string gear){
         var row=Selected();if(row==null||classificationWaiting||TextOf(row,"categoryRevision").Length!=64)return;
         classificationWaiting=true;RefreshLoad();status.Text="Saving local type…";noticeUntil=0;
+        savedNotice="Local type saved. Source metadata preserved.";
         output.WriteLine(json.Serialize(new{type="action",action="classify",contentId=TextOf(row,"contentId"),revision=TextOf(row,"categoryRevision"),gear=gear}));
     }
     static string CaptureTitle(Dictionary<string,object> row){
@@ -630,7 +697,24 @@ class NamLibrary : Form
         return state=="verifying"||state=="verification-requested"?"Checking Floor slots…":"";
     }
     string progressText="";
+    // A check that was only asked for usually ends within a second from the slots this PC remembers,
+    // without reading any back. Its bare "Checking Floor slots…" is held back that long, so opening a
+    // NAM category does not make the footer grow and the buttons jump. Slot reads show at once.
+    const long ProgressDelay=1500;
+    string heldProgress="";long heldSince;
     void ShowDiscoveryProgress(string progress){
+        if(progress=="Checking Floor slots…"&&progressText.Length==0){
+            if(heldProgress.Length==0){heldProgress=progress;heldSince=resizeClock.ElapsedMilliseconds;}
+            return;
+        }
+        heldProgress="";
+        ShowProgressNow(progress);
+    }
+    void ShowHeldProgress(){
+        if(heldProgress.Length==0||resizeClock.ElapsedMilliseconds-heldSince<ProgressDelay)return;
+        string progress=heldProgress;heldProgress="";ShowProgressNow(progress);
+    }
+    void ShowProgressNow(string progress){
         if(progress==progressText)return;
         // Replace only our own previous progress line, never a result, error or load confirmation.
         if(!loadConfirmation.Pending&&(status.Text==progressText||status.Text.Length==0)){status.Text=progress;noticeUntil=0;}
@@ -669,7 +753,7 @@ class NamLibrary : Form
         }
         if(type=="classificationResult"){
             classificationWaiting=false;status.Text=TextOf(message,"error");noticeUntil=0;
-            if(status.Text.Length==0){status.Text="Local type saved. Source metadata preserved.";noticeUntil=resizeClock.ElapsedMilliseconds+4000;}
+            if(status.Text.Length==0){status.Text=savedNotice;noticeUntil=resizeClock.ElapsedMilliseconds+4000;}
             RefreshLoad();return;
         }
         if(type=="resizeResult"){
@@ -1074,6 +1158,55 @@ class NamLibrary : Form
            FloorLabel(new Dictionary<string,object>{{"deviceStatus","verified"},{"verifiedSlots",new object[]{127,11,127,128,-1,"9"}}})!="11, 127"||
            FloorLabel(new Dictionary<string,object>{{"deviceStatus","verified"}})!=""||
            FloorLabel(new Dictionary<string,object>{{"deviceStatus","preview"}})!="128 · P")throw new Exception("IR slot evidence labels");
+        using(var writer=new StringWriter())using(var pane=new NamLibrary(IntPtr.Zero,writer)){
+            // Favourites and guitar/bass: filters shared with the library window, and the row menu.
+            var handle=pane.table.Handle;
+            Func<string,string,string,bool,Dictionary<string,object>> make=(id,title,instrument,favorite)=>new Dictionary<string,object>{
+                {"contentId",new string(id[0],64)},{"title",title},{"category","amp-only"},{"categoryLabel","Amp only"},
+                {"categoryRevision",new string('e',64)},{"instrument",instrument},{"favorite",favorite}};
+            var svt=make("a","Ampeg SVT","bass",true);var plexi=make("b","Plexi","guitar",false);var b7k=make("c","B7K","bass",false);
+            pane.allRows.Add(svt);pane.allRows.Add(plexi);pane.allRows.Add(b7k);pane.RenderRows();
+            if(pane.table.Items.Count!=3||pane.categoryFilter.Text!="All types \u25be")throw new Exception("No filter");
+            pane.instrumentFilter="bass";pane.FilterChanged();
+            if(pane.table.Items.Count!=2||pane.categoryFilter.Text!="Bass \u25be")throw new Exception("Bass filter");
+            plexi["instrument"]="any";pane.FilterChanged();
+            if(pane.table.Items.Count!=3)throw new Exception("Any shows under bass");
+            plexi["instrument"]="guitar";pane.FilterChanged();
+            pane.favoritesOnly=true;pane.FilterChanged();
+            if(pane.table.Items.Count!=1||pane.table.Items[0].Tag!=svt||pane.categoryFilter.Text!="\u2605 \u00b7 Bass \u25be")throw new Exception("Favourites filter");
+            var lines=writer.ToString().Trim().Split('\n');
+            var view=pane.json.Deserialize<Dictionary<string,object>>(lines[lines.Length-1]);
+            var shared=view["view"] as Dictionary<string,object>;
+            if(TextOf(shared,"instrument")!="bass"||!Flag(shared,"favorites"))throw new Exception("Shared view must carry the filters");
+            pane.ApplyView(new Dictionary<string,object>{{"filter","*"},{"query",""},{"sortKey","name"},{"sortDirection",1},{"instrument","guitar"},{"favorites",false}});
+            if(pane.table.Items.Count!=1||pane.table.Items[0].Tag!=plexi||pane.categoryFilter.Text!="Guitar \u25be")throw new Exception("Applied view filters");
+            pane.ApplyView(new Dictionary<string,object>{{"filter","*"},{"query",""},{"sortKey","name"},{"sortDirection",1}});
+            if(pane.table.Items.Count!=3||pane.favoritesOnly||pane.instrumentFilter!="*")throw new Exception("A view without the new fields shows everything");
+            pane.table.Items[new string('b',64)].Selected=true;writer.GetStringBuilder().Clear();
+            pane.RequestFlag("favorite",true,"Added to favourites.");pane.RequestFlag("instrument","bass","Marked as bass.");
+            var sent=writer.ToString().Trim().Split('\n');
+            if(sent.Length!=1)throw new Exception("One request at a time");
+            var flag=pane.json.Deserialize<Dictionary<string,object>>(sent[0]);
+            if(TextOf(flag,"action")!="favorite"||!Flag(flag,"favorite")||TextOf(flag,"contentId")!=new string('b',64))throw new Exception("Favourite request");
+            pane.Apply(new Dictionary<string,object>{{"type","classificationResult"},{"error",""}});
+            if(pane.classificationWaiting||pane.status.Text!="Added to favourites.")throw new Exception("Favourite notice");
+            writer.GetStringBuilder().Clear();pane.RequestFlag("instrument","bass","Marked as bass.");
+            flag=pane.json.Deserialize<Dictionary<string,object>>(writer.ToString().Trim());
+            if(TextOf(flag,"action")!="instrument"||TextOf(flag,"instrument")!="bass")throw new Exception("Instrument request");
+        }
+        using(var pane=new NamLibrary(IntPtr.Zero,new StringWriter())){
+            // A slot check that was only asked for: no status line (the footer would grow and the
+            // buttons jump) unless it is still running after a moment; slot reads show at once.
+            pane.ShowDiscoveryProgress(DiscoveryProgress("verification-requested","",""));
+            if(pane.status.Text.Length!=0)throw new Exception("A quick check must not show a status line");
+            pane.ShowDiscoveryProgress("");pane.heldSince=-10000;pane.ShowHeldProgress();
+            if(pane.status.Text.Length!=0)throw new Exception("A finished check must not show later");
+            pane.ShowDiscoveryProgress(DiscoveryProgress("verification-requested","",""));
+            pane.heldSince=pane.resizeClock.ElapsedMilliseconds-ProgressDelay-1;pane.ShowHeldProgress();
+            if(pane.status.Text!="Checking Floor slots…")throw new Exception("A slow check shows its status");
+            pane.ShowDiscoveryProgress(DiscoveryProgress("verifying","3","9"));
+            if(!pane.status.Text.Contains("3 of 9"))throw new Exception("Slot reads show at once");
+        }
         DspMeter.SelfTest();
         Console.WriteLine("Library table self-tests passed");
     }

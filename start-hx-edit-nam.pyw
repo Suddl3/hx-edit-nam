@@ -149,7 +149,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             # A preview left on a block by a closed editor, and the slots already read back.
             from floor_memory import FloorMemory
             memory = FloorMemory(library.folder)
-            options.update(leftoverPreview=memory.preview(), rememberedSlots=memory.slots())
+            options.update(leftoverPreview=memory.preview(), rememberedSlots=memory.slots(),
+                           presetUsage=memory.presets(), pickerSides=memory.sides())
             # The NAM block category exists in this copy's catalog (nam_catalog.patch_nam_category).
             options.update(namCategory=(exe.parent / 'res' / 'icons_category' / 'FX_HX_Category_NAM_Amp.png').is_file())
             # Read-only research probes: only in a copy prepared with this marker file.
@@ -211,7 +212,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             if payload.get('type') == 'ready':
                 ready.set()
             if payload.get('type') in {'toneTrace', 'navigationBanner', 'automaticSlotStatus', 'floorInventoryPresentation',
-                                       'dspMeterLayout', 'windowKeeper',
+                                       'dspMeterLayout', 'windowKeeper', 'presetUsage', 'pickerSide',
                                        'libraryConnectionGuard', 'librarySlotEvidenceResult'}:
                 trace(payload)
             if payload.get('type') == 'irExportObservation' and payload.get('stage') in {'invalidated', 'discarded', 'slot-changed'}:

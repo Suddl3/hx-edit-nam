@@ -306,14 +306,22 @@ const view={libraryReady:()=>true,setDiscoveryStatus:()=>{},
 const api=installAutomaticSlotDiscovery(view,{available:()=>true,revision:()=>0});
 function dispatch(event){const state={};hook.onEnter.call(state,[{readPointer:()=>window,add:()=>({readU32:()=>event})}]);hook.onLeave.call(state);}
 api.host({generation:0,ready:true,present:true});dispatch(15);
+// Connecting runs one short recall pass (remembered slots only, no export), then goes idle.
 for(let i=0;i<1000;i++){now+=250;timer();dispatch(123);}
-assert.equal(posts,0);assert.equal(snapshots,0);
-api.requestVerification();timer();dispatch(123);assert.equal(posts,1);assert.equal(snapshots,1);
+const p0=posts,s0=snapshots;assert(s0>0 && s0<=10,'one bounded recall pass: '+s0);assert.equal(api.inspect().recall,false);
+for(let i=0;i<1000;i++){now+=250;timer();dispatch(123);}
+assert.equal(posts,p0);assert.equal(snapshots,s0);
+api.requestVerification();timer();dispatch(123);assert.equal(posts,p0+1);assert.equal(snapshots,s0+1);
 api.setSessionActive(true);for(let i=0;i<1000;i++){now+=250;timer();dispatch(123);}
-assert.equal(posts,1);assert.equal(snapshots,1);
+assert.equal(posts,p0+1);assert.equal(snapshots,s0+1);
 api.setSessionActive(false);now+=1501;timer();dispatch(123);
-assert.equal(snapshots,2);assert.equal(api.inspect().requested,false);
-for(let i=0;i<1000;i++){now+=250;timer();}assert.equal(posts,2);api.close();
+assert.equal(snapshots,s0+2);assert.equal(api.inspect().requested,false);
+for(let i=0;i<1000;i++){now+=250;timer();}assert.equal(posts,p0+2);api.close();
+// Without recall (the old contract): an idle connection never polls.
+posts=0;snapshots=0;const quiet=installAutomaticSlotDiscovery(view,{available:()=>true,revision:()=>0},{recallOnConnect:false});
+quiet.host({generation:0,ready:true,present:true});dispatch(15);
+for(let i=0;i<1000;i++){now+=250;timer();dispatch(123);}
+assert.equal(posts,0);assert.equal(snapshots,0);quiet.close();
 ''')
 
     def test_local_ui_lock_is_not_content_mutation_and_unknown_events_stay_untrusted(self):
@@ -571,7 +579,8 @@ const redraw=()=>{flushes++;};
 const view={libraryReady,discoverySnapshot,flushInventoryPresentation,needsInventoryPresentation,
  exportDiscoverySlot:p=>{exports.push({...p});return true;},
 METHODS};
-const api=installAutomaticSlotDiscovery(view,{available:()=>true,revision:()=>0});
+// Recall on connect is covered separately (test_floor_memory, the idle adapter test).
+const api=installAutomaticSlotDiscovery(view,{available:()=>true,revision:()=>0},{recallOnConnect:false});
 function dispatch(event=123){const frame={};hook.onEnter.call(frame,[{readPointer:()=>window,add:()=>({readU32:()=>event})}]);hook.onLeave.call(frame);}
 function wake(dt=0){now+=dt;timer();dispatch();}
 api.host({generation:0,ready:true,present:true});

@@ -6,6 +6,7 @@ from html import escape
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 from string import Template
 from threading import Lock
@@ -21,6 +22,27 @@ PAGE = Path(__file__).with_name('library_card.html')
 GEARS = {'amp': 'Amp', 'amp-cab': 'Amp + cab', 'pedal': 'Pedal', 'preamp': 'Preamp',
          'cab': 'Cab capture', 'studio': 'Studio', 'outboard': 'Outboard', 'experimental': 'Experimental',
          'space': 'Space', 'pedal-amp': 'Pedal + amp', 'amp-pedal-cab': 'Pedal + amp + cab', '': 'Unsorted'}
+INSTRUMENTS = {'guitar': 'Guitar', 'bass': 'Bass', 'any': 'Both'}   # 'any' is shown as Both
+# Amps, cabs and amp rigs are split by instrument (like HX Edit's own Amp and Preamp categories);
+# pedals, studio gear and the rest suit either and default to Any.
+AMP_GEARS = {'amp', 'amp-cab', 'preamp', 'cab', 'pedal-amp', 'amp-pedal-cab', ''}
+# A capture is for bass only when its name says so: the word "bass" or well-known bass gear. Whole
+# words only, so a Fender Bassman or Bassbreaker (guitar amps) stays guitar.
+BASS_NAME = re.compile(r'(?<![a-z0-9])(bass|svt|darkglass|aguilar|markbass|gallien[- ]?krueger|b7k)(?![a-z0-9])',
+                       re.IGNORECASE)
+
+
+def instrument_auto(entry):
+    """'bass' when the capture's name says bass; else 'guitar' for amps and cabs, 'any' for the rest."""
+    if BASS_NAME.search(f"{entry.get('name') or ''} {entry.get('irName') or ''}"):
+        return 'bass'
+    return 'guitar' if (entry.get('gear') or '') in AMP_GEARS else 'any'
+
+
+def instrument_of(entry):
+    """The user's choice if there is one, else the automatic one."""
+    chosen = entry.get('instrument')
+    return chosen if chosen in INSTRUMENTS else instrument_auto(entry)
 
 
 def capture_gear(path):
@@ -50,7 +72,11 @@ class Library:
         self._payload_index = {}
         self._pending_slots = {}
         self._listeners = set()
-        self._view = dict(selected=None, query='', filter='*', sortKey='name', sortDirection=1, revision=0)
+        self._view = dict(selected=None, query='', filter='*', instrument='*', favorites=False, layout='list', sortKey='name',
+                          sortDirection=1, revision=0)
+        # Filters, layout and sort as last left (library-view.json); search text and selection start empty.
+        self.view_file = self.folder / 'library-view.json'
+        self._load_view()
 
     def subscribe(self, callback):
         """Observe this collection, not a second catalog owned by a presentation."""
@@ -75,25 +101,57 @@ class Library:
         with self.lock:
             return dict(self._view)
 
+    KEPT_VIEW = ('filter', 'instrument', 'favorites', 'layout', 'sortKey', 'sortDirection')
+
+    def _view_valid(self, view):
+        return (view['filter'] in (*GEARS, '*') and view['instrument'] in (*INSTRUMENTS, '*')
+                and type(view['favorites']) is bool and view['layout'] in ('list', 'grid')
+                and view['sortKey'] in ('name', 'gear', 'instrument', 'irSlots', 'added')
+                and type(view['sortDirection']) is int and view['sortDirection'] in (-1, 1))
+
+    def _load_view(self):
+        try:
+            saved = json.loads(self.view_file.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            return
+        if not isinstance(saved, dict):
+            return
+        for key in self.KEPT_VIEW:      # each value on its own: one bad field keeps its default
+            if key in saved:
+                candidate = dict(self._view, **{key: saved[key]})
+                if self._view_valid(candidate):
+                    self._view = candidate
+
+    def _save_view(self, view):
+        try:
+            self.folder.mkdir(parents=True, exist_ok=True)
+            temporary = self.view_file.with_name(f'library-view.{os.getpid()}.tmp')
+            temporary.write_text(json.dumps({key: view[key] for key in self.KEPT_VIEW}) + '\n', encoding='utf-8')
+            temporary.replace(self.view_file)
+        except OSError:
+            pass                        # a failed write only costs the filters next launch
+
     def update_view(self, value):
         if not isinstance(value, dict):
             return False
-        allowed = {'selected', 'query', 'filter', 'sortKey', 'sortDirection', 'revision'}
+        allowed = {'selected', 'query', 'filter', 'instrument', 'favorites', 'layout', 'sortKey', 'sortDirection',
+                   'revision'}
         if set(value) - allowed:
             return False
         candidate = self.view_state()
         candidate.update({key: item for key, item in value.items() if key != 'revision'})
         if (candidate['selected'] is not None and (not isinstance(candidate['selected'], str) or candidate['selected'] not in self._read())
                 or not isinstance(candidate['query'], str) or len(candidate['query']) > 300
-                or candidate['filter'] not in (*GEARS, '*')
-                or candidate['sortKey'] not in ('name', 'gear', 'irSlots', 'added')
-                or type(candidate['sortDirection']) is not int or candidate['sortDirection'] not in (-1, 1)):
+                or not self._view_valid(candidate)):
             return False
         with self.lock:
             if all(candidate[key] == self._view[key] for key in allowed - {'revision'}):
                 return True
             candidate['revision'] = self._view['revision'] + 1
+            kept_changed = any(candidate[key] != self._view[key] for key in self.KEPT_VIEW)
             self._view = candidate
+        if kept_changed:
+            self._save_view(candidate)
         self._changed()
         return True
 
@@ -185,7 +243,8 @@ class Library:
         with self.lock:
             payload_index = {identity: set(payloads) for identity, payloads in self._payload_index.items()}
         return {payload: dict(id=identity, name=entries[identity].get('name', ''),
-                              gear=entries[identity].get('gear', ''),
+                              gear=entries[identity].get('gear', ''), instrument=instrument_of(entries[identity]),
+                              favorite=entries[identity].get('favorite') is True,
                               icon=icon_for(entries[identity], self.pictures))
                 for identity, payloads in payload_index.items() if identity in entries
                 for payload in payloads}
@@ -349,6 +408,32 @@ class Library:
             self._write(entries)
         self._changed()
 
+    def set_favorite(self, identity, favorite):
+        """Star or unstar a capture (shared by the NAM tab and the library window)."""
+        if type(favorite) is not bool:
+            raise ValueError('Favorite must be true or false')
+        with self.lock:
+            entries = self._read(for_write=True)
+            if favorite:
+                entries[identity]['favorite'] = True
+            else:
+                entries[identity].pop('favorite', None)
+            self._write(entries)
+        self._changed()
+
+    def set_instrument(self, identity, instrument):
+        """'guitar', 'bass' or 'any' chosen by the user; '' or None goes back to automatic."""
+        if instrument and instrument not in INSTRUMENTS:
+            raise ValueError(f'Unknown instrument: {instrument}')
+        with self.lock:
+            entries = self._read(for_write=True)
+            if instrument:
+                entries[identity]['instrument'] = instrument
+            else:
+                entries[identity].pop('instrument', None)
+            self._write(entries)
+        self._changed()
+
     def reset_gear(self, identity):
         with self.lock:
             entries = self._read(for_write=True)
@@ -427,7 +512,9 @@ def render_library(entries, view_state=None, pictures=None):
                     irSlots=value.get('irSlots', []), slotState=value.get('slotState', 'unverified'),
                     canTrain=value.get('canTrain', True), pendingSlots=value.get('pendingSlots', []),
                     icon=icon, iconChosen=icon == value.get('icon'),
-                    iconAuto=pick_icon(value.get('name', ''), value.get('gear') or None))
+                    iconAuto=pick_icon(value.get('name', ''), value.get('gear') or None),
+                    favorite=value.get('favorite') is True, instrument=instrument_of(value),
+                    instrumentChosen=value.get('instrument') in INSTRUMENTS)
     rows = [row(key, value) for key, value in entries.items()]
     # Every gear picture once, as a small data: URI (the picker shows them all); rows refer to them by id.
     icons = {ident: small_data_uri(ident) for ident in known_icons()}

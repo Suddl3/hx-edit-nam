@@ -45,6 +45,117 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   const isVisible = method(0x3ba100, 'uint8', ['int']);
   const point = Memory.alloc(8);
   const selectionEvent = 0x216c6273; // sbl!
+  const gridSelectEvent = 0x21677273; // srg!: a tile clicked in the block picker's grid view
+  const gridSelected = method(0x37a010, 'pointer', []);   // grid list -> its clicked tile (row layout)
+  // The Guitar / Bass menu above the model column (controller +0x50, class vtable 0x9176e8). Its value
+  // is the subcategory id (Guitar 1, Bass 2: stock Amp's and ours); HX Edit reads it on "cva!"
+  // (0x217120 at 0x2172eb). The menu's own select (0x3ac940: value, event, redraw) moves the check
+  // mark, sets the label and then the value, which sends that event (the plain widget setter at
+  // 0x3bcb50 left the label on "Guitar").
+  const menuSelect = method(0x3ac940, 'void', ['int', 'uint', 'int']);
+  let menuSelectReady = null;
+  const subcategoryChanged = 0x21617663;   // cva!
+  function subcategoryMenu(controller) {
+    const menu = controller.add(0x50).readPointer();
+    return !menu.isNull() && menu.readPointer().equals(base.add(0x9176e8)) ? menu : NULL;
+  }
+  function subcategoryValue(controller) {
+    const menu = subcategoryMenu(controller);
+    return menu.isNull() ? null : menu.add(0x54).readPointer().add(0x1c).readS32();
+  }
+  // Sides of the dropdown (nam_catalog.PICKER_SIDES): All 99, Guitar 1, Bass 2. Each category
+  // remembers the side last picked there (floor-memory.json); never picked: All.
+  const SIDE_ALL = 99, SIDE_GUITAR = 1, SIDE_BASS = 2;
+  const SIDED_CATEGORIES = new Set(['Amp', 'Amp+Cab', 'Preamp', 'NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Pedal',
+    'NAM Other', 'NAM Favorites']);
+  const rememberedSides = new Map(Object.entries(profile.pickerSides && typeof profile.pickerSides === 'object' ?
+    profile.pickerSides : {}).filter(([, value]) => Number.isInteger(value)));
+  let choosingSide = false;
+  const rememberedSide = category => rememberedSides.get(category) ?? SIDE_ALL;
+  // A capture shows on All, on its own instrument's side, and on both when it is marked Any.
+  const onSide = (capture, side) => side === SIDE_ALL ||
+    [side === SIDE_BASS ? 'bass' : 'guitar', 'any'].includes(capture.instrument || 'guitar');
+  function shownCategory() {
+    try {
+      const row = categoryList.isNull() ? NULL : selectedRow(categoryList);
+      return row.isNull() ? '' : row.readUtf8String();
+    } catch (_) { return ''; }
+  }
+  function noteSideChoice(controller) {
+    // The user picked a side in the dropdown: remember it for this category.
+    if (choosingSide) return;
+    const category = shownCategory(), value = subcategoryValue(controller);
+    if (!SIDED_CATEGORIES.has(category) || !Number.isInteger(value) || rememberedSides.get(category) === value) return;
+    rememberedSides.set(category, value);
+    send({type: 'pickerSide', category, value});
+  }
+  const sideBlocks = new Map();   // controller -> the block its sides were last chosen for
+  function blockSide(controller) {
+    // After HX Edit shows the selected block's category (0x21e500): its remembered side when the
+    // block's model is on it, otherwise All. Once per block, so browsing another side sticks.
+    // Every block counts as "last", whatever its category: coming back to a block applies its side again.
+    const key = position(controller);
+    if (sideBlocks.get(controller.toString()) === key) return;
+    const category = shownCategory();
+    if (!category) return;                 // no category showing yet (startup): try again next time
+    sideBlocks.set(controller.toString(), key);
+    if (!SIDED_CATEGORIES.has(category) || category.startsWith('NAM ')) return;   // NAM: wantedRecord
+    const list = controller.add(0x58).readPointer();
+    if (list.isNull()) return;
+    const shown = selectedRow(list), model = shown.isNull() ? '' : shown.readUtf8String();
+    const wanted = rememberedSide(category);
+    if (wanted === subcategoryValue(controller)) return;
+    chooseSubcategory(controller, wanted);
+    if (!model) return;
+    let index = rowIndex(list, text => text === model);
+    if (index < 0 && wanted !== SIDE_ALL) { chooseSubcategory(controller, SIDE_ALL); index = rowIndex(list, text => text === model); }
+    if (index >= 0) selectRow(list, 1, index, 0, 0);   // the block's model stays highlighted
+  }
+  function chooseSubcategory(controller, value) {
+    const menu = subcategoryMenu(controller);
+    if (menu.isNull() || subcategoryValue(controller) === value) return;
+    if (menuSelectReady === null) {
+      const bytes = new Uint8Array(base.add(0x3ac940).readByteArray(16));
+      menuSelectReady = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('') === '558bec56578bf1e8d4c500008b7d083b';
+    }
+    if (!menuSelectReady) return;     // another HX Edit build: leave the menu as it is
+    choosingSide = true;
+    try { menuSelect(menu, value, subcategoryChanged, 1); } finally { choosingSide = false; }
+    if (listReports-- > 0) send({type: 'toneTrace', reason: 'nam-category', stage: 'subcategory', value});
+  }
+  // grid list: add a tile (index, label, picture, 0, row index, model, flags, 1), as 0x21dbfd does
+  const gridAppend = method(0x37a1d0, 'pointer', ['int', 'pointer', 'pointer', 'int', 'int', 'pointer', 'int', 'int']);
+  function listRows(list) {
+    // A list's rows ([[list+0x7c]+4], count at +8): the model column and grid view store them alike.
+    const rows = list.add(0x7c).readPointer();
+    if (rows.isNull()) return [];
+    const count = Math.min(rows.add(8).readS32(), 512), items = rows.add(4).readPointer(), out = [];
+    for (let index = 0; index < count; index++) out.push(items.add(index * 4).readPointer());
+    return out;
+  }
+  function appendCaptureTiles(controller, list) {
+    // HX Edit builds grid view's tiles from the model column's rows when it fills the column
+    // (0x21db23). Capture rows added after that (a NAM block's own category, refreshed when the
+    // block is selected or added) had no tiles: only NAM A2 Lite showed. One tile per capture row
+    // not yet shown, with the row's own picture.
+    try {
+      const grid = controller.add(0x60).readPointer();
+      if (grid.isNull()) return;
+      const shown = new Set(listRows(grid).filter(tile => !tile.isNull()).map(tile => tile.readUtf8String()));
+      let added = 0;
+      for (const row of listRows(list)) {
+        if (row.isNull()) continue;
+        const label = row.readUtf8String();
+        if (!captureRows.has(label) || shown.has(label)) continue;
+        if (gridAppend(grid, -1, row, row.add(0x104).readPointer(), 0, row.add(0x100).readS32(),
+                       row.add(0x10c).readPointer(), 0, 1).isNull()) break;   // the grid is locked
+        added++;
+      }
+      if (added) redrawList(grid);
+    } catch (error) {
+      send({type: 'toneTrace', reason: 'nam-category', stage: 'grid-tiles-skipped', error: String(error.message)});
+    }
+  }
   const tileLabels = tiles.map(tile => Memory.allocUtf8String(tile.label));
   const tileByBlock = new Map(tiles.map((tile, index) => [tile.block, index]));
   const tileByLabel = new Map(tiles.map((tile, index) => [tile.label, index]));
@@ -567,22 +678,34 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   let pendingCapture = null;
 
   function captureGroup(gear) {
-    // nam_catalog.NAM_CATEGORY_GROUPS: 1 Amp, 2 Amp + cab, 3 Pedal, 4 Other.
+    // nam_catalog.NAM_CATEGORY_GROUPS: 1 Amp, 2 Amp + cab, 3 Cab, 4 Pedal, 5 Other (6 Favorites
+    // holds starred captures of any type, never a capture's own group).
     return gear === 'amp' || gear === 'preamp' ? 1 : gear === 'amp-cab' || gear === 'amp-pedal-cab' ? 2 :
-      gear === 'pedal' || gear === 'pedal-amp' ? 3 : 4;
+      gear === 'cab' ? 3 : gear === 'pedal' || gear === 'pedal-amp' ? 4 : 5;
   }
+  const FAVORITES_GROUP = 6;
 
   function captureRowLabel(capture) {
     const name = String(capture.name).split(' – ').pop().trim() || 'Capture';
     return `${capture.slot}: ${name.length > 28 ? name.slice(0, 27).trimEnd() + '…' : name}`;
   }
 
+  function captureView(header) {
+    // header: the block row's text. Its trailing spaces name the group (1-4) plus 4 per side:
+    // All 1-4, Guitar 5-8, Bass 9-12 (nam_catalog.patch_nam_category). None (Amp > NAM, or an HX
+    // Edit that trims names): every capture.
+    const spaces = header.length - header.trimEnd().length;
+    if (spaces === 0) return {group: 0, instrument: null};
+    const groups = NAM_CATEGORY_NAMES.length, group = (spaces - 1) % groups + 1, side = Math.floor((spaces - 1) / groups);
+    return {group, instrument: side === 1 ? 'guitar' : side === 2 ? 'bass' : null};
+  }
+
   function capturesUnder(header) {
-    // header: the block row's text. Its trailing spaces name the group; none (Amp > NAM, or an
-    // HX Edit that trims names) lists every capture.
-    const group = header.length - header.trimEnd().length;
+    const {group, instrument} = captureView(header);
     return namView.installedCaptures()
-      .filter(capture => group === 0 || captureGroup(capture.gear) === group)
+      .filter(capture => group === 0 || (group === FAVORITES_GROUP ? capture.favorite === true : captureGroup(capture.gear) === group))
+      // Guitar or Bass: that instrument's captures and the ones marked Any.
+      .filter(capture => !instrument || [instrument, 'any'].includes(capture.instrument || 'guitar'))
       .sort((a, b) => String(a.name).localeCompare(String(b.name)) || a.slot - b.slot);
   }
 
@@ -613,8 +736,13 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     try {
       namView.requestSlotCheck?.();          // remembered slots make this immediate after the first run
       builtSignature = captureSignature();
+      // Rows already in the list (HX Edit's own rebuild went through the row hook) are not added twice.
+      let present = new Set();
+      try { present = new Set(listRows(frame.list).filter(row => !row.isNull()).map(row => row.readUtf8String())); }
+      catch (_) { present = new Set(); }
       for (const capture of capturesUnder(frame.header)) {
         const label = captureRowLabel(capture);
+        if (present.has(label)) continue;
         if (!captureLabels.has(label)) captureLabels.set(label, Memory.allocUtf8String(label));
         captureRows.set(label, {slot: capture.slot, header: frame.header});
         const image = captureImage(capture.icon);
@@ -696,7 +824,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   const redrawList = method(0x3baa40, 'void', []);
 
   function captureSignature() {
-    return namView.installedCaptures().map(capture => `${capture.slot}:${captureGroup(capture.gear)}:${capture.name}`).join('|');
+    return namView.installedCaptures().map(capture =>
+      `${capture.slot}:${captureGroup(capture.gear)}:${capture.instrument}:${capture.favorite ? 1 : 0}:${capture.name}`).join('|');
   }
   function listOwner() {
     // The selector that owns the category list; its model column is at +0x58.
@@ -775,19 +904,28 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       }
       if (signature !== builtSignature || blockChanged) {
         const capture = Number.isInteger(slot) ? namView.installedCaptures().find(entry => entry.slot === slot) : null;
-        const target = capture ? NAM_CATEGORY_NAMES[captureGroup(capture.gear) - 1] : shown;
+        // The block's own category; NAM Favorites stays open while the block plays a starred capture.
+        const target = !capture || (shown === 'NAM Favorites' && capture.favorite) ? shown : NAM_CATEGORY_NAMES[captureGroup(capture.gear) - 1];
+        // Guitar or Bass in NAM Amp / NAM Amp + cab: the block's capture decides; with none, the side
+        // being browsed is kept (choosing the category row alone goes back to HX Edit's first, Guitar).
+        const keepSide = target === shown ? subcategoryValue(controller) : null;
         const index = rowIndex(categoryList, text => text === target);
         if (index < 0) return;
         clearSelection(categoryList, 0, 0);
         selectRow(categoryList, 1, index, 0, 1);
         modelEvent(controller, selectionEvent, categoryList, NULL, NULL);
         markCurrentRow(categoryList, index);
+        // The block's capture: its category's remembered side if the capture is on it, else All.
+        const remembered = rememberedSide(target);
+        const side = capture ? (onSide(capture, remembered) ? remembered : SIDE_ALL) : keepSide;
+        if (side !== null) chooseSubcategory(controller, side);
         const header = rowIndex(list, text => text.trimEnd() === tiles[0].block);
         if (header >= 0) {
           const row = getIrRow(list, header);
           appendCaptureRows({header: row.readUtf8String(), list, image: row.add(0x104).readPointer(),
             index: row.add(0x100).readS32(), model: row.add(0x10c).readPointer()});
           redrawList(list);
+          appendCaptureTiles(controller, list);
         }
         builtSignature = signature;
         if (listReports-- > 0) send({type: 'toneTrace', reason: 'nam-category', stage: 'list-refreshed', from: shown, to: target});
@@ -908,14 +1046,54 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // exchanged between these four siblings of the same model; nothing is sent to the device.
   // (Addresses and layouts: BLOCK-ICON-RESEARCH.md; confirmed by probes on November 13.)
   const NAM_MODEL_ID = 'HD2_AmpNAMLite';
-  const NAM_CATEGORY_NAMES = ['NAM Amp', 'NAM Amp + cab', 'NAM Pedal', 'NAM Other'];  // nam_catalog.NAM_CATEGORY_GROUPS
-  const namRecords = new Map();      // category name -> that category's record of the NAM model
+  const NAM_CATEGORY_NAMES = ['NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Pedal', 'NAM Other', 'NAM Favorites'];  // nam_catalog.NAM_CATEGORY_GROUPS
+  const namRecords = new Map();      // "category name:subcategory index" -> that record of the NAM model
   const flowDsp = new Map();         // path object -> its DSP index
   const flowItems = new Map();       // path item -> {item, object, vtable}, to redraw after a change
   const selectorStack = [];          // model selectors currently syncing to the cursor block
   let iconReports = 40, iconState = '', iconCheckAt = 0, iconRefreshAt = 0, iconNudge = null;
   const l6text = p => { const rep = p.add(4).readPointer(); return rep.isNull() ? '' : rep.add(0x10).readPointer().readCString(); };
   const redrawItem = new NativeFunction(base.add(0x40ae70), 'void', ['pointer', 'int'], 'thiscall');
+
+  // Amp+Cab (category 10) is built by HX Edit when it loads the catalog (0x3c0fb0) from Amp's sides,
+  // twice: with current cabs (Guitar 1 -> 11, Bass 2 -> 12) and with legacy cabs ("Guitar+Legacy",
+  // "Bass+Legacy", ids 1 and 2). Amp's All side (99, nam_catalog.PICKER_SIDES) came out as "All"
+  // in both halves, with one id. The legacy one becomes "All+Legacy" with id 98. Its name gets a
+  // string of its own (kept for the session, never released): the copy shares Amp's.
+  const keptNames = [];
+  function nameLegacyAll(catalog) {
+    const count = (o, first, end) => o.add(end).readU32() - o.add(first).readU32();
+    const at = (o, data, first, i) => o.add(data).readPointer().add(4 * (o.add(first).readU32() + i)).readPointer();
+    for (let i = 0; i < count(catalog, 0x14, 0x18) && i < 64; i++) {
+      const category = at(catalog, 0x0c, 0x14, i);
+      if (category.add(0x24).readS32() !== 10) continue;
+      let alls = 0;
+      for (let j = 0; j < count(category, 0x3c, 0x40) && j < 16; j++) {
+        const side = at(category, 0x34, 0x3c, j);
+        if (side.add(0xc).readS32() !== 99 || ++alls < 2) continue;
+        const text = Memory.allocUtf8String('All+Legacy'), rep = Memory.alloc(0x14);
+        rep.writeU32(0x40000000);                 // reference count: never reaches zero
+        rep.add(4).writeU32(10); rep.add(8).writeU32(0); rep.add(0xc).writeU32(11); rep.add(0x10).writePointer(text);
+        keptNames.push(text, rep);
+        side.add(4).add(4).writePointer(rep);
+        side.add(0xc).writeS32(98);
+        send({type: 'toneTrace', reason: 'nam-category', stage: 'legacy-all-named'});
+        return;
+      }
+    }
+  }
+  if (profile.namCategory) {
+    const ampCabGuards = { '3c0fb0': '558bec6aff68', '3c101c': '837f240a' };
+    const ampCabReady = Object.entries(ampCabGuards).every(([rva, hex]) =>
+      Array.from(new Uint8Array(base.add(parseInt(rva, 16)).readByteArray(hex.length / 2)), b => b.toString(16).padStart(2, '0')).join('') === hex);
+    if (ampCabReady) Interceptor.attach(base.add(0x3c0fb0), {
+      onEnter() { this.catalog = this.context.ecx; },
+      onLeave() {
+        try { nameLegacyAll(this.catalog); }
+        catch (error) { send({type: 'toneTrace', reason: 'nam-category', stage: 'legacy-all-skipped', error: String(error.message)}); }
+      },
+    });
+  }
 
   function indexNamRecords(catalog) {
     const count = (o, first, end) => o.add(end).readU32() - o.add(first).readU32();
@@ -927,7 +1105,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         const sub = at(category, 0x34, 0x3c, j);
         for (let k = 0; k < count(sub, 0x28, 0x2c) && k < 16; k++) {
           const record = at(sub, 0x20, 0x28, k);
-          if (l6text(record.add(0x24)) === NAM_MODEL_ID) namRecords.set(name, record);
+          if (l6text(record.add(0x24)) === NAM_MODEL_ID) namRecords.set(name + ':' + j, record);   // j: 0 Guitar / only, 1 Bass
         }
       }
     }
@@ -938,7 +1116,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     // The edit buffer is the one the model selector holds; the selector exists from startup,
     // before the user has selected anything (selectedController is only set by a selection).
     iconWhy = `records=${namRecords.size}`;
-    if (namRecords.size !== NAM_CATEGORY_NAMES.length) return null;
+    if (!NAM_CATEGORY_NAMES.every(name => namRecords.has(name + ':0'))) return null;
     iconWhy = 'no-editor';
     if (iconEditor.isNull()) return null;
     const slot = targetBinding.peekSlot(iconEditor, dsp, blockName);
@@ -946,7 +1124,12 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     if (!Number.isInteger(slot)) return null;
     const capture = namView.installedCaptures().find(entry => entry.slot === slot);
     iconWhy = capture ? `gear=${capture.gear}` : `slot ${slot} not a known capture (${namView.installedCaptures().length} known)`;
-    return capture ? namRecords.get(NAM_CATEGORY_NAMES[captureGroup(capture.gear) - 1]) || null : null;
+    if (!capture) return null;
+    // The record on the category's remembered side when the capture shows there, else on All, so
+    // HX Edit opens that side itself (record index = side position: All 0, Guitar 1, Bass 2).
+    const name = NAM_CATEGORY_NAMES[captureGroup(capture.gear) - 1], side = rememberedSide(name);
+    const position = !onSide(capture, side) ? 0 : side === SIDE_GUITAR ? 1 : side === SIDE_BASS ? 2 : 0;
+    return namRecords.get(name + ':' + position) || namRecords.get(name + ':0') || null;
   }
   let iconWhy = '', iconWhyLast = '', iconEditor = NULL;
   function iconSkipped(stage, blockName) {
@@ -1039,11 +1222,16 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     });
     Interceptor.attach(base.add(0x21e500), {            // model selector: sync to the cursor block
       onEnter() {
+        this.controller = this.context.ecx;
         selectorStack.push(this.context.ecx);
         noteCursor(this.context.ecx);
         try { if (controllerReady(this.context.ecx)) iconEditor = this.context.ecx.add(0x34).readPointer(); } catch (_) { /* keep the last one */ }
       },
-      onLeave() { selectorStack.pop(); },
+      onLeave() {
+        selectorStack.pop();
+        // HX Edit has shown the selected block's category: Amp / Preamp open on the remembered side.
+        try { if (profile.namCategory) blockSide(this.controller); } catch (_) { /* leave HX Edit's own side */ }
+      },
     });
     Interceptor.attach(base.add(0x269540), {            // signal-flow data: resolve one path object
       onEnter(args) {
@@ -1138,6 +1326,38 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     });
   }
 
+  // Grid view of the block picker. HX Edit builds its tiles from the list's rows (loop at 0x21db23, the
+  // row in [ebp-0x14]), each with its row model's picture (0x3c2fb0, called from 0x21dbee), never the
+  // row's own picture: every capture tile showed the NAM block's rack. For a capture row the capture's
+  // picture is returned instead. Stock rows are untouched; other bytes leave grid view as it was.
+  if (profile.namCategory) {
+    const gridGuards = { '21dbda': '8b4dec426a010fb6c05056ffb1000100008bcf52e8bd531a00',
+                         '3c2fb0': '568bf1837e2000752c8b461c85c07405' };
+    const gridReady = Object.entries(gridGuards).every(([rva, hex]) => {
+      const bytes = new Uint8Array(base.add(parseInt(rva, 16)).readByteArray(hex.length / 2));
+      return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('') === hex;
+    });
+    if (!gridReady) send({ type: 'toneTrace', reason: 'nam-category', stage: 'grid-pictures-skipped' });
+    else {
+      const tileBuilder = base.add(0x21dbf3);
+      Interceptor.attach(base.add(0x3c2fb0), {
+        onEnter() {
+          this.picture = NULL;
+          if (!this.returnAddress.equals(tileBuilder)) return;
+          try {
+            const row = this.context.ebp.sub(0x14).readPointer();
+            if (row.isNull() || !captureRows.has(row.readUtf8String())) return;
+            const picture = row.add(0x104).readPointer();
+            for (const image of captureImages.values()) if (!image.isNull() && image.equals(picture)) { this.picture = picture; break; }
+          } catch (error) {
+            this.picture = NULL;
+          }
+        },
+        onLeave(result) { if (!this.picture.isNull()) result.replace(this.picture); },
+      });
+    }
+  }
+
   Interceptor.attach(base.add(0x380940), {
     onEnter(args) {
       if (profile.navigation) {
@@ -1179,19 +1399,34 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   function onModelEvent(controller, event, sender, data, flags) {
     if (profile.navigation) {
       let plain = false;
-      if (profile.namCategory && event === selectionEvent && !sender.isNull()) {
-        let entry = null, text = null;
+      if (profile.namCategory && (event === selectionEvent || event === gridSelectEvent) && !sender.isNull()) {
+        let entry = null, text = null, column = NULL;
         try {
-          if (sender.equals(controller.add(0x58).readPointer())) {       // the model column
-            const row = selectedRow(sender);
-            text = row.isNull() ? null : row.readUtf8String();
-            entry = text === null ? null : captureRows.get(text) || null;
-          }
+          column = controller.add(0x58).readPointer();                    // the model column
+          let row = NULL;
+          if (event === selectionEvent && sender.equals(column)) row = selectedRow(sender);
+          // Grid view: its tiles (+0x60, built from the column's rows by 0x21db23, same labels)
+          // send "srg!" and HX Edit reads the clicked tile with 0x37a010 (handler at 0x217d3c).
+          else if (event === gridSelectEvent && sender.equals(controller.add(0x60).readPointer())) row = gridSelected(sender);
+          text = row.isNull() ? null : row.readUtf8String();
+          entry = text === null ? null : captureRows.get(text) || null;
         } catch (_) { entry = null; text = null; }
-        if (entry) return chooseCapture(controller, sender, entry);
+        // A capture tile is applied through the model column, exactly as a click on its row.
+        if (entry) return chooseCapture(controller, column, entry);
         plain = text !== null && text.trimEnd() === tiles[0].block;   // a NAM category's own NAM A2 Lite row
       }
       modelEvent(controller, event, sender, data, flags);
+      if (profile.namCategory) {
+        try {
+          // A side picked in the dropdown is remembered; a category opened by a click shows its
+          // remembered side (never picked: All, the first).
+          if (event === subcategoryChanged && sender.equals(controller.add(0x50).readPointer())) noteSideChoice(controller);
+          else if (event === selectionEvent && !categoryList.isNull() && sender.equals(categoryList)) {
+            const category = shownCategory();
+            if (SIDED_CATEGORIES.has(category)) chooseSubcategory(controller, rememberedSide(category));
+          }
+        } catch (error) { if (listReports-- > 0) send({type: 'toneTrace', reason: 'nam-category', stage: 'side-skipped', error: String(error.message)}); }
+      }
       if (plain) plainPicked(controller);
       observeController(controller);
       if (profile.namCategory) noteCursor(controller);

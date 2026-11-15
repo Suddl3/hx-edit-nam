@@ -6,6 +6,11 @@ function createAutomaticSlotDiscovery(api) {
   let signature=null, stableAt=0, blocked=false, closed=false;
   let identity=null, slotSignatures=new Map(), requested=false, verifiedOnce=false;
   let sessionActive=false, allowWhileBrowsing=false;
+  // Recall: with api.recallOnConnect, a pass that runs by itself once the Floor connects (and
+  // again after each full refresh from it) and only accepts slots this PC remembers. It never
+  // reads a slot back: if any slot needs reading it stops and waits for a request as before.
+  let recall=false;
+  const recallArmed=()=>api.recallOnConnect===true && present;
   const done=new Set(),unidentified=new Set();
   function status(state){api.status({state,checked:done.size,pending:pending?.slot||null});}
   function reset(){epoch++;pending=null;signature=null;identity=null;slotSignatures.clear();done.clear();unidentified.clear();stableAt=api.now();}
@@ -22,7 +27,7 @@ function createAutomaticSlotDiscovery(api) {
       const remainedPresent=present && value.ready===true && value.present===true;
       const keepStopped=remainedPresent && blocked;
       generation=value.generation;present=value.ready===true && value.present===true;
-      reset();blocked=keepStopped;requested=false;verifiedOnce=false;allowWhileBrowsing=false;
+      reset();blocked=keepStopped;requested=false;verifiedOnce=false;allowWhileBrowsing=false;recall=recallArmed();
       status(keepStopped?'inventory-changed-during-discovery':present?'verification-needed':'disconnected');
     },
     invalidate(slots=null){
@@ -41,7 +46,8 @@ function createAutomaticSlotDiscovery(api) {
       cancelPreparation();
       reset();
       requested=false;verifiedOnce=false;allowWhileBrowsing=false;
-      if(interrupted || blocked){fail('inventory-changed-during-discovery');return;}
+      if(interrupted || blocked){recall=false;fail('inventory-changed-during-discovery');return;}
+      recall=recallArmed();
       status('verification-needed');
     },
     requestVerification(options={}){
@@ -77,14 +83,14 @@ function createAutomaticSlotDiscovery(api) {
     tick(snapshot){
       if(closed || !present || blocked)return;
       if(pending && api.now()>=pending.deadline){fail('discovery-timeout');return;}
-      if(!requested || (sessionActive&&!allowWhileBrowsing))return;
+      if(!(requested||recall) || (sessionActive&&!allowWhileBrowsing))return;
       if(!snapshot || snapshot.device!==0x210001 || snapshot.busy)return;
       if(!Array.isArray(snapshot.slots) || snapshot.slots.some((s,i,a)=>!Number.isInteger(s)||s<1||s>127||a.indexOf(s)!==i)){
         fail('invalid-inventory');return;
       }
       if(identity!==null && identity!==snapshot.identity){
         cancelPreparation();
-        reset();requested=false;verifiedOnce=false;api.changed?.(null);status('verification-needed');return;
+        reset();requested=false;verifiedOnce=false;recall=recallArmed();api.changed?.(null);status('verification-needed');return;
       }
       identity=snapshot.identity;
       const rows=snapshot.slotSignatures || snapshot.slots.map(slot=>[slot,snapshot.signature]);
@@ -121,8 +127,11 @@ function createAutomaticSlotDiscovery(api) {
         if(!done.has(s) && api.remembered(s,currentSlots.get(s))===true)done.add(s);
       }
       const slot=snapshot.slots.find(s=>!done.has(s));
-      if(slot===undefined){requested=false;verifiedOnce=true;allowWhileBrowsing=false;
+      // Only a requested pass makes later changed slots rechecked by themselves (verifiedOnce).
+      if(slot===undefined){verifiedOnce=verifiedOnce||requested;requested=false;recall=false;allowWhileBrowsing=false;
         status(unidentified.size || snapshot.excluded>0 ? 'complete-partial' : 'complete');return;}
+      // A recall pass never reads back: what it accepted stays checked for the next request.
+      if(!requested){recall=false;return;}
       pending={token:String(epoch)+':'+(++next),slot,device:snapshot.device,
         revision:snapshot.revision,phase:'preparing',deadline:api.now()+5000};
       status('verifying');api.prepare({...pending});
@@ -144,23 +153,23 @@ function createAutomaticSlotDiscovery(api) {
     },
     fault(reason){if(!closed)fail(reason);},
     close(){closed=true;reset();status('closed');},
-    needsSnapshot(){return !closed && present && !blocked && requested &&
+    needsSnapshot(){return !closed && present && !blocked && (requested||recall) &&
       (!sessionActive||allowWhileBrowsing) && pending?.phase!=='exporting';},
     needsWake(){return !closed && (!!pending || this.needsSnapshot());},
-    inspect(){return {generation,present,epoch,blocked,requested,sessionActive,verifiedOnce,
+    inspect(){return {generation,present,epoch,blocked,requested,recall,sessionActive,verifiedOnce,
       done:[...done],pending:pending&&{...pending}};}
   };
 }
 
 // Does not execute until an explicitly opted-in candidate calls this installer.
-function installAutomaticSlotDiscovery(namView, observer) {
+function installAutomaticSlotDiscovery(namView, observer, options={}) {
   const win=Process.getModuleByName('user32.dll');
   const fn=(name,result,args)=>new NativeFunction(win.getExportByName(name),result,args,'stdcall');
   const post=fn('PostMessageW','int',['pointer','uint','uint','uint']);
   const wake=fn('RegisterWindowMessageW','uint',['pointer'])(Memory.allocUtf16String('HX NAM slot discovery'));
   const activeWindow=fn('GetActiveWindow','pointer',[]);
   let window=ptr(0),lastStatus='',running=false,wakePosted=false;
-  const coordinator=createAutomaticSlotDiscovery({now:()=>Date.now(),
+  const coordinator=createAutomaticSlotDiscovery({now:()=>Date.now(),recallOnConnect:options.recallOnConnect!==false,
     status:value=>{const text=JSON.stringify(value);if(text!==lastStatus){lastStatus=text;namView.setDiscoveryStatus(value.state,value.checked);send({type:'automaticSlotStatus',...value});}},
     prepare:value=>send({type:'automaticSlotPrepare',...value}),
     export:(request,snapshot)=>namView.exportDiscoverySlot(request,snapshot,observer.automaticSubmit),

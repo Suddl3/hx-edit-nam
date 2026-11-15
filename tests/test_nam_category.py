@@ -13,9 +13,9 @@ class NamCategoryCatalogTests(unittest.TestCase):
     def test_each_category_has_the_block_row_marked_by_its_trailing_spaces(self):
         models = [{'id\0': 'HD2_AmpNAMLite\0', 'name\0': 'NAM A2 Lite\0', 'image\0': 'x.png\0', 'params\0': []}]
         rows = [nam_category_rows(index, models) for index in range(1, len(NAM_CATEGORY_GROUPS) + 1)]
-        self.assertEqual([name for name, _ in NAM_CATEGORY_GROUPS], ['NAM Amp', 'NAM Amp + cab', 'NAM Pedal', 'NAM Other'])
-        self.assertEqual([row[0]['name\0'] for row in rows],
-                         ['NAM A2 Lite \0', 'NAM A2 Lite  \0', 'NAM A2 Lite   \0', 'NAM A2 Lite    \0'])
+        self.assertEqual([name for name, _ in NAM_CATEGORY_GROUPS],
+                         ['NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Pedal', 'NAM Other', 'NAM Favorites'])
+        self.assertEqual([row[0]['name\0'] for row in rows], ['NAM A2 Lite' + ' ' * n + '\0' for n in range(1, 7)])
         # The same model identity everywhere; the source row is not modified.
         self.assertTrue(all(row[0]['id\0'] == 'HD2_AmpNAMLite\0' for row in rows))
         self.assertEqual(models[0]['name\0'], 'NAM A2 Lite\0')
@@ -47,16 +47,30 @@ const assert=require('node:assert/strict');
 const installed=[{slot:127,name:'Deluxe Reverb',gear:'amp-cab'},{slot:9,name:'FNDR BFDRI VB Clean',gear:'amp-cab'},
   {slot:13,name:'Tube Screamer Gain4',gear:'pedal'},{slot:22,name:'Friedman Brit 50 Teaser Tone from Capture Pack – BRIT50 HG BRI CAB',gear:'amp-cab'},
   {slot:40,name:'Plexi Bright',gear:'amp'},{slot:41,name:'Acoustic Guitar',gear:'experimental'},{slot:42,name:'Unsorted thing',gear:''}];
+installed.push({slot:50,name:'Ampeg SVT',gear:'amp',instrument:'bass'},{slot:51,name:'Darkglass B7K',gear:'pedal',instrument:'bass'},
+  {slot:52,name:'Both ways amp',gear:'amp',instrument:'any'});
 const namView={installedCaptures:()=>installed};
+const NAM_CATEGORY_NAMES=['NAM Amp','NAM Amp + cab','NAM Cab','NAM Pedal','NAM Other','NAM Favorites'];
 ''' + helpers + r'''
-assert.deepEqual(['amp','preamp','amp-cab','amp-pedal-cab','pedal','pedal-amp','','studio','experimental'].map(captureGroup),
-  [1,1,2,2,3,3,4,4,4]);
+assert.deepEqual(['amp','preamp','amp-cab','amp-pedal-cab','cab','pedal','pedal-amp','','studio','experimental'].map(captureGroup),
+  [1,1,2,2,3,4,4,5,5,5]);
 const slots=header=>capturesUnder(header).map(capture=>capture.slot);
-assert.deepEqual(slots('NAM A2 Lite '),[40]);                 // Amp
-assert.deepEqual(slots('NAM A2 Lite  '),[127,9,22]);          // Amp + cab, by name
-assert.deepEqual(slots('NAM A2 Lite   '),[13]);               // Pedal
-assert.deepEqual(slots('NAM A2 Lite    '),[41,42]);           // Other
-assert.equal(slots('NAM A2 Lite').length,7);                  // Amp > NAM, or names trimmed: everything
+const tag=(group,side)=>'NAM A2 Lite'+' '.repeat(group+6*side);   // side: 0 All, 1 Guitar, 2 Bass
+installed.push({slot:60,name:'Mesa 4x12',gear:'cab'});
+installed.find(c=>c.slot===13).favorite=true;installed.find(c=>c.slot===50).favorite=true;
+assert.deepEqual(slots(tag(1,0)),[50,52,40]);                 // Amp, All
+assert.deepEqual(slots(tag(1,1)),[52,40]);                    // Amp, Guitar: guitar and Both
+assert.deepEqual(slots(tag(1,2)),[50,52]);                    // Amp, Bass: bass and Both
+assert.deepEqual(slots(tag(2,0)),[127,9,22]);                 // Amp + cab, by name
+assert.deepEqual(slots(tag(2,2)),[]);                         // Amp + cab, Bass: none here
+assert.deepEqual(slots(tag(3,0)),[60]);                       // Cab
+assert.deepEqual(slots(tag(4,0)),[51,13]);                    // Pedal, All
+assert.deepEqual(slots(tag(4,1)),[13]);                       // Pedal, Guitar (no mark: guitar)
+assert.deepEqual(slots(tag(4,2)),[51]);                       // Pedal, Bass
+assert.deepEqual(slots(tag(5,0)),[41,42]);                    // Other
+assert.deepEqual(slots(tag(6,0)),[50,13]);                    // Favorites: starred, any type
+assert.deepEqual(slots(tag(6,2)),[50]);                       // Favorites, Bass
+assert.equal(slots('NAM A2 Lite').length,11);                 // Amp > NAM, or names trimmed: everything
 // Row labels lead with the slot, use the profile name of a long library name, and are unique.
 assert.equal(captureRowLabel(installed[0]),'127: Deluxe Reverb');
 assert.equal(captureRowLabel(installed[3]),'22: BRIT50 HG BRI CAB');
@@ -130,7 +144,7 @@ const NULL={isNull:()=>true,equals:o=>o===NULL,toString:()=>'0'};
 const Memory={allocUtf8String:text=>({text})};
 const method=()=>()=>{};
 const profile={namCategory:true}, tiles=[{block:'NAM A2 Lite'}], selectionEvent=1;
-const NAM_CATEGORY_NAMES=['NAM Amp','NAM Amp + cab','NAM Pedal','NAM Other'];
+const NAM_CATEGORY_NAMES=['NAM Amp','NAM Amp + cab','NAM Cab','NAM Pedal','NAM Other','NAM Favorites'];
 let active=null,command=null,workflowRequest=null,toneImport=null,pendingCapture=null;
 const sent=[],send=v=>sent.push(v);
 const captureRows=new Map(),captureLabels=new Map();
@@ -149,11 +163,15 @@ const clearSelection=l=>{l.selected=-1;}, selectRow=(l,on,i)=>{l.selected=i;};
 const appendRow=(l,at,label)=>{l.rows.push({text:label.text});};
 const categories=list(['Looper',...NAM_CATEGORY_NAMES]);
 const models=list([]);
-let rebuilds=0;
+let rebuilds=0, gridRefreshes=0;
+const appendCaptureTiles=(c,l)=>{assert.equal(l,models);gridRefreshes++;};   // grid view's tiles follow
 const modelEvent=(c,ev,sender)=>{  // HX Edit: a category choice rebuilds the model column
   rebuilds++; const name=categories.rows[categories.selected].text;
   models.rows=[{text:'NAM A2 Lite'+' '.repeat(NAM_CATEGORY_NAMES.indexOf(name)+1)}]; models.selected=0;};
 const controller=ptr({0x50:categories,0x58:models,0x80:0});
+const listRows=l=>l.rows.map(r=>({isNull:()=>false,readUtf8String:()=>r.text}));
+const sides=[];const subcategoryValue=()=>null,chooseSubcategory=(c,v)=>sides.push(v);   // All 99 / Guitar 1 / Bass 2
+const SIDE_ALL=99,SIDE_GUITAR=1,SIDE_BASS=2,rememberedSide=()=>SIDE_ALL,onSide=()=>true;
 let selectedController=controller;
 const controllerReady=c=>!!c&&!c.isNull(), block=()=>'block0';
 const targetBinding={peekSlot:()=>blockSlot};
@@ -171,6 +189,8 @@ assert.equal(rebuilds,2);
 assert.equal(categories.rows[categories.selected].text,'NAM Amp + cab');
 assert.deepEqual(models.rows.map(r=>r.text),['NAM A2 Lite  ','22: BRIT50 HG']);
 assert.equal(models.rows[models.selected].text,'22: BRIT50 HG');   // the loaded capture is highlighted
+assert.equal(gridRefreshes,1);
+assert.deepEqual(sides,[99]);                                   // nothing remembered: All
 listCheckAt=0; refreshCaptureList(); assert.equal(rebuilds,2);  // no change: no rebuild
 // A type changed in the NAM tab: the open list is rebuilt.
 installed=[{slot:10,name:'BRIT50 Plexi',gear:'amp-cab'},{slot:22,name:'BRIT50 HG',gear:'amp-cab'}];
@@ -183,7 +203,7 @@ blockSlot=10; listCheckAt=0; refreshCaptureList(); assert.equal(rebuilds,5);
 assert.equal(categories.rows[categories.selected].text,'NAM Other');
 assert.equal(models.rows[models.selected].text,'10: BRIT50 Plexi');
 // Opening another NAM category by hand is left alone while nothing changes.
-categories.selected=3; modelEvent(controller,1,categories);
+categories.selected=4; modelEvent(controller,1,categories);
 appendCaptureRows({header:models.rows[0].text,list:models,image:NULL,index:0,model:NULL});
 listCheckAt=0; refreshCaptureList(); assert.equal(rebuilds,6); assert.equal(categories.rows[categories.selected].text,'NAM Pedal');
 // Not while a preview is running, and not when a stock category is on show.
