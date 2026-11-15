@@ -1,0 +1,527 @@
+{
+ "about": "Newly generated scene backgrounds for the Floor's Focus View (AI image renders from written scene descriptions, framed and toned by focus_bg.py). No Line 6 artwork is included, copied or traced.",
+ "screen": {
+  "width": 800,
+  "height": 480,
+  "pixel_format": "RGB555 little-endian, R << 10 | G << 5 | B, rows from the top",
+  "gear_box": {
+   "x": 272,
+   "y": 68,
+   "w": 256,
+   "h": 256
+  },
+  "black_above_y": 52,
+  "fade_in_until_y": 96,
+  "fade_out_from_y": 300,
+  "black_from_y": 342
+ },
+ "backgrounds_note": "backgrounds/*.png are full colour 800 x 480; dither to RGB555 when converting for the unit (focus_bg.rgb555 / to_rgb555_bytes). previews/*.png are already RGB555-dithered and carry a stand-in UI (anti-aliased title) to judge legibility; they are not for the unit.",
+ "category_tints": {
+  "amp": [
+   232,
+   64,
+   52
+  ],
+  "cab": [
+   200,
+   70,
+   50
+  ],
+  "preamp": [
+   220,
+   90,
+   60
+  ],
+  "distortion": [
+   240,
+   160,
+   40
+  ],
+  "dynamics": [
+   235,
+   205,
+   60
+  ],
+  "eq": [
+   225,
+   215,
+   110
+  ],
+  "modulation": [
+   60,
+   150,
+   240
+  ],
+  "delay": [
+   70,
+   210,
+   110
+  ],
+  "reverb": [
+   240,
+   120,
+   40
+  ],
+  "pitch": [
+   170,
+   90,
+   230
+  ],
+  "filter": [
+   160,
+   90,
+   220
+  ],
+  "wah": [
+   150,
+   100,
+   220
+  ],
+  "volume": [
+   60,
+   200,
+   190
+  ],
+  "neutral": [
+   220,
+   220,
+   220
+  ]
+ },
+ "assignment": null,
+ "assignment_note": "Undecided: theme packs or one scene per category. The firmware side only needs category -> background slot; the PC side fills the slots.",
+ "styles": [
+  {
+   "id": "table",
+   "name": "Walnut Table",
+   "status": "candidate",
+   "description": "Dark walnut tabletop under a warm lamp.",
+   "background": "backgrounds/table.png",
+   "preview": "previews/table.png",
+   "preview_gear": {
+    "render": "gtr_essexa30",
+    "display_name": "Essex A30",
+    "category": "amp"
+   },
+   "source": {
+    "plate": "table.png",
+    "focus": [
+     0.5,
+     0.45
+    ],
+    "zoom": 1.3,
+    "gain": 1.0,
+    "blur": 0,
+    "category_tint": 0.1
+   }
+  },
+  {
+   "id": "stage",
+   "name": "Stage",
+   "status": "candidate",
+   "description": "Black stage boards in a soft spotlight pool.",
+   "background": "backgrounds/stage.png",
+   "preview": "previews/stage.png",
+   "preview_gear": {
+    "render": "gtr_britplexi_brt",
+    "display_name": "Brit Plexi Brt",
+    "category": "amp"
+   },
+   "source": {
+    "plate": "stage.png",
+    "focus": [
+     0.5,
+     0.47
+    ],
+    "zoom": 1.3,
+    "gain": 1.0,
+    "blur": 0,
+    "category_tint": 0.22
+   }
+  },
+  {
+   "id": "studio",
+   "name": "Studio Desk",
+   "status": "candidate",
+   "description": "Charcoal desk in a dim, blurred recording studio.",
+   "background": "backgrounds/studio.png",
+   "preview": "previews/studio.png",
+   "preview_gear": {
+    "render": "dyn_lastudio",
+    "display_name": "LA Studio Comp",
+    "category": "dynamics"
+   },
+   "source": {
+    "plate": "studio.png",
+    "focus": [
+     0.47,
+     0.5
+    ],
+    "zoom": 1.3,
+    "gain": 1.05,
+    "blur": 0,
+    "category_tint": 0.14
+   }
+  },
+  {
+   "id": "pedalboard",
+   "name": "Pedalboard",
+   "status": "candidate",
+   "description": "Grey loop-fabric pedalboard with an aluminium rail.",
+   "background": "backgrounds/pedalboard.png",
+   "preview": "previews/pedalboard.png",
+   "preview_gear": {
+    "render": "dist_teemah",
+    "display_name": "Teemah",
+    "category": "distortion"
+   },
+   "source": {
+    "plate": "pedalboard.png",
+    "focus": [
+     0.5,
+     0.5
+    ],
+    "zoom": 1.3,
+    "gain": 1.05,
+    "blur": 0,
+    "category_tint": 0.14
+   }
+  },
+  {
+   "id": "space",
+   "name": "Deep Space",
+   "status": "candidate",
+   "description": "Moon-rock plateau, calm starfield, a spiral galaxy top-left.",
+   "background": "backgrounds/space.png",
+   "preview": "previews/space.png",
+   "preview_gear": {
+    "render": "delay_cosmos",
+    "display_name": "Cosmos Echo",
+    "category": "delay"
+   },
+   "source": {
+    "plate": "space.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.3,
+    "gain": 1.1,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "aurora",
+   "name": "Aurora",
+   "status": "candidate",
+   "description": "Frozen lake under a green aurora.",
+   "background": "backgrounds/aurora.png",
+   "preview": "previews/aurora.png",
+   "preview_gear": {
+    "render": "rev_shimmer",
+    "display_name": "Shimmer",
+    "category": "reverb"
+   },
+   "source": {
+    "plate": "aurora.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.15,
+    "gain": 0.9,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "synthwave",
+   "name": "Synthwave",
+   "status": "locked",
+   "description": "Striped sunset, purple sky, wireframe mountains, glowing grid.",
+   "background": "backgrounds/synthwave.png",
+   "preview": "previews/synthwave.png",
+   "preview_gear": {
+    "render": "mod_70schorus",
+    "display_name": "70s Chorus",
+    "category": "modulation"
+   },
+   "source": {
+    "plate": "synthwave.png",
+    "focus": [
+     0.33,
+     0.56
+    ],
+    "zoom": 1.5,
+    "gain": 0.85,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "neon_rain",
+   "name": "Neon Rain",
+   "status": "locked",
+   "description": "Rain-soaked city street at blue hour, colourful lights.",
+   "background": "backgrounds/neon_rain.png",
+   "preview": "previews/neon_rain.png",
+   "preview_gear": {
+    "render": "delay_glitch",
+    "display_name": "Glitch Delay",
+    "category": "delay"
+   },
+   "source": {
+    "plate": "neon_rain.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.15,
+    "gain": 0.8,
+    "blur": 1.5,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "neon_rain_simple",
+   "name": "Neon Rain (simple)",
+   "status": "variant",
+   "description": "Simpler neon rain: a few big lights, visible rain.",
+   "background": "backgrounds/neon_rain_simple.png",
+   "preview": "previews/neon_rain_simple.png",
+   "preview_gear": {
+    "render": "mod_scriptphase",
+    "display_name": "Script Mod Phase",
+    "category": "modulation"
+   },
+   "source": {
+    "plate": "neon_rain_simple.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.15,
+    "gain": 1.0,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "desert_dusk",
+   "name": "Desert Dusk",
+   "status": "candidate",
+   "description": "Cracked desert floor, orange-violet dusk, mesas.",
+   "background": "backgrounds/desert_dusk.png",
+   "preview": "previews/desert_dusk.png",
+   "preview_gear": {
+    "render": "dist_bighorn",
+    "display_name": "Bighorn Fuzz",
+    "category": "distortion"
+   },
+   "source": {
+    "plate": "desert_dusk.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.3,
+    "gain": 0.9,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "lunar",
+   "name": "Lunar",
+   "status": "candidate",
+   "description": "Grey moon dust, black sky, a blue planet glow.",
+   "background": "backgrounds/lunar.png",
+   "preview": "previews/lunar.png",
+   "preview_gear": {
+    "render": "rev_ganymede",
+    "display_name": "Ganymede",
+    "category": "reverb"
+   },
+   "source": {
+    "plate": "lunar.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.3,
+    "gain": 0.8,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "volcanic",
+   "name": "Volcanic",
+   "status": "candidate",
+   "description": "Basalt floor, distant lava cracks and embers.",
+   "background": "backgrounds/volcanic.png",
+   "preview": "previews/volcanic.png",
+   "preview_gear": {
+    "render": "gtr_revv_red",
+    "display_name": "Revv Gen Red",
+    "category": "amp"
+   },
+   "source": {
+    "plate": "volcanic.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.3,
+    "gain": 0.9,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "ice_cave",
+   "name": "Ice Cave",
+   "status": "candidate",
+   "description": "Frosted ice floor in a turquoise ice cave.",
+   "background": "backgrounds/ice_cave.png",
+   "preview": "previews/ice_cave.png",
+   "preview_gear": {
+    "render": "rev_glitz",
+    "display_name": "Glitz",
+    "category": "reverb"
+   },
+   "source": {
+    "plate": "ice_cave.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.3,
+    "gain": 0.72,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "forest_moss",
+   "name": "Mossy Forest",
+   "status": "candidate",
+   "description": "Mossy stone slab in a misty forest.",
+   "background": "backgrounds/forest_moss.png",
+   "preview": "previews/forest_moss.png",
+   "preview_gear": {
+    "render": "wah_uk846",
+    "display_name": "UK Wah 846",
+    "category": "wah"
+   },
+   "source": {
+    "plate": "forest_moss.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.3,
+    "gain": 0.85,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "deep_sea",
+   "name": "Deep Sea",
+   "status": "candidate",
+   "description": "Sandy sea floor with rippling caustic light.",
+   "background": "backgrounds/deep_sea.png",
+   "preview": "previews/deep_sea.png",
+   "preview_gear": {
+    "render": "delay_adriatic",
+    "display_name": "Adriatic Delay",
+    "category": "delay"
+   },
+   "source": {
+    "plate": "deep_sea.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.3,
+    "gain": 0.72,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "marble_gallery",
+   "name": "Marble Gallery",
+   "status": "candidate",
+   "description": "Black-and-gold marble plinth in a dark gallery.",
+   "background": "backgrounds/marble_gallery.png",
+   "preview": "previews/marble_gallery.png",
+   "preview_gear": {
+    "render": "gtr_grammatico",
+    "display_name": "Grammatico",
+    "category": "amp"
+   },
+   "source": {
+    "plate": "marble_gallery.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.3,
+    "gain": 1.0,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "cloud_sunset",
+   "name": "Cloud Sunset",
+   "status": "candidate",
+   "description": "Glass platform above a sea of sunset clouds.",
+   "background": "backgrounds/cloud_sunset.png",
+   "preview": "previews/cloud_sunset.png",
+   "preview_gear": {
+    "render": "rev_dynbloom",
+    "display_name": "Dynamic Bloom",
+    "category": "reverb"
+   },
+   "source": {
+    "plate": "cloud_sunset.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.3,
+    "gain": 0.72,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "retro_lounge",
+   "name": "70s Lounge",
+   "status": "candidate",
+   "description": "Walnut hi-fi console in a 70s living room.",
+   "background": "backgrounds/retro_lounge.png",
+   "preview": "previews/retro_lounge.png",
+   "preview_gear": {
+    "render": "gtr_usdeluxe_nrm",
+    "display_name": "US Deluxe Nrm",
+    "category": "amp"
+   },
+   "source": {
+    "plate": "retro_lounge.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.15,
+    "gain": 0.85,
+    "blur": 2.5,
+    "category_tint": 0.0
+   }
+  }
+ ]
+}

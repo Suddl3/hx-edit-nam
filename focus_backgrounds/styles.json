@@ -1,0 +1,256 @@
+{
+ "table": {
+  "name": "Walnut Table",
+  "status": "candidate",
+  "description": "Dark walnut tabletop under a warm lamp.",
+  "showcase": "gtr_essexa30",
+  "plate": "table.png",
+  "focus": [
+   0.5,
+   0.45
+  ],
+  "zoom": 1.3,
+  "gain": 1.0,
+  "tint": 0.1
+ },
+ "stage": {
+  "name": "Stage",
+  "status": "candidate",
+  "description": "Black stage boards in a soft spotlight pool.",
+  "showcase": "gtr_britplexi_brt",
+  "plate": "stage.png",
+  "focus": [
+   0.5,
+   0.47
+  ],
+  "zoom": 1.3,
+  "gain": 1.0,
+  "tint": 0.22
+ },
+ "studio": {
+  "name": "Studio Desk",
+  "status": "candidate",
+  "description": "Charcoal desk in a dim, blurred recording studio.",
+  "showcase": "dyn_lastudio",
+  "plate": "studio.png",
+  "focus": [
+   0.47,
+   0.5
+  ],
+  "zoom": 1.3,
+  "gain": 1.05,
+  "tint": 0.14
+ },
+ "pedalboard": {
+  "name": "Pedalboard",
+  "status": "candidate",
+  "description": "Grey loop-fabric pedalboard with an aluminium rail.",
+  "showcase": "dist_teemah",
+  "plate": "pedalboard.png",
+  "focus": [
+   0.5,
+   0.5
+  ],
+  "zoom": 1.3,
+  "gain": 1.05,
+  "tint": 0.14
+ },
+ "space": {
+  "name": "Deep Space",
+  "status": "candidate",
+  "description": "Moon-rock plateau, calm starfield, a spiral galaxy top-left.",
+  "showcase": "delay_cosmos",
+  "plate": "space.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.3,
+  "gain": 1.1,
+  "tint": 0.0
+ },
+ "aurora": {
+  "name": "Aurora",
+  "status": "candidate",
+  "description": "Frozen lake under a green aurora.",
+  "showcase": "rev_shimmer",
+  "plate": "aurora.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.15,
+  "gain": 0.9,
+  "tint": 0.0
+ },
+ "synthwave": {
+  "name": "Synthwave",
+  "status": "locked",
+  "description": "Striped sunset, purple sky, wireframe mountains, glowing grid.",
+  "showcase": "mod_70schorus",
+  "plate": "synthwave.png",
+  "focus": [
+   0.33,
+   0.56
+  ],
+  "zoom": 1.5,
+  "gain": 0.85,
+  "tint": 0.0
+ },
+ "neon_rain": {
+  "name": "Neon Rain",
+  "status": "locked",
+  "description": "Rain-soaked city street at blue hour, colourful lights.",
+  "showcase": "delay_glitch",
+  "plate": "neon_rain.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.15,
+  "gain": 0.8,
+  "tint": 0.0,
+  "blur": 1.5
+ },
+ "neon_rain_simple": {
+  "name": "Neon Rain (simple)",
+  "status": "variant",
+  "description": "Simpler neon rain: a few big lights, visible rain.",
+  "showcase": "mod_scriptphase",
+  "plate": "neon_rain_simple.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.15,
+  "gain": 1.0,
+  "tint": 0.0
+ },
+ "desert_dusk": {
+  "name": "Desert Dusk",
+  "status": "candidate",
+  "description": "Cracked desert floor, orange-violet dusk, mesas.",
+  "showcase": "dist_bighorn",
+  "plate": "desert_dusk.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.3,
+  "gain": 0.9,
+  "tint": 0.0
+ },
+ "lunar": {
+  "name": "Lunar",
+  "status": "candidate",
+  "description": "Grey moon dust, black sky, a blue planet glow.",
+  "showcase": "rev_ganymede",
+  "plate": "lunar.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.3,
+  "gain": 0.8,
+  "tint": 0.0
+ },
+ "volcanic": {
+  "name": "Volcanic",
+  "status": "candidate",
+  "description": "Basalt floor, distant lava cracks and embers.",
+  "showcase": "gtr_revv_red",
+  "plate": "volcanic.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.3,
+  "gain": 0.9,
+  "tint": 0.0
+ },
+ "ice_cave": {
+  "name": "Ice Cave",
+  "status": "candidate",
+  "description": "Frosted ice floor in a turquoise ice cave.",
+  "showcase": "rev_glitz",
+  "plate": "ice_cave.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.3,
+  "gain": 0.72,
+  "tint": 0.0
+ },
+ "forest_moss": {
+  "name": "Mossy Forest",
+  "status": "candidate",
+  "description": "Mossy stone slab in a misty forest.",
+  "showcase": "wah_uk846",
+  "plate": "forest_moss.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.3,
+  "gain": 0.85,
+  "tint": 0.0
+ },
+ "deep_sea": {
+  "name": "Deep Sea",
+  "status": "candidate",
+  "description": "Sandy sea floor with rippling caustic light.",
+  "showcase": "delay_adriatic",
+  "plate": "deep_sea.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.3,
+  "gain": 0.72,
+  "tint": 0.0
+ },
+ "marble_gallery": {
+  "name": "Marble Gallery",
+  "status": "candidate",
+  "description": "Black-and-gold marble plinth in a dark gallery.",
+  "showcase": "gtr_grammatico",
+  "plate": "marble_gallery.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.3,
+  "gain": 1.0,
+  "tint": 0.0
+ },
+ "cloud_sunset": {
+  "name": "Cloud Sunset",
+  "status": "candidate",
+  "description": "Glass platform above a sea of sunset clouds.",
+  "showcase": "rev_dynbloom",
+  "plate": "cloud_sunset.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.3,
+  "gain": 0.72,
+  "tint": 0.0
+ },
+ "retro_lounge": {
+  "name": "70s Lounge",
+  "status": "candidate",
+  "description": "Walnut hi-fi console in a 70s living room.",
+  "showcase": "gtr_usdeluxe_nrm",
+  "plate": "retro_lounge.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.15,
+  "gain": 0.85,
+  "tint": 0.0,
+  "blur": 2.5
+ }
+}

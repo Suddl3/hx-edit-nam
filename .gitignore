@@ -6,3 +6,7 @@ __pycache__/
 /helix_model_icons/full/
 /helix_model_icons/128/
 /helix_model_icons/contact-sheet.png
+
+# Focus View backgrounds: the 1536 px source plates are shared as a separate pack
+/focus_backgrounds/plates/
+/focus_backgrounds/samples/
