@@ -192,6 +192,8 @@ class NamLibrary : Form
             graphics.InterpolationMode=mode;
             textBounds.X+=size+4;textBounds.Width=Math.Max(0,textBounds.Width-size-4);
         }
+        // Optimized versions are shown in the expanded library only (this list stays uncluttered);
+        // here they are a line in the row's tooltip (VersionsDetail).
         TextRenderer.DrawText(args.Graphics,args.SubItem.Text,font,textBounds,foreground,background,
             TextFormatFlags.Left|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix);
     }
@@ -589,7 +591,7 @@ class NamLibrary : Form
                 if(!Matches(row,search.Text,filter,instrumentFilter))continue;
                 var date=DateLabel(row);
                 var entry=new ListViewItem(CaptureTitle(row)){Name=TextOf(row,"contentId"),Tag=row,
-                    ToolTipText=TextOf(row,"title")+"\n"+TextOf(row,"fileDetail")+"\n"+TextOf(row,"locationDetail")+"\n"+date[2]+"\n"+CategoryDetail(row)};
+                    ToolTipText=TextOf(row,"title")+"\n"+TextOf(row,"fileDetail")+"\n"+TextOf(row,"locationDetail")+"\n"+date[2]+"\n"+CategoryDetail(row)+VersionsDetail(row)};
                 entry.SubItems.Add(TextOf(row,"categoryLabel"));entry.UseItemStyleForSubItems=false;
                 int provisional=loadConfirmation.PendingSlot(TextOf(row,"contentId"));
                 object pendingValue;
@@ -641,6 +643,24 @@ class NamLibrary : Form
     static string CaptureTitle(Dictionary<string,object> row){
         string file=TextOf(row,"fileStatus");
         return TextOf(row,"title")+(file=="missing"?" [file missing]":file=="invalid"?" [file unavailable]":"");
+    }
+    // Optimized versions kept beside the original (nam_library.VERSIONS): [{key,label,block,quality,error}].
+    static List<Dictionary<string,object>> Versions(Dictionary<string,object> row){
+        var list=new List<Dictionary<string,object>>();
+        object value;
+        if(row.TryGetValue("versions",out value)&&value is IEnumerable)
+            foreach(var item in (IEnumerable)value){var version=item as Dictionary<string,object>;if(version!=null)list.Add(version);}
+        return list;
+    }
+    static string VersionsDetail(Dictionary<string,object> row){
+        var lines=new List<string>();
+        foreach(var version in Versions(row)){
+            string quality=TextOf(version,"quality");
+            lines.Add(TextOf(version,"label")+" version: "+(quality=="same"?"sounds the same as the original":
+                quality=="different"?"may sound different from the original":"not compared")+
+                "; plays in a "+TextOf(version,"block")+" block, which needs Floor firmware with that block.");
+        }
+        return lines.Count>0?"\n"+string.Join("\n",lines):"";
     }
     static bool HasShownSlots(Dictionary<string,object> row){
         object value;

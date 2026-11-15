@@ -13,7 +13,7 @@ import subprocess
 from threading import Event, Lock, Thread
 from time import monotonic
 
-from nam_library import GEARS, INSTRUMENTS, instrument_of
+from nam_library import GEARS, INSTRUMENTS, VERSIONS, instrument_of
 
 
 GROUPS = {'amp': 'amp-only', 'amp-cab': 'amp+cab', 'pedal': 'pedals',
@@ -76,6 +76,12 @@ def sidebar_rows(library, *, can_load=False):
                          icon=library.picture_path(library.icon_for(entry)),
                          instrument=instrument_of(entry),
                          instrumentChosen=entry.get('instrument') in INSTRUMENTS,
+                         versions=[dict(key=key, label=VERSIONS[key][0], block=VERSIONS[key][2],
+                                        quality=value.get('quality', 'unknown'), error=value.get('error'),
+                                        added=value.get('added', ''))
+                                   for key, value in sorted(entry.get('versions', {}).items())
+                                   if key in VERSIONS],
+                         canOptimize=bool(entry.get('canTrain') and exists),
                          locationDetail=detail, canLoad=bool(can_load and (exists or verified) and state != 'refreshing' and not pending)))
     return rows
 

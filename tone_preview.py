@@ -76,8 +76,9 @@ def render_card(tone=None, models=(), library=False):
 
 class TonePreview:
     def __init__(self, script, workspace, converter, detached, message, *, browser_factory=ToneBrowser, client_id='',
-                 library=None, payload_callback=None, trace_callback=None):
+                 library=None, payload_callback=None, trace_callback=None, optimize=False):
         self.script = script
+        self.optimize = bool(optimize)   # Optimize (versions of a capture): experiment builds only for now
         self.library = library  # nam_library.Library on Windows; None hides the library
         self.payload_callback = payload_callback
         self.workspace = workspace
@@ -431,6 +432,8 @@ class TonePreview:
         library_content = None
         light = None  # the lighter-capture training shown on the library page
         light_job = None
+        optimizing = None    # Optimize: the version being made for one capture, shown on the library page
+        optimize_job = None
         tone_modes = {}  # TONE3000 tone ID -> the conversion chosen for it (nam_modes.MODES key)
         mode_now = None  # the conversion of the profile being auditioned
         taken = None     # every User IR slot taken: [slot, name] pairs to choose one to replace from
@@ -482,6 +485,7 @@ class TonePreview:
                          can_audition=not self.navigation or bool(self.navigation_state.get('bound')),
                          installed=loaded_now,
                          can_train=not self.navigation,
+                         optimize=optimizing, can_optimize=self.optimize,
                          can_install=self.navigation and bool(self.navigation_state.get('bound')) and
                          not self.navigation_state.get('preview') and not self.navigation_state.get('quarantined'))
 
@@ -708,6 +712,60 @@ class TonePreview:
                                            steps, lambda state: browser.actions.put({'light': state}))
             status(f'Training a {layers}-layer version…')
 
+        def start_optimize(identity):
+            nonlocal optimizing, optimize_job
+            import nam_optimize
+            entry = self.library.entries()[identity]
+            if not self.optimize:
+                status('Optimize is not available in this build.')
+                return
+            if not entry.get('canTrain', True):
+                status('Optimize needs the original .nam capture. This library entry is a converted device capture.')
+                return
+            key = nam_optimize.version_for(entry.get('gear', ''))
+            if key is None:
+                status('Optimize makes a NAM Pedal version, for pedal captures. Amps and cabs get a lighter '
+                       'version once the Floor firmware has layer skipping.')
+                return
+            folder = Path(tempfile.mkdtemp(prefix='optimize-', dir=self.workspace))
+            capture = self.library.export(identity, folder)
+            output = folder / 'out' / 'version.wav'
+            output.parent.mkdir()
+            fitter = nam_optimize.fitter_path(self.converter)
+            optimizing = {'running': True, 'id': identity, 'key': key, 'step': 0, 'steps': 400,
+                          'output': str(output), 'converter': nam_optimize.converter_id(fitter)}
+            optimize_job = nam_optimize.OptimizeJob(fitter, capture, output, 0, 400,
+                                                    lambda state: browser.actions.put({'optimize': state}))
+            status(f'Optimizing "{entry.get("name", "")}" (about 30 seconds)…', busy=True)
+
+        def optimize_event(state):
+            nonlocal optimizing, optimize_job
+            optimizing.update(state)
+            if 'error' in state:
+                optimizing['running'] = False
+                optimize_job = None
+                status('Optimize cancelled.' if state.get('cancelled') else f'Optimize failed: {state["error"]}')
+            elif state.get('done'):
+                optimizing['running'] = False
+                optimize_job = None
+                try:
+                    self.library.add_version(optimizing['id'], optimizing['key'], optimizing['output'],
+                                             error=state.get('esr'), converter=optimizing['converter'])
+                    import nam_library
+                    quality = nam_library.version_quality(state.get('esr'))
+                    message = ('Pedal version ready: it sounds the same as the original.' if quality == 'same' else
+                               'Pedal version ready, but it may sound different from the original. Compare '
+                               'before using it.' if quality == 'different' else 'Pedal version ready.')
+                    message += ' It plays in a NAM Pedal block, which needs Floor firmware with that block.'
+                except (OSError, ValueError, KeyError) as error:
+                    optimizing['error'] = str(error)
+                    message = f'Could not keep the optimized version: {error}'
+                if library:
+                    show_card()
+                status(message)
+            else:
+                status(text, busy=True)
+
         def light_event(state):
             nonlocal light, light_job
             light.update(state)
@@ -757,6 +815,8 @@ class TonePreview:
                         status(state.get('text') or '' if not state.get('bound') else text)
                 if light is not None and 'light' in action:
                     light_event(action['light'])
+                if optimizing is not None and 'optimize' in action:
+                    optimize_event(action['optimize'])
                 continue
             if self.navigation and action in ('bind', 'end'):
                 try:
@@ -888,6 +948,15 @@ class TonePreview:
                         start_light(identity, layers, quality)
                     elif command == 'lightCancel' and light_job is not None:
                         light_job.cancel()
+                    elif command == 'optimize' and identity in self.library.entries() and optimize_job is None:
+                        start_optimize(identity)
+                    elif command == 'optimizeCancel' and optimize_job is not None:
+                        optimize_job.cancel()
+                    elif command == 'versionRemove' and identity in self.library.entries():
+                        if self.library.remove_version(identity, value):
+                            if library:
+                                show_card()
+                            status('Removed the optimized version. The original capture is kept.')
                     elif command == 'remove':
                         self.library.remove(identity)
                 except (OSError, ValueError, KeyError) as error:
@@ -910,4 +979,6 @@ class TonePreview:
                         break
         if light_job is not None:
             light_job.cancel()
+        if optimize_job is not None:
+            optimize_job.cancel()
         return slot

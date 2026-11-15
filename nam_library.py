@@ -23,6 +23,13 @@ GEARS = {'amp': 'Amp', 'amp-cab': 'Amp + cab', 'pedal': 'Pedal', 'preamp': 'Prea
          'cab': 'Cab capture', 'studio': 'Studio', 'outboard': 'Outboard', 'experimental': 'Experimental',
          'space': 'Space', 'pedal-amp': 'Pedal + amp', 'amp-pedal-cab': 'Pedal + amp + cab', '': 'Unsorted'}
 INSTRUMENTS = {'guitar': 'Guitar', 'bass': 'Bass', 'any': 'Both'}   # 'any' is shown as Both
+# Optimized versions of one capture (PRODUCT-VISION "Optimize: versions of one capture"): kept next to
+# the original as <identity>.<key><ext>, recorded under the original's catalog entry; the original is
+# never replaced. key -> (chip label, file type, the Floor block that plays it)
+VERSIONS = {'pedal': ('Pedal', '.wav', 'NAM Pedal'), 'light16': ('Light', '.nam', 'NAM Lite 16')}
+# A version whose fit error (ESR against the original) is above this is shown as "may sound different".
+# Upstream measured boosts and overdrives at 0.4-1.7%, a fuzz at 6%, amps at 10-18%.
+SOUNDS_SAME_ERROR = 0.03
 # Amps, cabs and amp rigs are split by instrument (like HX Edit's own Amp and Preamp categories);
 # pedals, studio gear and the rest suit either and default to Any.
 AMP_GEARS = {'amp', 'amp-cab', 'preamp', 'cab', 'pedal-amp', 'amp-pedal-cab', ''}
@@ -30,6 +37,13 @@ AMP_GEARS = {'amp', 'amp-cab', 'preamp', 'cab', 'pedal-amp', 'amp-pedal-cab', ''
 # words only, so a Fender Bassman or Bassbreaker (guitar amps) stays guitar.
 BASS_NAME = re.compile(r'(?<![a-z0-9])(bass|svt|darkglass|aguilar|markbass|gallien[- ]?krueger|b7k)(?![a-z0-9])',
                        re.IGNORECASE)
+
+
+def version_quality(error):
+    """'same', 'different', or 'unknown' when the fit reported no error."""
+    if not isinstance(error, (int, float)) or error != error or error < 0:
+        return 'unknown'
+    return 'same' if error <= SOUNDS_SAME_ERROR else 'different'
 
 
 def instrument_auto(entry):
@@ -190,6 +204,10 @@ class Library:
             pending_slots = dict(self._pending_slots)
         for identity, entry in entries.items():
             entry['canTrain'] = entry.get('format', '.nam') == '.nam'
+            versions = entry.get('versions')
+            entry['versions'] = {key: dict(value, quality=version_quality(value.get('error')))
+                                 for key, value in (versions.items() if isinstance(versions, dict) else ())
+                                 if key in VERSIONS and isinstance(value, dict)}
             payloads = payload_index.get(identity, set())
             entry['irSlots'] = sorted({slot for slot, content in slot_inventory['entries']
                                        if content in payloads})
@@ -430,6 +448,58 @@ class Library:
             self._write(entries)
         self._changed()
 
+    def version_path(self, identity, key):
+        """Where a version of this capture is kept (it may not exist)."""
+        if key not in VERSIONS:
+            raise ValueError(f'Unknown version: {key}')
+        self._source(identity, {'format': '.nam'})          # validates the identity
+        return self.folder / f'{identity}.{key}{VERSIONS[key][1]}'
+
+    def add_version(self, identity, key, made, *, error=None, converter=''):
+        """Keep an optimized version of a .nam capture (replacing an older one of the same kind)."""
+        data = Path(made).read_bytes()
+        if not data:
+            raise ValueError('The optimized version is empty')
+        target = self.version_path(identity, key)
+        with self.lock:
+            entries = self._read(for_write=True)
+            entry = entries.get(identity)
+            if entry is None:
+                raise KeyError(identity)
+            if entry.get('format', '.nam') != '.nam':
+                raise ValueError('Only a .nam capture can be optimized')
+            self.folder.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_name(target.name + '.part')
+            temporary.write_bytes(data)
+            temporary.replace(target)
+            record = {'added': date.today().isoformat(), 'size': len(data), 'converter': str(converter)[:80]}
+            if isinstance(error, (int, float)) and error == error and error >= 0:
+                record['error'] = round(float(error), 6)
+            versions = entry.get('versions') if isinstance(entry.get('versions'), dict) else {}
+            versions[key] = record
+            entry['versions'] = versions
+            self._write(entries)
+        self._changed()
+        return key
+
+    def remove_version(self, identity, key):
+        target = self.version_path(identity, key)
+        with self.lock:
+            entries = self._read(for_write=True)
+            entry = entries.get(identity)
+            versions = entry.get('versions') if entry and isinstance(entry.get('versions'), dict) else {}
+            if key not in versions:
+                return False
+            versions.pop(key)
+            if versions:
+                entry['versions'] = versions
+            else:
+                entry.pop('versions', None)
+            self._write(entries)              # catalog first, then the file
+            target.unlink(missing_ok=True)
+        self._changed()
+        return True
+
     def remove(self, identity):
         with self.lock:
             entries = self._read(for_write=True)
@@ -439,6 +509,9 @@ class Library:
                 # Catalog first: a failed write must not leave a record whose file is already gone.
                 self._write(entries)
                 source.unlink(missing_ok=True)
+                for key in (entry.get('versions') or {}) if isinstance(entry.get('versions'), dict) else ():
+                    if key in VERSIONS:
+                        self.version_path(identity, key).unlink(missing_ok=True)
             if self._view['selected'] == identity:
                 self._view.update(selected=None, revision=self._view['revision'] + 1)
         self._changed()
@@ -500,7 +573,10 @@ def render_library(entries, view_state=None, pictures=None):
                     icon=icon, iconChosen=icon == value.get('icon'),
                     iconAuto=pick_icon(value.get('name', ''), value.get('gear') or None),
                     instrument=instrument_of(value),
-                    instrumentChosen=value.get('instrument') in INSTRUMENTS)
+                    instrumentChosen=value.get('instrument') in INSTRUMENTS,
+                    versions=[dict(key=k, label=VERSIONS[k][0], block=VERSIONS[k][2],
+                                   quality=v.get('quality', 'unknown'), error=v.get('error'))
+                              for k, v in sorted((value.get('versions') or {}).items()) if k in VERSIONS])
     rows = [row(key, value) for key, value in entries.items()]
     # Every gear picture once, as a small data: URI (the picker shows them all); rows refer to them by id.
     icons = {ident: small_data_uri(ident) for ident in known_icons()}

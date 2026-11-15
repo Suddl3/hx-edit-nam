@@ -46,6 +46,11 @@
   #pickerBody .confirm button.danger { background: #862829; border-color: #b54545; }
   #picker { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 5; }
   #picker[hidden] { display: none; }
+  #ask { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 6; }
+  #ask[hidden] { display: none; }
+  #ask .panel { background: #232323; border: 1px solid #575757; border-radius: 6px; width: min(460px, calc(100vw - 24px)); padding: 12px 14px; }
+  #askText { margin: 0 0 12px; white-space: pre-wrap; line-height: 1.4; }
+  #ask .buttons { display: flex; justify-content: flex-end; gap: 8px; }
   #picker .panel { background: #232323; border: 1px solid #575757; border-radius: 6px; width: min(640px, calc(100vw - 24px));
     max-height: calc(100vh - 24px); display: flex; flex-direction: column; }
   #picker .top { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid #404040; }
@@ -74,6 +79,15 @@
   #status { flex: 1; min-width: 80px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .destination { display: flex; align-items: center; gap: 6px; }
   #save:enabled, #audition:enabled { background: #862829; border-color: #b54545; }
+  .chip { display: inline-block; margin-left: 6px; padding: 0 6px; border: 1px solid #555; border-radius: 9px;
+          font-size: 11px; line-height: 16px; color: #ccc; vertical-align: middle; cursor: default; }
+  .chip[data-quality="same"] { border-color: #3d7a46; }
+  .chip[data-quality="different"] { border-color: #a07a2a; }
+  .chip[data-active="true"] { background: #3a3a3a; color: #fff; }
+  #optimizePanel, #light { flex-shrink: 0; }   /* the list gives way, not these panels */
+  #optimizePanel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; background: #1e1e1e; border-top: 1px solid #404040; }
+  #optimizePanel p { margin: 0; flex-basis: 100%; }
+  #optimizeBar { flex: 1; min-width: 80px; }
   #light { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; background: #1e1e1e; border-top: 1px solid #404040; }
   #light p { margin: 0; flex-basis: 100%; }
   #light .note { color: #aaa; font-size: 12px; }
@@ -107,6 +121,18 @@
     <input id="pickerFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" hidden>
   </div>
 </div>
+<div id="ask" role="alertdialog" aria-modal="true" aria-labelledby="askText" hidden>
+  <div class="panel">
+    <p id="askText"></p>
+    <div class="buttons"><button id="askNo">Cancel</button><button id="askYes"></button></div>
+  </div>
+</div>
+<section id="optimizePanel" hidden aria-label="Optimized versions">
+  <p id="optimizeInfo" role="status"></p>
+  <progress id="optimizeBar" max="1" value="0" hidden></progress>
+  <button id="optimizeCancel" hidden>Cancel</button>
+  <button id="versionRemove" hidden>Remove the Pedal version</button>
+</section>
 <section id="light" hidden aria-label="Lighter version">
   <span id="lightTitle"></span>
   <label>Layers <select id="layers">
@@ -132,6 +158,7 @@
   <span id="target" title="The NAM block this pane loads into and how the capture is converted" hidden></span>
   <p id="status" role="status"></p>
   <button id="lighter" disabled>Lighter…</button>
+  <button id="optimize" hidden disabled>Optimize</button>
   <button id="changeIcon" disabled title="Choose the icon shown for the selected capture">Change icon…</button>
   <button id="remove" disabled>Remove</button>
   <button id="audition" disabled>Preview</button>
@@ -161,8 +188,54 @@
   const destination = q('#destination'), save = q('#save'), audition = q('#audition'), remove = q('#remove');
   let sort = { key: 'name', direction: 1 };
   let selected = null, trial = null, busy = false, light = null, lightShown = false, canInstall = false, canTrain = true;
+  let optimizing = null, canOptimize = false;
   const lighter = q('#lighter'), lightPanel = q('#light');
   const pct = value => value == null ? '—' : (100 * value).toFixed(2) + '%';
+
+  // Optimized versions: one row per capture, a chip per kept version (PRODUCT-VISION "Optimize").
+  // The original is what plays now; a NAM Pedal version needs Floor firmware with that block.
+  function qualityText(version) {
+    return version.quality === 'same' ? 'sounds the same as the original' :
+      version.quality === 'different' ? 'may sound different from the original' : 'not compared';
+  }
+  function appendVersionChips(cell, row) {
+    if (!row.versions?.length) return;
+    const original = document.createElement('span');
+    original.className = 'chip'; original.dataset.active = 'true'; original.textContent = 'Original';
+    original.title = 'The capture as it is: NAM A2 Lite block';
+    cell.append(original);
+    for (const version of row.versions) {
+      const chip = document.createElement('span');
+      chip.className = 'chip'; chip.dataset.quality = version.quality;
+      chip.textContent = version.label + (version.quality === 'different' ? ' ⚠' : '');
+      chip.title = version.label + ' version: ' + qualityText(version) +
+        (version.error != null ? ' (' + pct(version.error) + ' error)' : '') + '. Plays in a ' + version.block +
+        ' block, which needs Floor firmware with that block.';
+      cell.append(chip);
+    }
+  }
+  function renderOptimize(capture) {
+    const optimizeButton = q('#optimize'), panel = q('#optimizePanel');
+    optimizeButton.hidden = !canOptimize;
+    const running = !!optimizing?.running;
+    const pedal = capture?.versions?.find(version => version.key === 'pedal');
+    const suits = capture && capture.canTrain !== false && capture.gear === 'pedal';
+    optimizeButton.disabled = !canOptimize || !capture || running || busy;   // a click explains a refusal
+    optimizeButton.dataset.suits = suits ? 'true' : 'false';
+    optimizeButton.textContent = pedal ? 'Optimize again' : 'Optimize';
+    optimizeButton.title = !capture ? 'Select a capture' : capture.canTrain === false ?
+      'This kept capture is a converted WAV. Its original .nam file is needed.' :
+      capture.gear !== 'pedal' ? 'Optimize makes a NAM Pedal version, for pedal captures (set the type to Pedal).' :
+      'Make a NAM Pedal version (about 30 seconds). The original is kept.';
+    panel.hidden = !canOptimize || !(running || pedal || optimizing?.error);
+    q('#optimizeBar').hidden = q('#optimizeCancel').hidden = !running;
+    if (running) q('#optimizeBar').value = (optimizing.step || 0) / Math.max(1, optimizing.steps || 400);
+    q('#versionRemove').hidden = running || !pedal;
+    q('#optimizeInfo').textContent = running ? 'Optimizing… step ' + (optimizing.step || 0) + ' of ' + (optimizing.steps || 400) :
+      pedal ? 'Pedal version: ' + qualityText(pedal) + (pedal.error != null ? ' (' + pct(pedal.error) + ' error)' : '') +
+        '. It plays in a NAM Pedal block; using it needs Floor firmware with that block.' :
+      optimizing?.error ? 'Optimize: ' + optimizing.error : '';
+  }
 
   function slotText(row) {
     return [...new Set([...(row.irSlots || []), ...(row.pendingSlots || [])])].sort((a, b) => a - b).join(', ');
@@ -209,6 +282,7 @@
         name.append(picture);
       }
       name.append(row.name);
+      appendVersionChips(name, row);
       const gear = document.createElement('select');
       gear.innerHTML = q('#gears').innerHTML;
       gear.value = row.gear;
@@ -274,6 +348,38 @@
     lighter.title = rows.find(row => row.id === selected)?.canTrain === false ?
       'This kept capture is a converted WAV. Its original .nam file is needed to train a lighter version.' : '';
     renderLight();
+    renderOptimize(capture);
+  }
+  q('#optimize').onclick = () => {
+    if (!canOptimize || !selected) return;
+    if (q('#optimize').dataset.suits === 'true') host?.postMessage('optimize:' + selected);
+    else q('#status').textContent = q('#status').title = q('#optimize').title;   // why not, where it is seen
+  };
+  q('#optimizeCancel').onclick = () => host?.postMessage('optimizeCancel');
+  q('#versionRemove').onclick = async () => {
+    const id = selected;
+    if (id && await ask('Remove the Pedal version? The original capture stays.', 'Remove version') && id === selected)
+      host?.postMessage('versionRemove:' + id + ':pedal');
+  };
+
+  // Confirmations in the page: a browser confirm() is titled with the page's address
+  // ("hx-edit-nam.invalid says"). Resolves true for the action, false for Cancel or Escape.
+  function ask(text, action) {
+    const box = q('#ask'), yes = q('#askYes'), no = q('#askNo');
+    q('#askText').textContent = text;
+    yes.textContent = action;
+    box.hidden = false;
+    no.focus();                                   // the safe choice has the focus
+    return new Promise(resolve => {
+      const done = answer => {
+        box.hidden = true;
+        yes.onclick = no.onclick = box.onkeydown = null;
+        resolve(answer);
+      };
+      yes.onclick = () => done(true);
+      no.onclick = () => done(false);
+      box.onkeydown = event => { if (event.key === 'Escape') done(false); };
+    });
   }
 
   // Picture picker: a capture's own choice, or Automatic (picked from its name by capture_icons.py).
@@ -506,12 +612,14 @@
     host.postMessage((installed ? 'use:' : 'load:') + selected);
   };
   q('#changeIcon').onclick = () => { const capture = rows.find(row => row.id === selected); if (capture) openPicker(capture); };
-  remove.onclick = () => {
+  remove.onclick = async () => {
     const index = rows.findIndex(row => row.id === selected);
     const onFloor = index < 0 ? '' : slotText(rows[index]);
     // Only the PC copy goes: the Floor keeps the capture, so presets that use it keep working.
-    if (index < 0 || !confirm('Remove "' + rows[index].name + '" from the library on this PC?' +
-        (onFloor ? '\n\nIt stays on the Floor in User IR ' + onFloor + ', so presets that use it keep working.' : ''))) return;
+    if (index < 0 || !await ask('Remove "' + rows[index].name + '" from the library on this PC?' +
+        (onFloor ? '\n\nIt stays on the Floor in User IR ' + onFloor + ', so presets that use it keep working.' : ''),
+        'Remove')) return;
+    if (rows[index]?.id !== selected) return;     // the selection changed while asking
     host.postMessage('remove:' + selected);
     rows.splice(index, 1);
     selected = null;
@@ -522,12 +630,13 @@
   q('#finish').onclick = () => host.postMessage('finish');
   save.onclick = () => host.postMessage('save:' + trial + ':' + destination.value);
   let replaceUsers = new Map();   // slot -> opened presets that use it (learned as presets are opened)
-  q('#replaceGo').onclick = () => {
+  q('#replaceGo').onclick = async () => {
     const slot = Number(q('#replace').value), users = replaceUsers.get(slot) || [];
-    if (users.length && !confirm('User IR ' + slot + ' is used by ' + (users.length === 1 ? 'a preset' : users.length + ' presets') +
+    if (users.length && !await ask('User IR ' + slot + ' is used by ' + (users.length === 1 ? 'a preset' : users.length + ' presets') +
         ' you have opened in this editor:\n\n' + users.slice(0, 12).map(label => '  ' + label).join('\n') +
         (users.length > 12 ? '\n  …and ' + (users.length - 12) + ' more' : '') +
-        '\n\n' + (users.length === 1 ? 'It' : 'They') + ' will lose that capture. Presets not opened here are not checked.\n\nReplace anyway?')) return;
+        '\n\n' + (users.length === 1 ? 'It' : 'They') + ' will lose that capture. Presets not opened here are not checked.',
+        'Replace anyway')) return;
     host.postMessage('replace:' + slot);
   };
 
@@ -544,6 +653,8 @@
     busy = !!data.busy;
     canInstall = data.can_install === true;
     canTrain = data.can_train !== false;
+    canOptimize = data.can_optimize === true;
+    optimizing = data.optimize || null;
     q('#status').textContent = q('#status').title = data.text || '';
     q('#target').textContent = data.target || '';
     q('#target').hidden = !data.target || !!data.navigation;

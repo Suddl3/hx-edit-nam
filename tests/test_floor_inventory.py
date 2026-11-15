@@ -10,17 +10,24 @@ from floor_inventory import FLOOR, FloorInventoryService, import_legacy_catalog,
 from nam_library import Library, render_library
 
 
-def wav(*, nam=True, tail=b'', samples=None):
+def wav(*, nam=True, tail=b'', samples=None, pedal=False):
     if samples is None:
         samples = bytearray(8192)
         if nam:
-            struct.pack_into('<5I', samples, 0, 0x3f000000, 0xbf000000, 0x40400000, 0x3f800000, 0x3fe9e000)
+            struct.pack_into('<5I', samples, 0, 0x3f000000, 0xbf000000, 0x40400000, 0x3f800000,
+                             0x3f1cc000 if pedal else 0x3fe9e000)
     fmt = struct.pack('<HHIIHH', 3, 1, 48000, 192000, 4, 32)
     chunks = b'fmt ' + struct.pack('<I', len(fmt)) + fmt + b'data' + struct.pack('<I', len(samples)) + samples + tail
     return b'RIFF' + struct.pack('<I', len(chunks) + 4) + b'WAVE' + chunks
 
 
 class PayloadTests(unittest.TestCase):
+    def test_a_pedal_model_is_its_own_kind(self):
+        # NAM Pedal files (627 words) and NAM captures (1871) each play silence in the other's block.
+        self.assertEqual(inspect_payload(wav(pedal=True))['kind'], 'pedal')
+        self.assertEqual(inspect_payload(wav())['kind'], 'nam')
+        self.assertNotEqual(inspect_payload(wav(pedal=True))['contentId'], inspect_payload(wav())['contentId'])
+
     def test_identity_ignores_metadata_but_not_samples(self):
         raw = wav()
         found = inspect_payload(raw)
@@ -50,7 +57,7 @@ class PayloadTests(unittest.TestCase):
     def test_pedal_signature_supported_without_claiming_amp_type(self):
         raw = bytearray(wav())
         struct.pack_into('<I', raw, 44 + 16, 0x3f1cc000)
-        self.assertEqual(inspect_payload(bytes(raw))['kind'], 'nam')
+        self.assertEqual(inspect_payload(bytes(raw))['kind'], 'pedal')   # supported, as its own kind
 
 
 class ServiceTests(unittest.TestCase):

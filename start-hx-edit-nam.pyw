@@ -181,7 +181,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
         preview = TonePreview(script, workspace, CONVERTER, detached, message, library=library,
                               client_id=client_id, browser_factory=partial(ToneBrowser, mode=tone_window),
                               payload_callback=(lambda _: host.metadata_changed()) if host else None,
-                              trace_callback=trace if navigation else None)
+                              trace_callback=trace if navigation else None,
+                              optimize=bool(navigation and (exe.parent / 'res' / 'nam-optimize.flag').is_file()))
         if navigation:
             from nam_sidebar import NamSidebar
             def sidebar_action(action, identity):

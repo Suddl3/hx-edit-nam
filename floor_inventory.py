@@ -12,7 +12,7 @@ from threading import RLock
 import time
 from uuid import uuid4
 
-from nam_inventory import is_nam_profile
+from nam_inventory import is_nam_profile, is_pedal_profile
 
 FLOOR = 0x210001
 MAX_EXPORT_BYTES = 1024 * 1024
@@ -165,8 +165,10 @@ def inspect_payload(raw, *, native_export=False):
         nam = fmt == (3, 1, 48000, 192000, 4, 32) and is_nam_profile(samples)
         if looks_nam and not nam:
             raise ValueError('Unrecognized NAM payload')
+    # A pedal model (tools/nam_pedal.py) plays only in a NAM Pedal block and a NAM capture only in a
+    # NAM block (each refuses the other: silence), so the two are told apart wherever a slot is tracked.
     return {'contentId': sha256(struct.pack('<HHIIHH', *fmt) + samples).hexdigest(),
-            'kind': 'nam' if nam else 'ir'}
+            'kind': ('pedal' if is_pedal_profile(bytes(samples)) else 'nam') if nam else 'ir'}
 
 
 class FloorInventoryService:
@@ -258,8 +260,10 @@ class FloorInventoryService:
                 except ValueError as error:
                     self.active = None
                     return {'token': active['token'], 'status': 'unidentified', 'reason': str(error)}
-                result = {'token': active['token'], 'status': 'matched' if found['kind'] == 'nam' else 'ir'}
-                if found['kind'] == 'nam':
+                captured = found['kind'] in ('nam', 'pedal')
+                result = {'token': active['token'], 'status': 'matched' if captured else 'ir'}
+                if captured:
+                    result['kind'] = found['kind']
                     result['evidence'] = {key: submitted[key] for key in ('request', 'sequence', 'slot', 'device', 'revision')}
                     result['evidence'].update(contentId=found['contentId'], automaticToken=active['token'])
             except (ValueError, OSError, KeyError, TypeError) as error:

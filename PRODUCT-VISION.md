@@ -150,7 +150,34 @@ custom NAM blocks. Track preservation and hardware evidence per supported workfl
 | W04 | Phone/Pi editor access using ToneRelay research | Deferred until desktop/device ownership is reliable |
 | Visual backlog | Smooth signal-path zoom, imagery, dark appearance and customization | Retained user goals; not permission to squeeze controls or replace familiar native navigation during repair |
 | Favorites: still to test | Replacing a favorite from a block on another slot (its icon may lag a moment); the "used by presets" Clear warning naming the favorites it removes (unit-tested only); the 16-character limit of the suggested favorite name; grid view selecting the capture tile in a NAM category (it highlights NAM A2 Lite). Not done: favorites of the HX NAM pedal model keep HX Edit's own icon (only NAM A2 Lite has a record per NAM category) | Logged on the Floor test of Nov 15; none blocks use |
-| Polish list | Hide empty NAM categories (NAM Cab) so the block picker fits one screen; a settings toggle between HX Edit's own model pictures and the 3D set (`helix_model_icons`, a build option today); the 3D stock-gear pictures as a group in the capture icon picker | Small, owner-requested refinements; none changes device behaviour |
+| Polish list | Library confirmations (Remove, Replace) are browser dialogs titled "hx-edit-nam.invalid says": make them in-page; hide empty NAM categories (NAM Cab) so the block picker fits one screen; a settings toggle between HX Edit's own model pictures and the 3D set (`helix_model_icons`, a build option today); the 3D stock-gear pictures as a group in the capture icon picker | Small, owner-requested refinements; none changes device behaviour |
+
+### Optimize: versions of one capture (approved Nov 15)
+
+Savings on the Floor come from a lighter block, not from a lighter file: the NAM A2 Lite block
+runs all 23 layers whatever the capture holds. So Optimize ships together with Floor firmware for
+a lighter engine (NAM Pedal first: about 8% of a DSP against about 36%, fitted in about 30 s, good
+for boosts, overdrives and preamp pedals; layer skipping for amps later). Figures so far are from a
+Helix LT; the Floor is measured before any number is shown.
+
+- **One row per capture, with versions.** The library card shows chips such as `Original · Light ·
+  Pedal`. **Optimize** adds a version (chosen from the gear type: pedals get Pedal, amps get Light
+  once it exists); the original is never replaced. A version takes a Floor slot only when used.
+- **Quality shown honestly.** A level-matched A/B through the Floor before using it; a badge
+  ("sounds the same" / "may sound different", from the fit's error and band deviations). Not
+  offered where it fails (amps and cabs for Pedal).
+- **Switch per block.** Picking another version for the selected NAM block changes the block type
+  and slot together (a Pedal file in a NAM A2 Lite block would be silent): instant, this preset
+  only, undoable.
+- **Switch everywhere, on request.** "Use Original everywhere" lists the presets using the capture
+  (preset usage is already tracked) and changes them after a confirmation, since it edits saved
+  presets.
+- **Built so far (Nov 15, experiment builds only, HX_NAV_OPTIMIZE=1):** versions stored on the
+  original's row, the Optimize button (explains refusals), a real NAM Pedal fit in about 40 s with
+  its quality badge, Remove version. Waiting on the NAM Pedal firmware block: using a version,
+  A/B on the Floor, per-block switching. Not yet in the NAM tab's narrow list (the expanded library only).
+- **On the Floor itself** a version cannot be switched live (a snapshot cannot change a block's
+  model); the editor is where versions change. To be tried in live use and adjusted.
 
 ### Leveling assistant: Measure → Review → Apply
 
