@@ -153,12 +153,10 @@ def patch_catalog(resources, layers=False, pedal=False):
 # Each is a top-level category of its own, so a capture type is one click, with no dropdown. The
 # block row in category n is the model name followed by n spaces; tone_view.js (captureGroup)
 # maps a capture's type to the same number and lists that type's captures under the row.
-# Numbered in this order (tone_view.captureGroup, the row tags); NAM Favorites lists starred captures
-# of every type and is shown first in the list.
+# Numbered in this order (tone_view.captureGroup, the row tags). Favorites are HX Edit's own.
 NAM_CATEGORY_GROUPS = (('NAM Amp', 'FX_HX_Category_NAM_Amp.png'), ('NAM Amp + cab', 'FX_HX_Category_NAM_AmpCab.png'),
                        ('NAM Cab', 'FX_HX_Category_NAM_Cab.png'), ('NAM Pedal', 'FX_HX_Category_NAM_Pedal.png'),
-                       ('NAM Other', 'FX_HX_Category_NAM_Other.png'), ('NAM Favorites', 'FX_HX_Category_NAM_Favorites.png'))
-NAM_SHOWN_FIRST = 'NAM Favorites'
+                       ('NAM Other', 'FX_HX_Category_NAM_Other.png'))
 NAM_CATEGORY_COLOR = '0xB070E0'
 # The block picker's side dropdown: All (first, so a category opens on it the first time), Guitar
 # and Bass. Ids: stock Amp's Guitar 1 and Bass 2; All is 99 (no stock subcategory uses it).
@@ -329,7 +327,6 @@ def patch_nam_category(resources):
              'models\0': nam_category_rows(index + len(NAM_CATEGORY_GROUPS) * position, models)}
             for position, (side, ident) in enumerate(PICKER_SIDES)]
         section.append(category)
-    section.sort(key=lambda category: category['name\0'] != nul(NAM_SHOWN_FIRST))   # stable: the rest keep their order
     categories[after_stock:after_stock] = section
     # HX Edit's own Amp and Preamp: an All side first, listing every model of their subcategories.
     for category in categories:

@@ -21,12 +21,6 @@
   th { position: sticky; top: 0; background: #1e1e1e; text-align: left; font-weight: 600; }
   th button { all: unset; cursor: pointer; display: block; padding: 5px 8px; }
   th:nth-child(5) { min-width: 62px; white-space: nowrap; }
-  th.star, td.star { width: 22px; padding: 0 0 0 6px; }
-  td.star button { all: unset; cursor: pointer; display: block; width: 22px; text-align: center; font-size: 15px; color: #6a6a6a; }
-  td.star button[aria-pressed="true"] { color: #f2bc57; }
-  td.star button:hover { color: #f2bc57; }
-  td.star button:focus-visible { outline: 2px solid #fa8585; }
-  #favorites[aria-pressed="true"] { background: #4a3a1a; border-color: #f2bc57; color: #f2bc57; }
   #layout { min-width: 34px; padding: 3px 6px; }
   #tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; padding: 10px; }
   #tiles[hidden] { display: none; }
@@ -38,9 +32,6 @@
   .tile .label { width: 100%; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tile .meta { color: #9a9a9a; font-size: 11px; }
   .tile .meta .slot { color: #9edb9c; }
-  .tile .star { position: absolute; top: 2px; left: 4px; }
-  .tile .star button { all: unset; cursor: pointer; font-size: 15px; color: #6a6a6a; }
-  .tile .star button[aria-pressed="true"], .tile .star button:hover { color: #f2bc57; }
   td { padding: 3px 8px; border-bottom: 1px solid #262626; white-space: nowrap; }
   td.name { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; }
   td.name img.gear-icon { width: 24px; height: 24px; vertical-align: middle; margin: -3px 7px -3px 0; }
@@ -93,13 +84,11 @@
   <input id="search" type="search" placeholder="Search the library" aria-label="Search the library">
   <select id="instrument" aria-label="Instrument"><option value="*">All</option><option value="guitar">Guitar</option><option value="bass">Bass</option></select>
   <select id="filter" aria-label="Type"><option value="*">All types</option>$gears</select>
-  <button id="favorites" aria-pressed="false" title="Show only your favorite captures">★ Favorites</button>
   <button id="layout" aria-pressed="false" title="Show as a grid of pictures">⊞</button>
 </header>
 <div class="rows">
   <table>
     <thead><tr>
-      <th class="star" title="Favorites"></th>
       <th aria-sort="ascending"><button data-key="name">Name</button></th>
       <th><button data-key="gear">Type</button></th>
       <th><button data-key="instrument">Instrument</button></th>
@@ -166,7 +155,7 @@
   const initialView = $view;
   const host = window.chrome?.webview;
   const q = selector => document.querySelector(selector);
-  const body = q('tbody'), search = q('#search'), filter = q('#filter'), instrument = q('#instrument'), favorites = q('#favorites');
+  const body = q('tbody'), search = q('#search'), filter = q('#filter'), instrument = q('#instrument');
   const layout = q('#layout'), tiles = q('#tiles'), table = q('table');
   const gridShown = () => layout.getAttribute('aria-pressed') === 'true';
   const destination = q('#destination'), save = q('#save'), audition = q('#audition'), remove = q('#remove');
@@ -175,24 +164,10 @@
   const lighter = q('#lighter'), lightPanel = q('#light');
   const pct = value => value == null ? '—' : (100 * value).toFixed(2) + '%';
 
-  function starButton(row) {
-    const star = document.createElement('button');
-    star.textContent = row.favorite ? '★' : '☆';
-    star.setAttribute('aria-pressed', String(!!row.favorite));
-    star.setAttribute('aria-label', 'Favorite: ' + row.name);
-    star.title = row.favorite ? 'Remove from favorites' : 'Add to favorites';
-    star.onclick = event => {
-      event.stopPropagation();
-      row.favorite = !row.favorite;
-      host?.postMessage('favorite:' + row.id + ':' + (row.favorite ? '1' : '0'));
-      render();
-    };
-    return star;
-  }
   function slotText(row) {
     return [...new Set([...(row.irSlots || []), ...(row.pendingSlots || [])])].sort((a, b) => a - b).join(', ');
   }
-  // Grid view: one tile per capture (picture, name, slot), the same selection, star and double-click.
+  // Grid view: one tile per capture (picture, name, slot), the same selection and double-click.
   function renderTiles(shown) {
     tiles.replaceChildren(...shown.map(row => {
       const tile = document.createElement('div');
@@ -200,9 +175,6 @@
       tile.setAttribute('role', 'option');
       tile.setAttribute('aria-selected', String(row.id === selected));
       tile.title = row.name;
-      const star = document.createElement('span');
-      star.className = 'star';
-      star.append(starButton(row));
       const picture = document.createElement('img');
       picture.alt = ''; picture.src = icons[row.icon] || '';
       const label = document.createElement('span');
@@ -212,7 +184,7 @@
       const slots = slotText(row);
       if (slots) { const slot = document.createElement('span'); slot.className = 'slot'; slot.textContent = 'IR ' + slots; meta.append(slot, ' · '); }
       meta.append((row.gearLabel || 'Unsorted') + (row.instrument === 'bass' ? ' · Bass' : ''));   // guitar/any: no tag
-      tile.append(star, picture, label, meta);
+      tile.append(picture, label, meta);
       tile.onclick = () => { selected = row.id; render(); publishView(); };
       tile.ondblclick = () => { selected = row.id; publishView(); pick(); };
       return tile;
@@ -221,18 +193,13 @@
 
   function render() {
     const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
-    const favoritesOnly = favorites.getAttribute('aria-pressed') === 'true';
     const shown = rows.filter(row => (filter.value === '*' || row.gear === filter.value) &&
       (instrument.value === '*' || row.instrument === instrument.value || row.instrument === 'any') &&
-      (!favoritesOnly || row.favorite) &&
       words.every(word => [row.name, row.gearLabel || row.gear, ...(row.aliases || [])].join(' ').toLowerCase().includes(word)));
     shown.sort((a, b) => sort.direction * String(a[sort.key]).localeCompare(String(b[sort.key]), undefined, { numeric: true }));
     body.replaceChildren(...shown.map(row => {
       const tr = document.createElement('tr');
       tr.setAttribute('aria-selected', String(row.id === selected));
-      const starCell = tr.insertCell();
-      starCell.className = 'star';
-      starCell.append(starButton(row));
       const name = tr.insertCell();
       name.className = 'name';
       name.title = row.name;
@@ -497,7 +464,7 @@
 
   function publishView() {
     host?.postMessage('libraryView:' + JSON.stringify({selected, query: search.value,
-      filter: filter.value, instrument: instrument.value, favorites: favorites.getAttribute('aria-pressed') === 'true',
+      filter: filter.value, instrument: instrument.value,
       layout: gridShown() ? 'grid' : 'list',
       sortKey: sort.key, sortDirection: sort.direction}));
   }
@@ -507,7 +474,6 @@
     search.value = typeof view.query === 'string' ? view.query : '';
     filter.value = typeof view.filter === 'string' ? view.filter : '*';
     instrument.value = ['guitar', 'bass'].includes(view.instrument) ? view.instrument : '*';
-    favorites.setAttribute('aria-pressed', String(view.favorites === true));
     layout.setAttribute('aria-pressed', String(view.layout === 'grid'));
     if (['name','gear','instrument','irSlots','added'].includes(view.sortKey)) sort.key = view.sortKey;
     if (view.sortDirection === -1 || view.sortDirection === 1) sort.direction = view.sortDirection;
@@ -530,10 +496,6 @@
   search.oninput = filter.onchange = instrument.onchange = () => { render(); publishView(); };
   layout.onclick = () => {
     layout.setAttribute('aria-pressed', String(!gridShown()));
-    render(); publishView();
-  };
-  favorites.onclick = () => {
-    favorites.setAttribute('aria-pressed', String(favorites.getAttribute('aria-pressed') !== 'true'));
     render(); publishView();
   };
   audition.onclick = pick;

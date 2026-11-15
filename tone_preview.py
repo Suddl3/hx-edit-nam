@@ -871,8 +871,6 @@ class TonePreview:
                         install_local(identity, use_only=command == 'use')
                     elif command == 'gear':
                         self.library.update(identity, gear=value)
-                    elif command == 'favorite' and identity in self.library.entries():
-                        self.library.set_favorite(identity, value == '1')
                     elif command == 'instrument' and identity in self.library.entries():
                         self.library.set_instrument(identity, value or None)
                     elif command == 'icon' and identity in self.library.entries():

@@ -191,9 +191,6 @@ delete names[40];discoverySnapshot(0);assert.equal(slotNames.has(40),false);asse
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
 
 
-if __name__ == '__main__':
-    unittest.main()
-
 
 class PresetUsageTests(unittest.TestCase):
     """Which presets use each IR slot, learned as presets are opened (the delete warning)."""
@@ -300,3 +297,104 @@ assert.deepEqual([bass,guitar,any,old].map(c=>onSide(c,SIDE_GUITAR)),[false,true
 '''
         run = subprocess.run(['node'], input=code, capture_output=True, text=True, encoding='utf-8', timeout=15)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
+
+class FavoriteSlotsTests(unittest.TestCase):
+    """HX Edit favorites that play a NAM capture go when that capture's slot is cleared or replaced."""
+
+    def test_the_slot_of_each_favorite_is_kept_between_launches(self):
+        with tempfile.TemporaryDirectory() as folder:
+            memory = FloorMemory(folder)
+            self.assertEqual(memory.favorites(), {})
+            self.assertTrue(memory.receive({'type': 'favoriteSlot', 'name': 'Plexi Crunch', 'slot': 18}))
+            memory.receive({'type': 'favoriteSlot', 'name': 'Bass DI', 'slot': 40})
+            memory.receive({'type': 'favoriteSlot', 'name': 'Preview', 'slot': 128})
+            for bad in ({'name': '', 'slot': 3}, {'name': 'x', 'slot': 129}, {'name': 7, 'slot': 3},
+                        {'name': 'x' * 65, 'slot': 3}, {'stage': 'note-failed', 'error': 'boom'}):
+                self.assertTrue(memory.receive({'type': 'favoriteSlot', **bad}))
+            memory.receive({'type': 'favoriteSlot', 'name': 'Bass DI', 'slot': None})       # deleted or renamed
+            look = {'slot': 18, 'group': 2, 'icon': 'brit_stack'}
+            memory.receive({'type': 'favoriteLook', 'name': 'Plexi Crunch', 'look': look})
+            memory.receive({'type': 'favoriteLook', 'name': 'Preview', 'look': {'slot': 128, 'group': 9, 'icon': ''}})  # no group 9
+            memory.receive({'type': 'favoriteLook', 'name': 'Gone', 'look': look})                                   # not a known favorite
+            memory.receive({'type': 'favoriteLook', 'name': 'Preview', 'look': {'slot': 128, 'group': 5, 'icon': 'Bad/Name'}})
+            again = FloorMemory(folder)
+            self.assertEqual(again.favorites(), {'Plexi Crunch': 18, 'Preview': 128})
+            self.assertEqual(again.looks(), {'Plexi Crunch': look})
+            again.receive({'type': 'favoriteSlot', 'name': 'Plexi Crunch', 'slot': None})   # deleted: its look goes too
+            self.assertEqual(FloorMemory(folder).looks(), {})
+            self.assertEqual(again.presets(), [])
+
+    def test_which_favorites_are_noted_and_removed(self):
+        view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
+        constants = view[view.index('  const NAM_MODEL_IDS'):view.index('  const favoriteSlots')]
+        logic = view[view.index('  function favoriteChanges('):view.index('  function noteFavoriteEvent(')]
+        code = constants + logic + r'''
+const assert=require('node:assert/strict');
+const NAM='HD2_AmpNAMLite', DIST='HD2_DistNAMLite';
+const fav=(id,name,model=NAM)=>({id,name,model});
+let list=[fav(1,'Alpaca','HD2_AmpUSDeluxeVib'),fav(2,'Plexi'),fav(3,'Fuzz',DIST)];
+let known=new Map();
+// Saved from a NAM block on slot 18: noted. From a stock block, or with no capture selected: not.
+assert.deepEqual(favoriteChanges('Librarian_HelixFavoriteAdded',list,null,1,18,known),[['Plexi',18]]);
+assert.deepEqual(favoriteChanges('Librarian_HelixFavoriteAdded',list,null,0,18,known),[['Alpaca',null]]);
+assert.deepEqual(favoriteChanges('Librarian_HelixFavoriteAdded',list,null,2,null,known),[['Fuzz',null]]);
+assert.deepEqual(favoriteChanges('Librarian_HelixFavoriteChanged',list,null,2,129,known),[['Fuzz',null]]);
+known=new Map([['Plexi',18],['Fuzz',40]]);
+// Replaced from a block on another slot: the new slot.
+assert.deepEqual(favoriteChanges('Librarian_HelixFavoriteChanged',list,null,2,41,known),[['Fuzz',41]]);
+// Renamed: the slot moves to the new name.
+const renamed=[fav(1,'Alpaca','HD2_AmpUSDeluxeVib'),fav(2,'Plexi 2'),fav(3,'Fuzz',DIST)];
+assert.deepEqual(favoriteChanges('Librarian_HelixFavoriteRenamed',renamed,['Alpaca','Plexi','Fuzz'],1,7,known),
+  [['Plexi 2',18],['Plexi',null]]);
+// Deleted (or all deleted): names no longer there are forgotten.
+assert.deepEqual(favoriteChanges('Librarian_HelixFavoriteDeleted',[list[0],list[2]],null,1,7,known),[['Plexi',null]]);
+assert.deepEqual(favoriteChanges('Librarian_HelixAllFavoritesDeleted',[],null,null,7,known),[['Plexi',null],['Fuzz',null]]);
+assert.deepEqual(favoriteChanges('Librarian_HelixFavoriteMoved',list,null,0,7,known),[]);
+// Removal: only NAM favorites on a cleared slot, and never a name used twice.
+assert.deepEqual(favoritesPlaying(list,[18],known).map(f=>f.id),[2]);
+assert.deepEqual(favoritesPlaying(list,[18,40,5],known).map(f=>f.id),[2,3]);
+assert.deepEqual(favoritesPlaying(list,[5],known),[]);
+assert.deepEqual(favoritesPlaying([...list,fav(9,'Plexi')],[18],known),[]);                  // two "Plexi"
+assert.deepEqual(favoritesPlaying([fav(4,'Plexi','HD2_AmpUSDeluxeVib')],[18],known),[]);     // now a stock amp
+assert.deepEqual(favoritesPlaying(list,[18],new Map()),[]);                                    // never noted
+'''
+        run = subprocess.run(['node'], input=code, capture_output=True, text=True, encoding='utf-8', timeout=15)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        # Wired in: noted from HX Edit's notifications, removed after the Clear goes out, guarded by bytes.
+        self.assertIn('if (favoriteEvent.test(event)) noteFavoriteEvent(event, notificationIndex(args[1]));', view)
+        self.assertIn('function flushFavoriteNotes() {', view)          # taken from HX Edit's favorites reload
+        tone = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
+        self.assertIn("namView.flushFavoriteNotes?.();", tone)
+        self.assertIn("'3c90c0': '558bec6aff68e252'", tone)
+        self.assertIn('this.context.ecx.readPointer().equals(address(0x8d948c))', view)
+        self.assertIn('owner.add(0x17c).readPointer()', view)
+        self.assertIn('removeFavoritesOnSlots(selected || []);', view)
+        self.assertIn("read(0x3d9f30, 6) === '558bec6aff68'", view)
+        self.assertIn('favoritesNote(selected)', view)
+
+
+
+class FavoriteRowsTests(unittest.TestCase):
+    """HX Edit's favorite rows of a NAM block: the capture's name, category and picture."""
+
+    def test_the_default_name_is_the_capture(self):
+        view = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
+        name = view[view.index('  function favoriteName(capture) {'):view.index('  function favoriteRow(')]
+        code = "const assert=require('node:assert/strict');const tiles=[{block:'NAM A2 Lite'}];\n" + name + r'''
+assert.equal(favoriteName({name:'Jcm800'}),'Jcm800');
+assert.equal(favoriteName({name:'Friedman – BE-100 Deluxe Lead Channel'}),'BE-100 Deluxe Le');   // 16 characters
+assert.equal(favoriteName({name:'Electro-Harmonix Big Muff Pi '}),'Electro-Harmonix');
+assert.equal(favoriteName(null),'NAM A2 Lite');                      // no capture known: no tag spaces either
+assert.equal(favoriteName({name:'  '}),'NAM A2 Lite');
+'''
+        run = subprocess.run(['node'], input=code, capture_output=True, text=True, encoding='utf-8', timeout=15)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn('if (favoriteRow(this.context.ecx, args, this.returnAddress)) return;', view)
+        self.assertIn("NEW_FAVORITE_ROW = 0x25df6a", view)
+        nam_view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
+        self.assertIn('favoriteSlot: name => favoriteSlots.has(name) ? favoriteSlots.get(name) : null,', nam_view)
+
+
+if __name__ == '__main__':
+    unittest.main()

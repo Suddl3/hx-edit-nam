@@ -1298,6 +1298,11 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
         const data = args[0].add(4).readPointer();
         const event = data.isNull() ? '' : data.add(0x10).readPointer().readUtf8String();
         if (presetUsageEvent.test(event)) schedulePresetUsage();
+        if (this.context.ecx.readPointer().equals(address(0x8d948c))) {   // HXModelSelectViewController
+          favoriteController = this.context.ecx;
+          if (favoriteEvent.test(event)) noteFavoriteEvent(event, notificationIndex(args[1]));
+          else if (event === 'EditBuffer_HelixCursorChange') snapshotFavorites();
+        }
       } catch (_) { /* an unreadable event name records nothing */ }
     },
     onLeave() {
@@ -1457,14 +1462,187 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     users.sort((a, b) => a.setlist - b.setlist || a.preset - b.preset);
     return users.map(entry => presetLabel(entry, current ? current.setlist : null));
   }
+  function favoritesNote(slots) {
+    let count = 0;
+    try { count = favoritesOnSlots(slots).length; } catch (_) { count = 0; }
+    return count ? `\n\n${count === 1 ? 'Its HX Edit favorite' : count + ' HX Edit favorites'} on this capture will be removed too.` : '';
+  }
   function confirmClearUsed(selected, users) {
     const listed = users.slice(0, 12).map(label => '  ' + label).join('\n') +
       (users.length > 12 ? `\n  …and ${users.length - 12} more` : '');
     const text = `User IR ${selected.join(', ')} ${selected.length === 1 ? 'is' : 'are'} used by ` +
       `${users.length === 1 ? 'a preset' : users.length + ' presets'} you have opened in this editor:\n\n${listed}\n\n` +
-      `${users.length === 1 ? 'It' : 'They'} will lose this capture if you clear it. Presets not opened here are not checked.\n\nClear anyway?`;
+      `${users.length === 1 ? 'It' : 'They'} will lose this capture if you clear it. Presets not opened here are not checked.` +
+      favoritesNote(selected) + `\n\nClear anyway?`;
     // MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2: No is the default.
     return messageBox(getActiveWindow(), Memory.allocUtf16String(text), Memory.allocUtf16String('IR slot in use'), 0x134) === 6;
+  }
+
+  // --- HX Edit favorites that play a NAM capture: removed with the capture's slot ---
+  // HX Edit's favorites live on the Floor. This PC sees each one's name and model (model catalog
+  // +0x30: FavoriteObj {vt 0x919304, id +4, name +8, ModelObj +0x10 with its id at +0x24}), not
+  // the slot a NAM favorite plays. So the slot is noted, by name, when a favorite is saved or
+  // replaced from a NAM block (Librarian_HelixFavoriteAdded / Changed carry its "index"), and a
+  // Clear or Replace of that slot deletes those favorites the way HX Edit's own Clear… does
+  // (0x3d9f30 on [controller+0xc]+0x104 with a list of favorite ids; 0x21b0b5). Favorites saved
+  // before this, on another PC, or under a name used twice are never touched.
+  const favoriteEvent = /^Librarian_Helix(?:Favorite(?:Added|Changed|Deleted|Renamed|Moved)|AllFavoritesDeleted)$/;
+  const NAM_MODEL_IDS = new Set(['HD2_AmpNAMLite', 'HD2_DistNAMLite']);
+  const favoriteSlots = new Map(Object.entries(profile.favoriteSlots && typeof profile.favoriteSlots === 'object' ?
+    profile.favoriteSlots : {}).filter(([name, slot]) => name && Number.isInteger(slot) && slot >= 1 && slot <= 128));
+  let favoriteCatalog = NULL, favoriteController = NULL, favoriteNames = null, favoritesReady = null, favoriteRevision = 0;
+  const deleteFavorites = new NativeFunction(address(0x3d9f30), 'void', ['pointer', 'pointer'], 'thiscall');
+  Interceptor.attach(address(0x3c24e0), { onEnter() { favoriteCatalog = this.context.ecx; } });   // the model catalog
+  function favoritesGuarded() {
+    if (favoritesReady === null) {
+      const read = (rva, length) => Array.from(new Uint8Array(address(rva).readByteArray(length)), b => b.toString(16).padStart(2, '0')).join('');
+      // HX Edit's own single-favorite Clear: [edi+8] -> 0x3cf540 (lea eax,[ecx+0x104]) -> 0x3d9f30.
+      favoritesReady = read(0x3d9f30, 6) === '558bec6aff68' && read(0x3cf540, 7) === '8d8104010000c3' &&
+        read(0x21b0b5, 14) === '8b4f088d45cc50e87f441b008bc8';
+    }
+    return favoritesReady;
+  }
+  function l6String(object) {
+    const rep = object.add(4).readPointer();
+    if (rep.isNull()) return '';
+    const length = rep.add(4).readU32();
+    return length > 0 && length < 256 ? rep.add(0x10).readPointer().readUtf8String(length) : '';
+  }
+  function favoritesList() {
+    // [{id, name, model}] in HX Edit's order, or null when the list cannot be read as expected.
+    // The catalog is a field of the model selector's owner (+0x17c, Floor, Nov 14); the
+    // lookup hook only sees it once a block has been looked up since launch.
+    const owner = favoriteController.isNull() ? NULL : favoriteController.add(0xc).readPointer();
+    const catalog = owner.isNull() || owner.add(0x17c).readPointer().isNull() ? favoriteCatalog : owner.add(0x17c).readPointer();
+    if (catalog.isNull()) return null;
+    const data = catalog.add(0x38).readPointer(), first = catalog.add(0x40).readU32(), end = catalog.add(0x44).readU32();
+    if (end < first || end - first > 512 || (data.isNull() && end > first)) return null;
+    const list = [];
+    for (let i = first; i < end; i++) {
+      const favorite = data.add(4 * i).readPointer();
+      if (favorite.isNull() || !favorite.readPointer().equals(address(0x919304))) return null;
+      const model = favorite.add(0x10).readPointer();
+      list.push({id: favorite.add(4).readU32(), name: l6String(favorite.add(8)), model: model.isNull() ? '' : l6String(model.add(0x24)), object: favorite});
+    }
+    return list;
+  }
+  function notificationIndex(dictionary) {
+    // The "index" field of a notification's dictionary (variant tag 13: map nodes, key at +8,
+    // value at +24, children at +40/+44), as native_export_observer reads IR notifications.
+    if (dictionary.isNull() || dictionary.readU32() !== 13) return null;
+    const rep = dictionary.add(8).readPointer();
+    if (rep.isNull()) return null;
+    const pending = [rep.add(4).readPointer()];
+    for (let seen = 0; pending.length && seen < 64; seen++) {
+      const node = pending.pop();
+      if (node.isNull()) continue;
+      const key = node.add(8);
+      if (key.readU32() === 10 && l6String(key.add(8).readPointer()) === 'index') {
+        const value = node.add(24), tag = value.readU32();
+        return tag === 4 || tag === 5 ? value.add(8).readS32() : null;
+      }
+      pending.push(node.add(40).readPointer(), node.add(44).readPointer());
+    }
+    return null;
+  }
+  function rememberFavorite(name, slot) {
+    if (favoriteSlots.get(name) === slot) return;
+    if (slot === null) { if (!favoriteSlots.delete(name)) return; } else favoriteSlots.set(name, slot);
+    favoriteRevision++;
+    send({type: 'favoriteSlot', name, slot});
+  }
+  // favoriteChanges and favoritesPlaying decide; the rest reads and writes HX Edit (tested apart).
+  function favoriteChanges(event, list, before, index, activeSlot, known) {
+    // [[name, slot or null], …] for a favorite notification. list: [{id, name, model}] now,
+    // before: the names at the last notification (or null), index: the notification's position,
+    // activeSlot: the selected block's capture slot (or null), known: Map name -> slot.
+    const changes = [], names = list.map(favorite => favorite.name);
+    const favorite = Number.isInteger(index) ? list[index] || null : null;   // "index" is the position
+    if (/Favorite(?:Added|Changed)$/.test(event) && favorite) {
+      // Saved from the block on screen: its capture slot when that block is a NAM block.
+      const slot = NAM_MODEL_IDS.has(favorite.model) && Number.isInteger(activeSlot) &&
+        activeSlot >= 1 && activeSlot <= 128 ? activeSlot : null;   // 128: a preview
+      changes.push([favorite.name, slot]);
+    } else if (/FavoriteRenamed$/.test(event) && favorite && before && before[index] &&
+               before[index] !== favorite.name && known.has(before[index])) {
+      changes.push([favorite.name, known.get(before[index])], [before[index], null]);
+    }
+    for (const name of known.keys()) {
+      if (!names.includes(name) && !changes.some(change => change[0] === name)) changes.push([name, null]);
+    }
+    return changes;
+  }
+  function favoritesPlaying(list, slots, known) {
+    // The favorites known to play one of these slots: a NAM model and a name used once.
+    const uses = new Map();
+    for (const favorite of list) uses.set(favorite.name, (uses.get(favorite.name) || 0) + 1);
+    return list.filter(favorite => NAM_MODEL_IDS.has(favorite.model) && uses.get(favorite.name) === 1 &&
+      known.has(favorite.name) && slots.includes(known.get(favorite.name)));
+  }
+  function snapshotFavorites() {
+    // The names before a rename (a Renamed notification carries only the new one).
+    try { const list = favoritesList(); if (list) favoriteNames = list.map(favorite => favorite.name); } catch (_) { /* next time */ }
+  }
+  const pendingFavoriteNotes = [];
+  function noteFavoriteEvent(event, index) {
+    // HX Edit notifies, then reloads its favorites from the Floor (0x3c90c0): the list shows the
+    // new state only then. tone_view flushes these from that reload; the timer is the fallback.
+    // Each step is idempotent.
+    const note = {event, index, timer: null};
+    note.timer = setTimeout(() => {
+      const at = pendingFavoriteNotes.indexOf(note);
+      if (at < 0) return;
+      pendingFavoriteNotes.splice(at, 1);
+      noteFavoriteChange(event, index);
+    }, 400);
+    pendingFavoriteNotes.push(note);
+  }
+  function flushFavoriteNotes() {
+    // From HX Edit's favorites reload (UI thread), before any list is rebuilt from it.
+    for (const note of pendingFavoriteNotes.splice(0)) {
+      clearTimeout(note.timer);
+      noteFavoriteChange(note.event, note.index);
+    }
+  }
+  function noteFavoriteChange(event, index) {
+    try {
+      const list = favoritesList();
+      if (!list) return;
+      const before = favoriteNames;
+      favoriteNames = list.map(favorite => favorite.name);
+      const activeSlot = hasActiveModel() ? getValue(activeModel) + 1 : null;
+      for (const [name, slot] of favoriteChanges(event, list, before, index, activeSlot, favoriteSlots)) {
+        rememberFavorite(name, slot);
+      }
+    } catch (error) {
+      send({type: 'favoriteSlot', stage: 'note-failed', error: String(error.message)});
+    }
+  }
+  function favoritesOnSlots(slots) {
+    const list = favoritesList();
+    return list ? favoritesPlaying(list, slots, favoriteSlots) : [];
+  }
+  function removeFavoritesOnSlots(slots) {
+    // After a Clear (or a Replace) of these slots: delete their favorites, as Clear… would.
+    try {
+      if (!slots.length || !favoritesGuarded() || favoriteController.isNull()) return 0;
+      const doomed = favoritesOnSlots(slots);
+      if (!doomed.length) return 0;
+      const owner = favoriteController.add(0xc).readPointer();
+      if (owner.isNull()) return 0;
+      const ids = Memory.alloc(4 * doomed.length);
+      doomed.forEach((favorite, i) => ids.add(4 * i).writeU32(favorite.id));
+      const list = Memory.alloc(0x18);         // {vt, grow, data, capacity, first, end}
+      list.writePointer(address(0x8bb0dc)); list.add(4).writeU32(8); list.add(8).writePointer(ids);
+      list.add(0xc).writeU32(doomed.length); list.add(0x10).writeU32(0); list.add(0x14).writeU32(doomed.length);
+      deleteFavorites(owner.add(0x104), list);
+      for (const favorite of doomed) rememberFavorite(favorite.name, null);
+      send({type: 'favoritesRemoved', slots, count: doomed.length});
+      return doomed.length;
+    } catch (error) {
+      send({type: 'favoritesRemoved', slots, count: 0, error: String(error.message)});
+      return 0;
+    }
   }
 
   function selectedClearSlots(vector) {
@@ -1482,7 +1660,9 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     // Invalidate at the accepted submission boundary, before native async work
     // can make a receipt stale. Blocked Clear never changes the ledger.
     slotsChanged(selected || []);
-    return clearIrSlotsOriginal(librarian, vector);
+    const result = clearIrSlotsOriginal(librarian, vector);
+    removeFavoritesOnSlots(selected || []);   // HX Edit favorites on these slots go with them
+    return result;
   }
   Interceptor.replace(address(0x3da2b0), new NativeCallback(function (librarian, vector) {
     if (trustedClear) return submitClear(librarian, vector, selectedClearSlots(vector));
@@ -1556,8 +1736,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
         const capture = payloadMetadata[contentId];
         if (!capture || slot === AUDITION_SLOT) continue;
         result.push({slot, name: capture.name || profiles[slot] || 'Capture', gear: capture.gear || '', icon: capture.icon || '',
-          instrument: ['guitar', 'bass', 'any'].includes(capture.instrument) ? capture.instrument : 'guitar',
-          favorite: capture.favorite === true});
+          instrument: ['guitar', 'bass', 'any'].includes(capture.instrument) ? capture.instrument : 'guitar'});
       }
       return result;
     },
@@ -1664,6 +1843,13 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       return null;
     },
     modelSlot: () => hasActiveModel() ? getValue(activeModel) + 1 : null,
+    favoriteSlot: name => favoriteSlots.has(name) ? favoriteSlots.get(name) : null,   // the slot a NAM favorite plays
+    favoriteRevision: () => favoriteRevision,
+    rememberFavoriteSlot(name, slot) {   // a favorite just saved from the Save As Favorite dialog
+      if (typeof name === 'string' && name && Number.isInteger(slot) && slot >= 1 && slot <= 128) rememberFavorite(name, slot);
+    },
+    flushFavoriteNotes,
+    favoriteObjects: () => { try { return (favoritesList() || []).map(favorite => favorite.object); } catch (_) { return []; } },
     nativeModel: () => hasActiveModel() ? activeModel : NULL,
     playPreview(transfer) {
       const name = this.previewName(transfer);

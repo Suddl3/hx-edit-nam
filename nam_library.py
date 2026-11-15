@@ -72,7 +72,7 @@ class Library:
         self._payload_index = {}
         self._pending_slots = {}
         self._listeners = set()
-        self._view = dict(selected=None, query='', filter='*', instrument='*', favorites=False, layout='list', sortKey='name',
+        self._view = dict(selected=None, query='', filter='*', instrument='*', layout='list', sortKey='name',
                           sortDirection=1, revision=0)
         # Filters, layout and sort as last left (library-view.json); search text and selection start empty.
         self.view_file = self.folder / 'library-view.json'
@@ -101,11 +101,11 @@ class Library:
         with self.lock:
             return dict(self._view)
 
-    KEPT_VIEW = ('filter', 'instrument', 'favorites', 'layout', 'sortKey', 'sortDirection')
+    KEPT_VIEW = ('filter', 'instrument', 'layout', 'sortKey', 'sortDirection')
 
     def _view_valid(self, view):
         return (view['filter'] in (*GEARS, '*') and view['instrument'] in (*INSTRUMENTS, '*')
-                and type(view['favorites']) is bool and view['layout'] in ('list', 'grid')
+                and view['layout'] in ('list', 'grid')
                 and view['sortKey'] in ('name', 'gear', 'instrument', 'irSlots', 'added')
                 and type(view['sortDirection']) is int and view['sortDirection'] in (-1, 1))
 
@@ -134,7 +134,7 @@ class Library:
     def update_view(self, value):
         if not isinstance(value, dict):
             return False
-        allowed = {'selected', 'query', 'filter', 'instrument', 'favorites', 'layout', 'sortKey', 'sortDirection',
+        allowed = {'selected', 'query', 'filter', 'instrument', 'layout', 'sortKey', 'sortDirection',
                    'revision'}
         if set(value) - allowed:
             return False
@@ -244,7 +244,6 @@ class Library:
             payload_index = {identity: set(payloads) for identity, payloads in self._payload_index.items()}
         return {payload: dict(id=identity, name=entries[identity].get('name', ''),
                               gear=entries[identity].get('gear', ''), instrument=instrument_of(entries[identity]),
-                              favorite=entries[identity].get('favorite') is True,
                               icon=icon_for(entries[identity], self.pictures))
                 for identity, payloads in payload_index.items() if identity in entries
                 for payload in payloads}
@@ -408,19 +407,6 @@ class Library:
             self._write(entries)
         self._changed()
 
-    def set_favorite(self, identity, favorite):
-        """Star or unstar a capture (shared by the NAM tab and the library window)."""
-        if type(favorite) is not bool:
-            raise ValueError('Favorite must be true or false')
-        with self.lock:
-            entries = self._read(for_write=True)
-            if favorite:
-                entries[identity]['favorite'] = True
-            else:
-                entries[identity].pop('favorite', None)
-            self._write(entries)
-        self._changed()
-
     def set_instrument(self, identity, instrument):
         """'guitar', 'bass' or 'any' chosen by the user; '' or None goes back to automatic."""
         if instrument and instrument not in INSTRUMENTS:
@@ -513,7 +499,7 @@ def render_library(entries, view_state=None, pictures=None):
                     canTrain=value.get('canTrain', True), pendingSlots=value.get('pendingSlots', []),
                     icon=icon, iconChosen=icon == value.get('icon'),
                     iconAuto=pick_icon(value.get('name', ''), value.get('gear') or None),
-                    favorite=value.get('favorite') is True, instrument=instrument_of(value),
+                    instrument=instrument_of(value),
                     instrumentChosen=value.get('instrument') in INSTRUMENTS)
     rows = [row(key, value) for key, value in entries.items()]
     # Every gear picture once, as a small data: URI (the picker shows them all); rows refer to them by id.

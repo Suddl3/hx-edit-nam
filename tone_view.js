@@ -40,6 +40,11 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   const imageCache = new NativeFunction(base.add(0x37d2f0), 'pointer', []);   // HX Edit's image cache
   const imageNamed = method(0x37d3e0, 'pointer', ['pointer']);                 // cache, bare file name -> image
   const retainImage = method(0x37c8a0, 'void', []);                           // image reference +1
+  const redrawWidget = method(0x3baa40, 'void', []);                         // as nam_view redraws its list
+  const categoryPicture = method(0x3c2f70, 'pointer', []);                    // category -> its picture
+  let sidebarFavorites = NULL;      // the sidebar's favorites list: it keeps its rows, drawn from each favorite's model
+  let pickerFavorites = NULL;       // the block picker's model column while it lists favorites
+  let savingFrom = null, favoriteNamesSeen = null;   // Save As Favorite opened on a capture slot; names at the last reload
   const findWidget = method(0x3b7ae0, 'pointer', ['uint', 'int']);
   const widgetOrigin = method(0x3b7e00, 'pointer', ['pointer']);
   const isVisible = method(0x3ba100, 'uint8', ['int']);
@@ -67,9 +72,14 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // remembers the side last picked there (floor-memory.json); never picked: All.
   const SIDE_ALL = 99, SIDE_GUITAR = 1, SIDE_BASS = 2;
   const SIDED_CATEGORIES = new Set(['Amp', 'Amp+Cab', 'Preamp', 'NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Pedal',
-    'NAM Other', 'NAM Favorites']);
+    'NAM Other']);
   const rememberedSides = new Map(Object.entries(profile.pickerSides && typeof profile.pickerSides === 'object' ?
     profile.pickerSides : {}).filter(([, value]) => Number.isInteger(value)));
+  // name -> {slot, group, icon} last seen (floor memory): HX Edit loads its favorites at connect,
+  // before the slot check says which capture is where.
+  const favoriteLooks = new Map(Object.entries(profile.favoriteLooks && typeof profile.favoriteLooks === 'object' ?
+    profile.favoriteLooks : {}).filter(([, look]) => look && Number.isInteger(look.slot) && Number.isInteger(look.group)));
+  const slotLooks = new Map(Array.from(favoriteLooks.values(), look => [look.slot, look]));   // slot -> its last known look
   let choosingSide = false;
   const rememberedSide = category => rememberedSides.get(category) ?? SIDE_ALL;
   // A capture shows on All, on its own instrument's side, and on both when it is marked Any.
@@ -678,12 +688,10 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   let pendingCapture = null;
 
   function captureGroup(gear) {
-    // nam_catalog.NAM_CATEGORY_GROUPS: 1 Amp, 2 Amp + cab, 3 Cab, 4 Pedal, 5 Other (6 Favorites
-    // holds starred captures of any type, never a capture's own group).
+    // nam_catalog.NAM_CATEGORY_GROUPS: 1 Amp, 2 Amp + cab, 3 Cab, 4 Pedal, 5 Other.
     return gear === 'amp' || gear === 'preamp' ? 1 : gear === 'amp-cab' || gear === 'amp-pedal-cab' ? 2 :
       gear === 'cab' ? 3 : gear === 'pedal' || gear === 'pedal-amp' ? 4 : 5;
   }
-  const FAVORITES_GROUP = 6;
 
   function captureRowLabel(capture) {
     const name = String(capture.name).split(' – ').pop().trim() || 'Capture';
@@ -703,7 +711,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   function capturesUnder(header) {
     const {group, instrument} = captureView(header);
     return namView.installedCaptures()
-      .filter(capture => group === 0 || (group === FAVORITES_GROUP ? capture.favorite === true : captureGroup(capture.gear) === group))
+      .filter(capture => group === 0 || captureGroup(capture.gear) === group)
       // Guitar or Bass: that instrument's captures and the ones marked Any.
       .filter(capture => !instrument || [instrument, 'any'].includes(capture.instrument || 'guitar'))
       .sort((a, b) => String(a.name).localeCompare(String(b.name)) || a.slot - b.slot);
@@ -730,6 +738,146 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       captureImages.set(icon, image);
     }
     return captureImages.get(icon);
+  }
+
+  // HX Edit's favorites of a NAM block. A favorite's small icon (Save As Favorite, the sidebar's
+  // device list) is the category picture of its model, drawn later from FavoriteObj +0x10:
+  // [[model+0x30]+0x14] is the category (0x3c2710), so every NAM favorite showed NAM Other, the
+  // last category holding the NAM model. A favorite whose capture slot is known (nam_view's
+  // favoriteSlot) is pointed at the NAM model of its capture's category instead: same model id,
+  // the record HX Edit itself lists there. In the block picker (rows of 0x91fcd0, picture given
+  // here) it shows the capture's picture, as the capture rows do. The Save As Favorite dialog's
+  // new entry (0x25df6a) is named after the capture on the block, not "NAM A2 Lite" plus the
+  // spaces that tag the NAM rows, which ended up in the saved name.
+  const FAVORITE_VTABLE = 0x919304, PICKER_LIST = 0x91fcd0, SMALL_LIST = 0x91ebb4, NEW_FAVORITE_ROW = 0x25df6a, SIDEBAR_ROW = 0x204924;
+  const NAM_FAVORITE_MODELS = new Set(['HD2_AmpNAMLite', 'HD2_DistNAMLite']);   // NAM_MODEL_ID is declared further down
+  const favoriteLabels = new Map();  // default favorite name -> its native string, kept alive
+  // The slot check empties its list for a moment whenever the favorites change on the Floor (a
+  // save, a clear): the picker then fell back to NAM Other until it was done. The last full list
+  // stands in while it is empty.
+  let lastCaptures = [];
+  function knownCaptures() {
+    const captures = namView.installedCaptures();
+    if (captures.length) lastCaptures = captures;
+    return captures.length ? captures : lastCaptures;
+  }
+  function favoriteCapture(slot) {
+    return Number.isInteger(slot) ? knownCaptures().find(capture => capture.slot === slot) || null : null;
+  }
+  function favoriteName(capture) {
+    // The capture's short name, as its row shows it; Helix names hold 16 characters.
+    const name = capture ? String(capture.name).split(' – ').pop().trim() : '';
+    return (name || tiles[0].block).slice(0, 16).trimEnd();
+  }
+  function pointFavorite(object) {
+    // A NAM favorite whose capture is known: its model becomes the NAM model of the capture's
+    // category. The capture, or null when the favorite is not one of those.
+    if (object.compare(ptr(0x10000)) < 0 || !object.readPointer().equals(base.add(FAVORITE_VTABLE))) return null;
+    const model = object.add(0x10).readPointer();
+    const id = model.isNull() ? '' : l6text(model.add(0x24));
+    if (!NAM_FAVORITE_MODELS.has(id)) return null;
+    const name = l6text(object.add(8)), slot = namView.favoriteSlot?.(name);
+    if (!Number.isInteger(slot)) return null;
+    // The capture on that slot, or (before this launch's slot check) what it was last time.
+    // The slot check is busy for a moment after a save: then the slot's last known look.
+    const capture = favoriteCapture(slot);
+    let look = favoriteLooks.get(name) || null;
+    const fresh = capture ? {slot, group: captureGroup(capture.gear), icon: capture.icon || ''} :
+      look && look.slot === slot ? look : slotLooks.get(slot) || null;
+    if (!fresh) return null;
+    slotLooks.set(slot, fresh);
+    if (!look || look.slot !== fresh.slot || look.group !== fresh.group || look.icon !== fresh.icon) {
+      look = fresh;
+      favoriteLooks.set(name, look);
+      send({type: 'favoriteLook', name, look});
+    }
+    const record = id === 'HD2_AmpNAMLite' ? groupRecord(look.group) : null;
+    if (record && !record.equals(model) && l6text(record.add(0x24)) === id) object.add(0x10).writePointer(record);
+    return look;
+  }
+  function groupRecord(group) {
+    return Number.isInteger(group) && group >= 1 && group <= NAM_CATEGORY_NAMES.length ?
+      namRecords.get(NAM_CATEGORY_NAMES[group - 1] + ':0') || null : null;
+  }
+  function captureRecord(capture) {
+    // The NAM model as listed in the capture's category (its picture is that category's).
+    return capture ? groupRecord(captureGroup(capture.gear)) : null;
+  }
+  function favoritePicture(object) {
+    // A picker list row's picture: its (now right) category's, as the other favorites and the
+    // sidebar show. Grid view shows the capture's own picture (the 0x3c2fb0 hook).
+    return categoryImage(object.add(0x10).readPointer());
+  }
+  let favoriteRevision = '';
+  const categoryImages = new Map();   // category -> its picture, retained once for the rows given it
+  function categoryImage(model) {
+    // The picture HX Edit gives the model's category (0x3c2710 category, 0x3c2f70 its picture).
+    const category = model.add(0x30).readPointer().add(0x14).readPointer();
+    const key = category.toString();
+    if (!categoryImages.has(key)) {
+      const image = categoryPicture(category);
+      if (!image.isNull()) retainImage(image);
+      categoryImages.set(key, image);
+    }
+    return categoryImages.get(key);
+  }
+  function pointFavorites() {
+    // A favorite just saved, renamed or replaced, or the slot check done: rows built before were
+    // drawn with NAM Other. Pointed again, and the sidebar's list redrawn (it keeps its rows).
+    const revision = `${namView.favoriteRevision?.() ?? 0}|${namView.installedCaptures().length}|${namRecords.size}`;
+    if (revision === favoriteRevision) return;
+    favoriteRevision = revision;
+    let known = 0;
+    for (const object of namView.favoriteObjects?.() || []) {
+      try { if (pointFavorite(object)) known++; } catch (_) { /* the next row build does it */ }
+    }
+    if (known) refreshFavoriteLists();
+  }
+  function refreshFavoriteLists() {
+    // The sidebar and the Save dialog draw each favorite's picture from its model when they paint
+    // (0x401580); the block picker baked its picture into the row (+0x104, drawn by 0x37fc20).
+    let changed = 0;
+    if (!pickerFavorites.isNull() && pickerFavorites.readPointer().equals(base.add(PICKER_LIST))) {
+      for (const row of listRows(pickerFavorites)) {
+        if (row.isNull()) continue;
+        const object = row.add(0x10c).readPointer(), capture = pointFavorite(object);
+        if (!capture) continue;
+        const image = favoritePicture(object);
+        if (image.isNull() || image.equals(row.add(0x104).readPointer())) continue;
+        retainImage(image);                  // the row's own reference: the list may release it with the row
+        row.add(0x104).writePointer(image);
+        changed++;
+      }
+      if (changed) redrawWidget(pickerFavorites);
+    }
+    if (!sidebarFavorites.isNull() && sidebarFavorites.readPointer().equals(base.add(SMALL_LIST))) redrawWidget(sidebarFavorites);
+    send({type: 'toneTrace', reason: 'nam-category', stage: 'favorites-pointed', changed});
+  }
+  function favoriteRow(list, args, from) {
+    try {
+      const kind = list.readPointer(), picker = kind.equals(base.add(PICKER_LIST));
+      if (!picker && !kind.equals(base.add(SMALL_LIST))) return false;
+      const object = args[5];
+      if (object.compare(ptr(0x10000)) < 0) return false;          // some lists pass a number here
+      if (object.readPointer().equals(base.add(FAVORITE_VTABLE))) {
+        if (!picker && from.equals(base.add(SIDEBAR_ROW))) sidebarFavorites = list;
+        if (picker) pickerFavorites = list;
+        const capture = pointFavorite(object);
+        if (!capture) return false;
+        // The picker computed its picture from the model before this (0x21c56f): replace it.
+        if (picker) { const image = favoritePicture(object); if (!image.isNull()) args[2] = image; }
+        return true;
+      }
+      if (picker || !from.equals(base.add(NEW_FAVORITE_ROW)) || args[1].isNull() ||
+          args[1].readUtf8String().trimEnd() !== tiles[0].block) return false;
+      const name = favoriteName(favoriteCapture(namView.modelSlot()));
+      if (!favoriteLabels.has(name)) favoriteLabels.set(name, Memory.allocUtf8String(name));
+      args[1] = favoriteLabels.get(name);
+      return true;
+    } catch (error) {
+      send({type: 'toneTrace', reason: 'nam-category', stage: 'favorite-row-skipped', error: String(error.message)});
+      return false;
+    }
   }
 
   function appendCaptureRows(frame) {
@@ -825,7 +973,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
 
   function captureSignature() {
     return namView.installedCaptures().map(capture =>
-      `${capture.slot}:${captureGroup(capture.gear)}:${capture.instrument}:${capture.favorite ? 1 : 0}:${capture.name}`).join('|');
+      `${capture.slot}:${captureGroup(capture.gear)}:${capture.instrument}:${capture.name}`).join('|');
   }
   function listOwner() {
     // The selector that owns the category list; its model column is at +0x58.
@@ -904,8 +1052,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       }
       if (signature !== builtSignature || blockChanged) {
         const capture = Number.isInteger(slot) ? namView.installedCaptures().find(entry => entry.slot === slot) : null;
-        // The block's own category; NAM Favorites stays open while the block plays a starred capture.
-        const target = !capture || (shown === 'NAM Favorites' && capture.favorite) ? shown : NAM_CATEGORY_NAMES[captureGroup(capture.gear) - 1];
+        const target = capture ? NAM_CATEGORY_NAMES[captureGroup(capture.gear) - 1] : shown;
         // Guitar or Bass in NAM Amp / NAM Amp + cab: the block's capture decides; with none, the side
         // being browsed is kept (choosing the category row alone goes back to HX Edit's first, Guitar).
         const keepSide = target === shown ? subcategoryValue(controller) : null;
@@ -1046,7 +1193,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // exchanged between these four siblings of the same model; nothing is sent to the device.
   // (Addresses and layouts: BLOCK-ICON-RESEARCH.md; confirmed by probes on November 13.)
   const NAM_MODEL_ID = 'HD2_AmpNAMLite';
-  const NAM_CATEGORY_NAMES = ['NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Pedal', 'NAM Other', 'NAM Favorites'];  // nam_catalog.NAM_CATEGORY_GROUPS
+  const NAM_CATEGORY_NAMES = ['NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Pedal', 'NAM Other'];  // nam_catalog.NAM_CATEGORY_GROUPS
   const namRecords = new Map();      // "category name:subcategory index" -> that record of the NAM model
   const flowDsp = new Map();         // path object -> its DSP index
   const flowItems = new Map();       // path item -> {item, object, vtable}, to redraw after a change
@@ -1122,7 +1269,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     const slot = targetBinding.peekSlot(iconEditor, dsp, blockName);
     iconWhy = `slot=${slot} dsp=${dsp}`;
     if (!Number.isInteger(slot)) return null;
-    const capture = namView.installedCaptures().find(entry => entry.slot === slot);
+    const capture = knownCaptures().find(entry => entry.slot === slot);
     iconWhy = capture ? `gear=${capture.gear}` : `slot ${slot} not a known capture (${namView.installedCaptures().length} known)`;
     if (!capture) return null;
     // The record on the category's remembered side when the capture shows there, else on All, so
@@ -1195,6 +1342,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     if (!iconActiveUntil) iconActiveUntil = now + 20000;     // startup: the first slot check is still to come
     if (now < iconCheckAt) return;
     iconCheckAt = now + 250;
+    if (profile.namCategory) { try { pointFavorites(); } catch (_) { /* presentation only */ } }
     try {
       if (namView.libraryReady && !namView.libraryReady()) return;
       const state = `${iconEditor}|${controllerReady(selectedController) ? selectedController.toString() : ''}|${namView.modelSlot()}|${namView.installedCaptures().length}|${namView.payloadRevision?.() || 0}`;
@@ -1202,18 +1350,84 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     } catch (_) { /* presentation only */ }
   }
 
+  // HX Edit's favorites of a NAM block, kept on their capture's category (see pointFavorite).
+  // 0x3c90c0 (catalog, from device command 0x24) rebuilds the favorites from the Floor and sets
+  // each one's model with findModel (0x3c9519): NAM Other for every NAM favorite. It runs on a
+  // save, a rename, at connect and whenever the Save As Favorite dialog opens, before any list is
+  // built from it. Afterwards the favorite notes waiting for it are taken (nam_view) and every
+  // NAM favorite pointed again. 0x25f3d0 sets up that dialog with a category for its new entry
+  // (findModel of the block's model at 0x3d3bf4, so NAM Other too): the block's capture's instead.
   if (profile.namCategory) {
+    const favoriteGuards = { '3c90c0': '558bec6aff68e252', '3c9519': 'e8c28fffff8945f0', '25f3d0': '558bec56ff75088bf18d' };
+    const favoriteReady = Object.entries(favoriteGuards).every(([rva, hex]) =>
+      Array.from(new Uint8Array(base.add(parseInt(rva, 16)).readByteArray(hex.length / 2)), b => b.toString(16).padStart(2, '0')).join('') === hex);
+    if (!favoriteReady) send({ type: 'toneTrace', reason: 'nam-category', stage: 'favorite-hooks-skipped' });
+    else {
+      Interceptor.attach(base.add(0x3c90c0), {
+        onEnter() { this.catalog = this.context.ecx; },
+        onLeave() {
+          try {
+            namView.flushFavoriteNotes?.();
+            if (namRecords.size === 0) indexNamRecords(this.catalog);
+            const data = this.catalog.add(0x38).readPointer(), first = this.catalog.add(0x40).readU32(), end = this.catalog.add(0x44).readU32();
+            const names = new Set();
+            let pointed = 0, adopted = 0;
+            for (let i = first; i < end && i < first + 512; i++) {
+              const object = data.add(4 * i).readPointer(), name = l6text(object.add(8));
+              names.add(name);
+              // Saved a moment ago from the dialog: a new name, reloaded before HX Edit says which.
+              if (savingFrom && Date.now() < savingFrom.until && favoriteNamesSeen && !favoriteNamesSeen.has(name) &&
+                  NAM_FAVORITE_MODELS.has(l6text(object.add(0x10).readPointer().add(0x24))) &&
+                  !Number.isInteger(namView.favoriteSlot?.(name))) { namView.rememberFavoriteSlot?.(name, savingFrom.slot); adopted++; }
+              if (pointFavorite(object)) pointed++;
+            }
+            send({ type: 'toneTrace', reason: 'nam-category', stage: 'favorites-reloaded', count: end - first, pointed, adopted,
+                   saving: !!savingFrom, seen: favoriteNamesSeen ? favoriteNamesSeen.size : -1 });
+            favoriteNamesSeen = names;
+            favoriteRevision = '';            // the rows built from here on show it; earlier ones are refreshed
+          } catch (error) {
+            send({ type: 'toneTrace', reason: 'nam-category', stage: 'favorites-reload-skipped', error: String(error.message) });
+          }
+        },
+      });
+      Interceptor.attach(base.add(0x25f3d0), {
+        onEnter(args) {
+          try {
+            const category = args[1];
+            if (category.compare(ptr(0x10000)) < 0 || !l6text(category.add(4)).startsWith('NAM ')) return;
+            const slot = namView.modelSlot(), capture = favoriteCapture(slot);
+            savingFrom = Number.isInteger(slot) ? {slot, until: Date.now() + 120000} : null;
+            if (capture) slotLooks.set(slot, {slot, group: captureGroup(capture.gear), icon: capture.icon || ''});
+            const record = captureRecord(capture);
+            const wanted = record ? record.add(0x30).readPointer().add(0x14).readPointer() : NULL;
+            if (!wanted.isNull()) args[1] = wanted;
+          } catch (error) {
+            send({ type: 'toneTrace', reason: 'nam-category', stage: 'favorite-dialog-skipped', error: String(error.message) });
+          }
+        },
+      });
+    }
+  }
+
+  if (profile.namCategory) {
+    let lastSelector = NULL;
+    const selectorShowsBlock = Array.from(new Uint8Array(base.add(0x21f54f).readByteArray(12)),
+      b => b.toString(16).padStart(2, '0')).join('') === '8b4dc88d45ac50e8852f1a00';
     Interceptor.attach(base.add(0x3c24e0), {            // HXModelCatalog::findModel(id, variant)
       onEnter(args) {
         try {
           if (namRecords.size === 0) indexNamRecords(this.context.ecx);
-          this.nam = selectorStack.length > 0 && l6text(args[0]) === NAM_MODEL_ID;
+          // In a selector sync, or the selector showing its block's category again on its own
+          // (0x21f556, e.g. after a favorite is cleared): that opened NAM Other until the next sync.
+          this.selector = selectorStack.length > 0 ? selectorStack[selectorStack.length - 1] :
+            selectorShowsBlock && this.returnAddress.equals(base.add(0x21f55b)) ? lastSelector : NULL;
+          this.nam = !this.selector.isNull() && l6text(args[0]) === NAM_MODEL_ID;
         } catch (_) { this.nam = false; }
       },
       onLeave(result) {
         if (!this.nam || result.isNull()) return;
         try {
-          const selector = selectorStack[selectorStack.length - 1];
+          const selector = this.selector;
           const blockName = block(selector), wanted = wantedRecord(selector.add(0x80).readS32(), blockName);
           if (wanted && !wanted.equals(result)) { result.replace(wanted); iconTrace('selector', blockName, wanted); }
           else if (!wanted) iconSkipped('selector', blockName);
@@ -1223,6 +1437,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     Interceptor.attach(base.add(0x21e500), {            // model selector: sync to the cursor block
       onEnter() {
         this.controller = this.context.ecx;
+        lastSelector = this.context.ecx;
         selectorStack.push(this.context.ecx);
         noteCursor(this.context.ecx);
         try { if (controllerReady(this.context.ecx)) iconEditor = this.context.ecx.add(0x34).readPointer(); } catch (_) { /* keep the last one */ }
@@ -1346,8 +1561,12 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
           if (!this.returnAddress.equals(tileBuilder)) return;
           try {
             const row = this.context.ebp.sub(0x14).readPointer();
-            if (row.isNull() || !captureRows.has(row.readUtf8String())) return;
-            const picture = row.add(0x104).readPointer();
+            if (row.isNull()) return;
+            // A NAM favorite's tile: its capture's picture (its list row shows the category's).
+            const object = row.add(0x10c).readPointer();
+            const look = object.compare(ptr(0x10000)) < 0 ? null : pointFavorite(object);
+            if (look && look.icon) { const image = captureImage(look.icon); if (!image.isNull()) { this.picture = image; return; } }
+            const picture = row.add(0x104).readPointer();   // capture rows carry their capture's picture
             for (const image of captureImages.values()) if (!image.isNull() && image.equals(picture)) { this.picture = picture; break; }
           } catch (error) {
             this.picture = NULL;
@@ -1362,6 +1581,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     onEnter(args) {
       if (profile.navigation) {
         if (!profile.namCategory) return;
+        if (favoriteRow(this.context.ecx, args, this.returnAddress)) return;
         if (!this.context.ecx.readPointer().equals(base.add(0x91fcd0)) || args[1].isNull() || args[5].isNull()) return;
         const header = args[1].readUtf8String();
         // The last stock category row in the category column (list kind 0): mark it afterwards.

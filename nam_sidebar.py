@@ -74,7 +74,7 @@ def sidebar_rows(library, *, can_load=False):
                          fileStatus='available' if exists else 'missing',
                          fileDetail='Kept on this PC' if exists else 'The kept capture file is unavailable',
                          icon=library.picture_path(library.icon_for(entry)),
-                         favorite=entry.get('favorite') is True, instrument=instrument_of(entry),
+                         instrument=instrument_of(entry),
                          instrumentChosen=entry.get('instrument') in INSTRUMENTS,
                          locationDetail=detail, canLoad=bool(can_load and (exists or verified) and state != 'refreshing' and not pending)))
     return rows
@@ -182,15 +182,12 @@ class NamSidebar:
         identity = message.get('contentId')
         if not isinstance(identity, str) or not re.fullmatch('[a-f0-9]{64}', identity):
             return
-        if action in ('favorite', 'instrument'):
-            # The star and guitar/bass: library metadata only, never the Floor.
+        if action == 'instrument':
+            # Guitar / bass / both: library metadata only, never the Floor.
             try:
                 if identity not in self.library.entries():
                     raise ValueError('This capture is no longer in the library.')
-                if action == 'favorite':
-                    self.library.set_favorite(identity, message.get('favorite') is True)
-                else:
-                    self.library.set_instrument(identity, message.get('instrument') or None)
+                self.library.set_instrument(identity, message.get('instrument') or None)
                 self.send({'type': 'classificationResult', 'error': ''})
             except (OSError, ValueError, KeyError) as error:
                 self.send({'type': 'classificationResult', 'error': str(error)})

@@ -1,4 +1,5 @@
-"""Favourites and guitar/bass: stored per capture, shared by the NAM tab and the library window."""
+"""Guitar / bass / both: stored per capture, shared by the NAM tab and the library window.
+(Favorites are HX Edit's own; the library keeps no stars.)"""
 from pathlib import Path
 import json
 import re
@@ -53,20 +54,17 @@ class LibraryFlagTests(unittest.TestCase):
         page = render_library(self.library.entries())
         return {row['id']: row for row in json.loads(re.search(r'const rows = (\[.*?\]);\n', page).group(1))}
 
-    def test_favourite_and_instrument_are_kept_and_shown(self):
+    def test_instrument_is_kept_and_shown(self):
         rows = self.rows()
         self.assertEqual((rows[self.svt]['instrument'], rows[self.svt]['instrumentChosen']), ('bass', False))
-        self.assertEqual((rows[self.plexi]['instrument'], rows[self.plexi]['favorite']), ('guitar', False))
-        self.library.set_favorite(self.plexi, True)
+        self.assertEqual(rows[self.plexi]['instrument'], 'guitar')
+        self.assertNotIn('favorite', rows[self.plexi])
         self.library.set_instrument(self.svt, 'guitar')
         again = Library(self.library.folder)                     # the next launch
         rows = {row['contentId']: row for row in sidebar_rows(again)}
-        self.assertIs(rows[self.plexi]['favorite'], True)
         self.assertEqual((rows[self.svt]['instrument'], rows[self.svt]['instrumentChosen']), ('guitar', True))
-        again.set_favorite(self.plexi, False)
         again.set_instrument(self.svt, None)                     # back to automatic
         entries = again.entries()
-        self.assertNotIn('favorite', entries[self.plexi])
         self.assertNotIn('instrument', entries[self.svt])
         self.assertEqual(self.rows()[self.svt]['instrument'], 'bass')
 
@@ -78,32 +76,29 @@ class LibraryFlagTests(unittest.TestCase):
     def test_bad_values_are_refused(self):
         with self.assertRaises(ValueError):
             self.library.set_instrument(self.svt, 'banjo')
-        with self.assertRaises(ValueError):
-            self.library.set_favorite(self.svt, 'yes')
         with self.assertRaises(KeyError):
-            self.library.set_favorite('f' * 64, True)
+            self.library.set_instrument('f' * 64, 'bass')
 
     def test_the_shared_view_carries_both_filters(self):
         self.assertEqual(self.library.view_state()['instrument'], '*')
-        self.assertTrue(self.library.update_view({'instrument': 'bass', 'favorites': True}))
-        self.assertEqual({k: self.library.view_state()[k] for k in ('instrument', 'favorites')},
-                         {'instrument': 'bass', 'favorites': True})
+        self.assertTrue(self.library.update_view({'instrument': 'bass'}))
+        self.assertEqual(self.library.view_state()['instrument'], 'bass')
         self.assertTrue(self.library.update_view({'filter': 'amp'}))   # the docked pane's partial view
         self.assertEqual(self.library.view_state()['instrument'], 'bass')
         self.assertFalse(self.library.update_view({'instrument': 'banjo'}))
-        self.assertFalse(self.library.update_view({'favorites': 1}))
+        self.assertFalse(self.library.update_view({'favorites': True}))     # no longer a filter
         self.assertTrue(self.library.update_view({'sortKey': 'instrument'}))
         self.assertEqual(self.library.view_state()['layout'], 'list')
         self.assertTrue(self.library.update_view({'layout': 'grid'}))
         self.assertFalse(self.library.update_view({'layout': 'tiles'}))
 
     def test_filters_layout_and_sort_are_kept_but_not_search_or_selection(self):
-        self.assertTrue(self.library.update_view({'instrument': 'bass', 'favorites': True, 'layout': 'grid',
+        self.assertTrue(self.library.update_view({'instrument': 'bass', 'layout': 'grid',
                                                   'filter': 'amp', 'sortKey': 'added', 'sortDirection': -1,
                                                   'query': 'plexi', 'selected': self.plexi}))
         again = Library(self.library.folder).view_state()                 # the next launch
-        self.assertEqual({key: again[key] for key in ('instrument', 'favorites', 'layout', 'filter', 'sortKey', 'sortDirection')},
-                         {'instrument': 'bass', 'favorites': True, 'layout': 'grid', 'filter': 'amp',
+        self.assertEqual({key: again[key] for key in ('instrument', 'layout', 'filter', 'sortKey', 'sortDirection')},
+                         {'instrument': 'bass', 'layout': 'grid', 'filter': 'amp',
                           'sortKey': 'added', 'sortDirection': -1})
         self.assertEqual((again['query'], again['selected']), ('', None))
         # A damaged or edited file: each bad value keeps its default, the good ones stay.
@@ -113,7 +108,7 @@ class LibraryFlagTests(unittest.TestCase):
         (self.library.folder / 'library-view.json').write_text('not json', encoding='utf-8')
         self.assertEqual(Library(self.library.folder).view_state()['layout'], 'list')
 
-    def test_the_nam_tab_menu_sets_both(self):
+    def test_the_nam_tab_menu_sets_the_instrument(self):
         sent = []
 
         class Script:
@@ -121,23 +116,22 @@ class LibraryFlagTests(unittest.TestCase):
                 pass
         bridge = NamSidebar(Script(), self.library, Event(), process_factory=lambda *a, **k: self.fail('no helper'))
         bridge.send = lambda message: sent.append(message) or True
-        bridge._handle_action({'type': 'action', 'action': 'favorite', 'contentId': self.svt, 'favorite': True})
         bridge._handle_action({'type': 'action', 'action': 'instrument', 'contentId': self.plexi, 'instrument': 'bass'})
         bridge._handle_action({'type': 'action', 'action': 'instrument', 'contentId': self.plexi, 'instrument': 'banjo'})
-        self.assertEqual([m['error'] for m in sent][:2], ['', ''])
-        self.assertIn('Unknown instrument', sent[2]['error'])
+        self.assertEqual(sent[0]['error'], '')
+        self.assertIn('Unknown instrument', sent[1]['error'])
         entries = self.library.entries()
-        self.assertIs(entries[self.svt].get('favorite'), True)
         self.assertEqual(entries[self.plexi].get('instrument'), 'bass')
 
 
 class LibraryPageTests(unittest.TestCase):
     def test_the_page_has_the_controls_and_shares_the_view(self):
-        page = render_library({}, {'instrument': 'bass', 'favorites': True})
+        page = render_library({}, {'instrument': 'bass'})
         self.assertIn('<option value="*">All</option>', page)
         self.assertIn("new Option('Both', 'any')", page)
-        for marker in ('id="instrument"', 'id="favorites"', "'favorite:'", "'instrument:'",
-                       'instrument: instrument.value', "favorites: favorites.getAttribute('aria-pressed') === 'true'",
+        for marker in ("id='favorites'", 'id="favorites"', "'favorite:'", 'starButton'):
+            self.assertNotIn(marker, page)
+        for marker in ('id="instrument"', "'instrument:'", 'instrument: instrument.value',
                        'id="layout"', 'id="tiles"', "layout: gridShown() ? 'grid' : 'list'", 'function renderTiles('):
             self.assertIn(marker, page)
 

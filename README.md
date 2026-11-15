@@ -11,8 +11,8 @@ The maintained Floor-focused editor is [Suddl3/hx-edit-nam](https://github.com/S
 - **DSP meter** in HX Edit's toolbar: each DSP's use as the Floor reports it ("DSP 1 27/75"), turning yellow and red as a path fills up.
 - **Your window stays put** when the Floor reconnects (maximized stays maximized).
 - A tidier NAM tab: readable names when narrow, short dates, and Expand always opens the library.
-- **Favorites** and **guitar / bass / both** per capture, with filters in both library views and an All / Guitar / Bass dropdown in every NAM category and in HX Edit's Amp and Preamp, which remembers your last side.
-- **NAM Favorites** (starred captures) and **NAM Cab** categories in the block picker.
+- **Guitar / bass / both** per capture, with filters in both library views and an All / Guitar / Bass dropdown in every NAM category and in HX Edit's Amp and Preamp, which remembers your last side.
+- A **NAM Cab** category in the block picker; favorites stay HX Edit's own (they work with NAM blocks, and go when their capture's slot is cleared).
 - **Grid views**: capture pictures in the block picker's grid, and a grid view for the expanded library.
 - Slot numbers show as soon as the Floor connects.
 - **A warning before clearing a slot** that presets you have opened still use.

@@ -27,6 +27,7 @@ from threading import Lock
 BLOCK = re.compile(r'block\d{1,2}')
 CONTENT = re.compile(r'[0-9a-f]{64}')
 NAME_LIMIT = 255
+ICON = re.compile(r'[a-z0-9_]{0,40}')   # capture_icons id ('' when none)
 
 
 def _name(value):
@@ -40,6 +41,19 @@ def _slot(value):
 def _side(category, value):
     return (isinstance(category, str) and 0 < len(category) <= 40 and '\0' not in category
             and type(value) is int and 0 <= value <= 999)
+
+
+def _favorite(name):
+    return isinstance(name, str) and 0 < len(name) <= 64 and '\0' not in name
+
+
+def _favorite_slot(value):
+    return type(value) is int and 1 <= value <= 128     # 128: a favorite saved during a preview
+
+
+def _look(value):
+    return (isinstance(value, dict) and _favorite_slot(value.get('slot')) and type(value.get('group')) is int
+            and 1 <= value['group'] <= 5 and isinstance(value.get('icon'), str) and ICON.fullmatch(value['icon']) is not None)
 
 
 def preset_usage(value):
@@ -73,6 +87,8 @@ class FloorMemory:
         self._slots = {}
         self._presets = {}   # "setlist:preset" -> usage record + 'seen' (ISO date)
         self._sides = {}     # block picker category -> subcategory id last picked there
+        self._favorites = {}  # HX Edit favorite name -> the capture slot it plays (saved from a NAM block here)
+        self._looks = {}      # favorite name -> {slot, group, icon}: its picture before the slot check
         self._load()
 
     def _load(self):
@@ -95,6 +111,12 @@ class FloorMemory:
         sides = data.get('pickerSides')
         if isinstance(sides, dict):
             self._sides = {key: value for key, value in sides.items() if _side(key, value)}
+        favorites = data.get('favoriteSlots')
+        if isinstance(favorites, dict):
+            self._favorites = {name: slot for name, slot in favorites.items() if _favorite(name) and _favorite_slot(slot)}
+        looks = data.get('favoriteLooks')
+        if isinstance(looks, dict):
+            self._looks = {name: look for name, look in looks.items() if name in self._favorites and _look(look)}
         presets = data.get('presets')
         if isinstance(presets, dict):
             for entry in presets.values():
@@ -123,6 +145,16 @@ class FloorMemory:
         with self.lock:
             return dict(self._sides)
 
+    def favorites(self):
+        """{favorite name: slot} for the native side's starting memory."""
+        with self.lock:
+            return dict(self._favorites)
+
+    def looks(self):
+        """{favorite name: {slot, group, icon}} for the native side's starting memory."""
+        with self.lock:
+            return {name: dict(look) for name, look in self._looks.items()}
+
     def presets(self):
         """[[setlist, preset, name, slots or None], …] for the native side's starting memory."""
         with self.lock:
@@ -138,6 +170,27 @@ class FloorMemory:
                 with self.lock:
                     if self._sides.get(category) != value:
                         self._sides[category] = value
+                        self._save()
+            return True
+        if kind == 'favoriteSlot':
+            name, slot = payload.get('name'), payload.get('slot')
+            if _favorite(name) and (slot is None or _favorite_slot(slot)):
+                with self.lock:
+                    if self._favorites.get(name) != slot:
+                        if slot is None:
+                            self._favorites.pop(name, None)
+                            self._looks.pop(name, None)
+                        else:
+                            self._favorites[name] = slot
+                        self._save()
+            return True
+        if kind == 'favoriteLook':
+            name, look = payload.get('name'), payload.get('look')
+            if _favorite(name) and _look(look):
+                look = {'slot': look['slot'], 'group': look['group'], 'icon': look['icon']}
+                with self.lock:
+                    if name in self._favorites and self._looks.get(name) != look:
+                        self._looks[name] = look
                         self._save()
             return True
         if kind == 'presetUsage':
@@ -178,7 +231,9 @@ class FloorMemory:
         data = {'preview': self._preview,
                 'slots': {str(slot): entry for slot, entry in sorted(self._slots.items())},
                 'presets': dict(sorted(self._presets.items())),
-                'pickerSides': dict(sorted(self._sides.items()))}
+                'pickerSides': dict(sorted(self._sides.items())),
+                'favoriteSlots': dict(sorted(self._favorites.items())),
+                'favoriteLooks': dict(sorted(self._looks.items()))}
         temporary = self.path.with_name(f'floor-memory.{os.getpid()}.tmp')
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)

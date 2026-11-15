@@ -14,8 +14,8 @@ class NamCategoryCatalogTests(unittest.TestCase):
         models = [{'id\0': 'HD2_AmpNAMLite\0', 'name\0': 'NAM A2 Lite\0', 'image\0': 'x.png\0', 'params\0': []}]
         rows = [nam_category_rows(index, models) for index in range(1, len(NAM_CATEGORY_GROUPS) + 1)]
         self.assertEqual([name for name, _ in NAM_CATEGORY_GROUPS],
-                         ['NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Pedal', 'NAM Other', 'NAM Favorites'])
-        self.assertEqual([row[0]['name\0'] for row in rows], ['NAM A2 Lite' + ' ' * n + '\0' for n in range(1, 7)])
+                         ['NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Pedal', 'NAM Other'])
+        self.assertEqual([row[0]['name\0'] for row in rows], ['NAM A2 Lite' + ' ' * n + '\0' for n in range(1, 6)])
         # The same model identity everywhere; the source row is not modified.
         self.assertTrue(all(row[0]['id\0'] == 'HD2_AmpNAMLite\0' for row in rows))
         self.assertEqual(models[0]['name\0'], 'NAM A2 Lite\0')
@@ -50,14 +50,13 @@ const installed=[{slot:127,name:'Deluxe Reverb',gear:'amp-cab'},{slot:9,name:'FN
 installed.push({slot:50,name:'Ampeg SVT',gear:'amp',instrument:'bass'},{slot:51,name:'Darkglass B7K',gear:'pedal',instrument:'bass'},
   {slot:52,name:'Both ways amp',gear:'amp',instrument:'any'});
 const namView={installedCaptures:()=>installed};
-const NAM_CATEGORY_NAMES=['NAM Amp','NAM Amp + cab','NAM Cab','NAM Pedal','NAM Other','NAM Favorites'];
+const NAM_CATEGORY_NAMES=['NAM Amp','NAM Amp + cab','NAM Cab','NAM Pedal','NAM Other'];
 ''' + helpers + r'''
 assert.deepEqual(['amp','preamp','amp-cab','amp-pedal-cab','cab','pedal','pedal-amp','','studio','experimental'].map(captureGroup),
   [1,1,2,2,3,4,4,5,5,5]);
 const slots=header=>capturesUnder(header).map(capture=>capture.slot);
-const tag=(group,side)=>'NAM A2 Lite'+' '.repeat(group+6*side);   // side: 0 All, 1 Guitar, 2 Bass
+const tag=(group,side)=>'NAM A2 Lite'+' '.repeat(group+5*side);   // side: 0 All, 1 Guitar, 2 Bass
 installed.push({slot:60,name:'Mesa 4x12',gear:'cab'});
-installed.find(c=>c.slot===13).favorite=true;installed.find(c=>c.slot===50).favorite=true;
 assert.deepEqual(slots(tag(1,0)),[50,52,40]);                 // Amp, All
 assert.deepEqual(slots(tag(1,1)),[52,40]);                    // Amp, Guitar: guitar and Both
 assert.deepEqual(slots(tag(1,2)),[50,52]);                    // Amp, Bass: bass and Both
@@ -68,8 +67,6 @@ assert.deepEqual(slots(tag(4,0)),[51,13]);                    // Pedal, All
 assert.deepEqual(slots(tag(4,1)),[13]);                       // Pedal, Guitar (no mark: guitar)
 assert.deepEqual(slots(tag(4,2)),[51]);                       // Pedal, Bass
 assert.deepEqual(slots(tag(5,0)),[41,42]);                    // Other
-assert.deepEqual(slots(tag(6,0)),[50,13]);                    // Favorites: starred, any type
-assert.deepEqual(slots(tag(6,2)),[50]);                       // Favorites, Bass
 assert.equal(slots('NAM A2 Lite').length,11);                 // Amp > NAM, or names trimmed: everything
 // Row labels lead with the slot, use the profile name of a long library name, and are unique.
 assert.equal(captureRowLabel(installed[0]),'127: Deluxe Reverb');
@@ -144,7 +141,7 @@ const NULL={isNull:()=>true,equals:o=>o===NULL,toString:()=>'0'};
 const Memory={allocUtf8String:text=>({text})};
 const method=()=>()=>{};
 const profile={namCategory:true}, tiles=[{block:'NAM A2 Lite'}], selectionEvent=1;
-const NAM_CATEGORY_NAMES=['NAM Amp','NAM Amp + cab','NAM Cab','NAM Pedal','NAM Other','NAM Favorites'];
+const NAM_CATEGORY_NAMES=['NAM Amp','NAM Amp + cab','NAM Cab','NAM Pedal','NAM Other'];
 let active=null,command=null,workflowRequest=null,toneImport=null,pendingCapture=null;
 const sent=[],send=v=>sent.push(v);
 const captureRows=new Map(),captureLabels=new Map();

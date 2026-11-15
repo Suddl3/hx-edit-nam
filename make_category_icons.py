@@ -75,18 +75,6 @@ def cab():
     finish(image, 'FX_HX_Category_NAM_Cab.png')
 
 
-def favorites():
-    import math
-    image, draw = canvas()
-    points = []
-    for i in range(10):                                                           # five-pointed star
-        radius = 15 if i % 2 == 0 else 6.5
-        angle = math.pi / 2 + i * math.pi / 5
-        points.append((19 + radius * math.cos(angle), 20 - radius * math.sin(angle)))
-    draw.line([c * SCALE for point in points + points[:1] for c in point], fill=COLOR, width=WIDTH, joint='curve')
-    finish(image, 'FX_HX_Category_NAM_Favorites.png')
-
-
 def section():
     image, _ = canvas()                                                           # nothing: a heading row
     finish(image, 'FX_HX_Category_Section.png')
@@ -183,6 +171,6 @@ def banner_buttons():
 
 
 if __name__ == '__main__':
-    for draw_icon in (amp, amp_cab, cab, pedal, other, favorites, section, lock_buttons, banner_buttons):
+    for draw_icon in (amp, amp_cab, cab, pedal, other, section, lock_buttons, banner_buttons):
         draw_icon()
     print(sorted(path.name for path in OUT.glob('*.png')))

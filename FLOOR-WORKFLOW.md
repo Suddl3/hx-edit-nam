@@ -39,14 +39,28 @@ Added on this branch since November 13, each checked on one Helix Floor:
   the Floor reconnected. Now a reconnect leaves the window as it is: maximized, a custom size and
   position, or minimized (without popping up or taking focus). Checked with smart-plug power
   cycles of the Floor; startup is unchanged.
-- **Favorites.** A star on each capture in the expanded library (click it), or right-click a
-  capture in the NAM tab. "★ Favorites" (library) and "★ Favorites only" (NAM tab filter menu)
-  show just those; the two views share the filter.
-- **NAM Favorites and NAM Cab in the block picker.** NAM Favorites, first in the NAM section, lists
-  every starred capture of any type (with the same All / Guitar / Bass sides); picking one loads it
-  like any capture row. Starred captures stay out of HX Edit's own Favorites, whose Rename and
-  Clear act on saved favorites by position. NAM Cab holds cab captures, which used to land in NAM
-  Other. Checked on the Floor: a starred capture listed in NAM Favorites and loaded from there.
+- **Favorites are HX Edit's own.** The library keeps no stars of its own. A NAM block saved with
+  HX Edit's star (block editor) goes into HX Edit's Favorites, which live on the Floor, and
+  brings back its capture: checked on the Floor (a favorite saved on 127 Deluxe Reverb added a
+  NAM block on 127). A favorite keeps the IR slot number, so it follows the slot, not the capture.
+- **A NAM favorite looks like its capture.** Save As Favorite suggests the capture's name
+  (16 characters, without the hidden spaces that tag the NAM rows; those used to end up in the
+  name). A favorite whose slot is known shows its capture's category picture in the favorites
+  lists (block picker, sidebar, Save dialog, including its new entry: NAM Amp + cab for an
+  amp-and-cab capture, and so on) and the capture's own picture in the picker's grid view. HX Edit
+  re-reads its favorites from the Floor on every save and whenever the Save dialog opens, and
+  points each NAM favorite at NAM Other then; the editor corrects them in that reload, before any
+  list is drawn. The look of each favorite is kept with the editor's memory, so it is right at
+  launch, before the slot check.
+- **A cleared capture takes its favorites with it.** When a NAM favorite is saved (or replaced,
+  or renamed) here, the editor notes which slot it plays. Clearing or replacing that slot then
+  deletes those favorites the way HX Edit's own Clear… does, without another question; the
+  "used by presets" warning names them when it shows. Favorites saved before this, on another
+  computer, or under a name used twice are left alone (the Floor does not tell the editor which
+  slot a favorite plays). Checked on the Floor: a test favorite on a test slot went when the slot
+  was cleared; the others stayed.
+- **NAM Cab in the block picker.** Cab captures (set by hand to "Cab capture") have their own
+  category; they used to land in NAM Other.
 - **Guitar, bass or both.** Each capture is Guitar, Bass or Both. Automatic: Bass when the name
   says so (the word "bass", or SVT, Darkglass, B7K, Aguilar, Gallien-Krueger, Markbass; a Fender
   Bassman or Bassbreaker stays guitar); otherwise Guitar for amps and cabs and Both for pedals,

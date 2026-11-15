@@ -149,7 +149,8 @@ custom NAM blocks. Track preservation and hardware evidence per supported workfl
 | W03 | Clear setup, manual launch, update and release management | Pair versions/flags/hashes and recovery instructions; retain known-working launcher. Build firmware from each owner's stock file; no proprietary firmware distribution |
 | W04 | Phone/Pi editor access using ToneRelay research | Deferred until desktop/device ownership is reliable |
 | Visual backlog | Smooth signal-path zoom, imagery, dark appearance and customization | Retained user goals; not permission to squeeze controls or replace familiar native navigation during repair |
-| Polish list | Hide empty NAM categories (NAM Cab, NAM Favorites) so the block picker fits one screen; a settings toggle between HX Edit's own model pictures and the 3D set (`helix_model_icons`, a build option today); the 3D stock-gear pictures as a group in the capture icon picker | Small, owner-requested refinements; none changes device behaviour |
+| Favorites: still to test | Replacing a favorite from a block on another slot (its icon may lag a moment); the "used by presets" Clear warning naming the favorites it removes (unit-tested only); the 16-character limit of the suggested favorite name; grid view selecting the capture tile in a NAM category (it highlights NAM A2 Lite). Not done: favorites of the HX NAM pedal model keep HX Edit's own icon (only NAM A2 Lite has a record per NAM category) | Logged on the Floor test of Nov 15; none blocks use |
+| Polish list | Hide empty NAM categories (NAM Cab) so the block picker fits one screen; a settings toggle between HX Edit's own model pictures and the 3D set (`helix_model_icons`, a build option today); the 3D stock-gear pictures as a group in the capture icon picker | Small, owner-requested refinements; none changes device behaviour |
 
 ### Leveling assistant: Measure → Review → Apply
 
