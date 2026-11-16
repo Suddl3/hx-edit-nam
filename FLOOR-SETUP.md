@@ -8,7 +8,7 @@ Updated November 12, 2026. This is the installation entry point shared by both m
 | --- | --- |
 | Floor firmware | HX Unbound Floor's normal NAM A2 Lite model contract on Helix Floor 3.80.0: HD2_AmpNAMLite, preset ID 380 |
 | Stock desktop installation | Windows HX Edit 3.82 with Line 6 drivers |
-| Floor editor source | [f72e7afd9ef073ef1b890fd9ad819bc9d97d0a1e](https://github.com/Suddl3/hx-edit-nam/tree/f72e7afd9ef073ef1b890fd9ad819bc9d97d0a1e); current `floor` branch adds setup docs |
+| Floor editor source | [f72e7afd9ef073ef1b890fd9ad819bc9d97d0a1e](https://github.com/Suddl3/hx-edit-unbound/tree/f72e7afd9ef073ef1b890fd9ad819bc9d97d0a1e); current `floor` branch adds setup docs |
 | Converter source | [andreidevs/helix-lt-nam at c94834768546393420692794fdbb27c9cc31d718](https://github.com/andreidevs/helix-lt-nam/tree/c94834768546393420692794fdbb27c9cc31d718) ΓÇö tools only; do not flash LT firmware onto a Floor |
 | Python packages | frida 17.5.2 and msgpack 1.2.4 in a virtual environment |
 | Browser/helper | Microsoft Edge WebView2 Runtime and Windows .NET Framework compiler |
@@ -22,10 +22,10 @@ PAIR layout, names, DSP-cost experiments and the opt-in screen mirror are firmwa
 Install official HX Edit 3.82 with drivers, Python 3.10+ (64-bit), Git, and WebView2 Runtime first. Close other HX Edit instances. Run the following in a new working folder:
 
 ```powershell
-git clone --branch floor https://github.com/Suddl3/hx-edit-nam.git
+git clone --branch floor https://github.com/Suddl3/hx-edit-unbound.git
 git clone https://github.com/andreidevs/helix-lt-nam.git
 git -C helix-lt-nam checkout c94834768546393420692794fdbb27c9cc31d718
-cd hx-edit-nam
+cd hx-edit-unbound
 py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install frida==17.5.2 msgpack==1.2.4
 .\.venv\Scripts\python.exe .\start-hx-edit-nam.pyw --floor-library
@@ -45,10 +45,10 @@ The `floor-navigation` branch is the newer editor: a Browse TONE3000 button in t
 Same prerequisites as above. In a new working folder:
 
 ```powershell
-git clone --branch floor-navigation https://github.com/Suddl3/hx-edit-nam.git
+git clone --branch floor-navigation https://github.com/Suddl3/hx-edit-unbound.git
 git clone https://github.com/andreidevs/helix-lt-nam.git
 git -C helix-lt-nam checkout c94834768546393420692794fdbb27c9cc31d718
-cd hx-edit-nam
+cd hx-edit-unbound
 py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install frida==17.5.2 msgpack==1.2.4 numpy sounddevice==0.5.6 soundfile==0.14.0
 $env:T3K_PUBLISHABLE_KEY = "t3k_pub_your_own_key"
@@ -57,9 +57,10 @@ $env:T3K_PUBLISHABLE_KEY = "t3k_pub_your_own_key"
 
 ### Updating an existing clone
 
-Close HX Edit first. In your `hx-edit-nam` folder:
+Close HX Edit first. In your editor folder (`hx-edit-unbound`, or `hx-edit-nam` if you cloned it before the project was renamed):
 
 ```powershell
+git remote set-url origin https://github.com/Suddl3/hx-edit-unbound.git
 git fetch origin
 git checkout floor-navigation
 git pull
@@ -87,7 +88,7 @@ With `--nam-category` the block selector gains four categories under a thin line
 
 ## Launch again
 
-Close other editors, then run the last command from the same `hx-edit-nam` folder. Use `--floor-library` every time; the generic upstream launch is a different mode.
+Close other editors, then run the last command from the same editor folder. Use `--floor-library` every time; the generic upstream launch is a different mode.
 
 The retained local library is under `%LOCALAPPDATA%\HX Edit NAM\NAM Library`. Copy that directory if moving your library between PCs. The repository does not contain anyone's captures or installed-slot assignments.
 

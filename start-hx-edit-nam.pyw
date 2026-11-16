@@ -351,7 +351,7 @@ def main():
     if any(p.name.lower() in {'hx edit.exe', 'hx edit nam.exe'} for p in device.enumerate_processes()):
         raise RuntimeError('Close the open HX Edit window, then start HX Edit NAM again.')
     if not CONVERTER.is_file():
-        raise FileNotFoundError('Keep the helix-lt-nam checkout next to hx-edit-nam for the built-in converter.')
+        raise FileNotFoundError('Keep the helix-lt-nam checkout next to this editor\'s folder for the built-in converter.')
 
     profiles, scan_error = startup_profiles(floor_reference=args.floor_reference,
         scan=scan_profiles, converter_directory=CONVERTER.parent, hx_nam=args.hx_nam)

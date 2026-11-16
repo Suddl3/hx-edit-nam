@@ -16,7 +16,7 @@ on every audition.
 | Project | Responsibility |
 | --- | --- |
 | [HX Unbound Floor](https://github.com/Suddl3/hx-unbound-floor) | Floor firmware, device UI, DSP behavior, build options and hardware findings |
-| [This editor fork, `floor` branch](https://github.com/Suddl3/hx-edit-nam/tree/floor) | NAM library, desktop editing, TONE3000 workflow and compatible editor models |
+| [HX Edit Unbound](https://github.com/Suddl3/hx-edit-unbound) (this editor) | NAM library, desktop editing, TONE3000 workflow and compatible editor models |
 | [HX Unbound hub](https://github.com/Suddl3/hx-unbound) | Community/project directory; earlier independent editor/librarian/API work remains a distinct track |
 
 Maintain these two product repositories together, preserve attribution, selectively
@@ -37,7 +37,7 @@ workflow. No scheduled watcher or automatic upstream merge is currently configur
 | Optimization and alternate engines | Planned, gated on explicit Floor support and quality comparison; not silently enabled by upstream editor availability |
 
 Use the [Floor pairing guide](https://github.com/Suddl3/hx-unbound-floor/blob/main/EDITOR.md)
-and [editor setup guide](https://github.com/Suddl3/hx-edit-nam/blob/floor/FLOOR-SETUP.md)
+and [editor setup guide](https://github.com/Suddl3/hx-edit-unbound/blob/floor/FLOOR-SETUP.md)
 for versions. The current normal contract is stock Windows HX Edit 3.82, Floor 3.80
 base, `HD2_AmpNAMLite` / preset ID 380 and the original eight parameters. ID 555,
 reduced-layer models and specialized NAM Pedal engines need separate paired support.

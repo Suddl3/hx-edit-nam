@@ -1,8 +1,8 @@
-# HX Edit NAM — HX Unbound Floor companion
+# HX Edit Unbound
 
-The maintained Floor-focused editor is [Suddl3/hx-edit-nam](https://github.com/Suddl3/hx-edit-nam/tree/floor), paired with [HX Unbound Floor firmware](https://github.com/Suddl3/hx-unbound-floor).
+**Part of [HX Unbound](https://github.com/Suddl3/hx-unbound).** HX Edit Unbound runs Line 6's own HX Edit with HX Unbound's additions: a NAM capture library, TONE3000 browsing and previews, capture artwork, a DSP meter and Level presets. It pairs with [HX Unbound Floor firmware](https://github.com/Suddl3/hx-unbound-floor).
 
-**This is the `floor-navigation` branch: newer than the `floor` source preview, and still a test build.** It adds the Browse TONE3000 banner button, the rich NAM tab, previews on User IR 128 that put the original capture back, and remembered slots. It has been exercised on one Helix Floor by one maintainer; see [what has and has not been tested](FLOOR-WORKFLOW.md#status-november-14).
+**`floor-navigation` is the current branch: newer than the `floor` source preview, and still a test build.** It adds the Browse TONE3000 banner button, the rich NAM tab, previews on User IR 128 that put the original capture back, and remembered slots. It has been exercised on one Helix Floor by one maintainer; see [what has and has not been tested](FLOOR-WORKFLOW.md#status-november-14).
 
 ### New on November 16
 
@@ -41,7 +41,7 @@ Level presets measures and sets output levels on request; it is not an always-on
 
 ## Attribution
 
-This work builds on [andreidevs/hx-edit-nam](https://github.com/andreidevs/hx-edit-nam) and the NAM/converter projects it credits. The prior README is preserved in [README_UPSTREAM.md](README_UPSTREAM.md) as upstream reference, not the current Floor setup guide. This documentation change does not change licensing. Stock HX Edit, firmware, personal captures and credentials are not distributed here.
+HX Edit Unbound began as a fork of [andreidevs/hx-edit-nam](https://github.com/andreidevs/hx-edit-nam) by Andrei Eronin, who did the original groundwork of bringing TONE3000 and NAM captures into HX Edit, and it uses the NAM/converter projects that work credits. His commits are kept in this repository's history. The project has since grown in its own direction: the HX Unbound Floor workflow, the NAM library, capture artwork, the DSP meter and Level presets. The prior README is preserved in [README_UPSTREAM.md](README_UPSTREAM.md). Stock HX Edit, firmware, personal captures and credentials are not distributed here.
 
 Level presets can use [Neural Amp Modeler](https://github.com/sdatkinson/neural-amp-modeler)'s standard reamp file (its v3 input) as a test signal when you already have it on your PC; the file is not distributed here, only looked for.
 

@@ -1,13 +1,13 @@
 # Floor editor workflow reconciliation
 
-Owner decision: November 12, 2026. Maintain **Suddl3/hx-edit-nam** as the editor
+Owner decision: November 12, 2026. Maintain **Suddl3/hx-edit-unbound** (named hx-edit-nam until November 16) as the editor
 companion to **Suddl3/hx-unbound-floor**. Review and selectively integrate useful
 upstream work; contribute separable fixes upstream later. Nothing in this
 decision authorizes publishing the current changes or changing firmware.
 
 Branch: `floor-navigation`, based on upstream
 `97d2783d28f4aeb95a326cf815127570cf58e1c7` (v0.6.0). `origin` is
-`Suddl3/hx-edit-nam`; `upstream` is `andreidevs/hx-edit-nam`. The older public
+`Suddl3/hx-edit-unbound`; `upstream` is `andreidevs/hx-edit-nam` (credit; no longer a GitHub fork). The older public
 preview is the `floor` branch; this branch is the newer navigation work. See
 [FLOOR-SETUP.md](FLOOR-SETUP.md) to run it and [PRODUCT-VISION.md](PRODUCT-VISION.md)
 for the complete product scope. This document is the workflow contract.
