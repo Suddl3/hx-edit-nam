@@ -7,16 +7,16 @@ import subprocess
 
 import pytest
 
-SOURCE = Path(__file__).resolve().parents[1]
+SOURCE = Path(__file__).resolve().parents[1] / 'src'
 # A prepared copy of stock HX Edit 3.82 kept outside the repository; tests that need it skip without it.
-FIXTURE = SOURCE.parents[1] / 'research/hx-edit-nam-review/floor-port/integrated-candidate-53/app/HX Edit.exe'
+FIXTURE = SOURCE.parents[2] / 'research/hx-edit-nam-review/floor-port/integrated-candidate-53/app/HX Edit.exe'
 
 
 def test_bound_target_native_api_contract():
     node = shutil.which('node')
     if not node:
         pytest.skip('node not installed')
-    result = subprocess.run([node, str(SOURCE / 'tests' / 'target_binding_probe.cjs')],
+    result = subprocess.run([node, str(SOURCE.parent / 'tests' / 'target_binding_probe.cjs')],
                             capture_output=True, text=True, timeout=30, cwd=SOURCE)
     assert result.returncode == 0, result.stdout + result.stderr
     assert 'target binding probe passed' in result.stdout

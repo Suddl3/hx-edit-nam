@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 from floor_reference import require_plain_catalog, startup_profiles
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 TONE = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
 NAM = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
 

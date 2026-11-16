@@ -131,7 +131,7 @@ class ChooserWiringTests(unittest.TestCase):
 
     def load(self):
         import importlib.util
-        spec = importlib.util.spec_from_file_location('launcher', Path(__file__).parents[1] / 'start-hx-edit-nam.pyw')
+        spec = importlib.util.spec_from_file_location('launcher', Path(__file__).parents[1] / 'src' / 'start-hx-edit-nam.pyw')
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         return mod

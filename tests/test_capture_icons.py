@@ -4,7 +4,7 @@ import sys
 import tempfile
 import unittest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 sys.path.insert(0, str(ROOT))
 
 import capture_icons  # noqa: E402
@@ -138,7 +138,7 @@ class CaptureIconPlumbingTests(unittest.TestCase):
         page = (ROOT / 'library_card.html').read_text(encoding='utf-8')
         self.assertIn("host?.postMessage('dialog:open')", page)
         self.assertIn("host?.postMessage('dialog:closed')", page)
-        self.assertIn('window.hxCloseDialog = closePicker', page)
+        self.assertIn('window.hxCloseDialog = () => askCancel ? askCancel() : closePicker()', page)   # a question first (Level), else the picker
         pane = (ROOT / 'tone_browser.cs').read_text(encoding='utf-8')
         self.assertIn('if (reason == "escape" && CloseCardDialog()) return;', pane)
         self.assertIn('window.hxCloseDialog && window.hxCloseDialog()', pane)

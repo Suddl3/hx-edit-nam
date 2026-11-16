@@ -8,7 +8,7 @@ import unittest
 
 from floor_memory import FloorMemory
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 CONTENT = 'a' * 64
 
 

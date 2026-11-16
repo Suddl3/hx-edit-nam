@@ -6,7 +6,7 @@ import sys
 import time
 import unittest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 sys.path.insert(0, str(ROOT))
 
 from dsp_meter import DspMeter  # noqa: E402
@@ -49,7 +49,9 @@ class DspMeterScriptTests(unittest.TestCase):
         self.assertEqual(squeezed, {'left': 310, 'top': 9, 'width': 238, 'height': 24})   # never over the button
         self.assertIsNone(layout[3])           # no banner, no meter
         banner = (ROOT / 'nav_banner.js').read_text(encoding='utf-8')
-        self.assertIn('minLeft: Math.max(view.x + layout.left + layout.width, buttonRight) + 14', banner)   # never over the button
+        self.assertIn('minLeft: view.x + layout.left + layout.width + 14', banner)   # past the button's computed place
+        self.assertNotIn('bounds(shownButton)', banner)   # not its live bounds (wider at startup, stale before a move)
+        self.assertIn('event === 0x202 || event === layoutWake', banner)   # a posted wake asks for a fresh layout
         helper = (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8')
         self.assertIn('if(spanWidth>=0&&width!=placedWidth)Place();', helper)   # follows window resizes
         self.assertIn('if(spanWidth==0&&width>0)spanWidth=width;', helper)        # minimized: anchors when restored
@@ -124,6 +126,47 @@ class DspMeterHostTests(unittest.TestCase):
             meter.close()
         self.assertTrue(processes[0].closed)     # closing its input ends the helper
         self.assertEqual(len(processes), 1)
+
+    def test_asks_for_fresh_layouts_after_startup(self):
+        # HX Edit is still placing its editor view at the first layout: the banner is woken a few times.
+        woken = []
+        meter = DspMeter(exe='NamLibrary.exe', process_factory=lambda command, **kw: FakeProcess(command),
+                         relayout=woken.append, relayout_after=(0.05, 0.1))
+        try:
+            meter.receive({'type': 'dspMeterLayout', 'window': 1234, 'visible': True, 'x': 300, 'y': 9, 'w': 300, 'h': 24,
+                           'span': {'minLeft': 310, 'right': 1388, 'top': 9, 'height': 24}})
+            meter.receive({'type': 'dspMeterLayout', 'window': 1234, 'visible': True, 'x': 300, 'y': 9, 'w': 300, 'h': 24,
+                           'span': {'minLeft': 250, 'right': 1388, 'top': 9, 'height': 24}})
+            self.wait_for(lambda: len(woken) == 2)
+            time.sleep(.15)
+            self.assertEqual(woken, [1234, 1234])      # once per start, not per layout
+        finally:
+            meter.close()
+
+    def test_the_unbound_menu_opens_its_pages(self):
+        import io
+        clicks, processes = [], []
+
+        def start(command, **options):
+            process = FakeProcess(command)
+            process.options = options
+            process.stdout = io.StringIO('level\nsomething else\nlibrary\n')
+            processes.append(process)
+            return process
+        meter = DspMeter(exe='NamLibrary.exe', process_factory=start, on_choice=clicks.append)
+        try:
+            meter.receive({'type': 'dspLoad', 'dsp': [{'used': 27}, None]})
+            meter.receive({'type': 'dspMeterLayout', 'window': 1234, 'visible': True, 'x': 300, 'y': 9, 'w': 300, 'h': 24,
+                           'span': {'minLeft': 310, 'right': 1388, 'top': 9, 'height': 24}})
+            self.wait_for(lambda: processes and processes[0].lines and len(clicks) == 2)
+            self.assertEqual(clicks, ['level', 'library'])
+            self.assertTrue(processes[0].lines[-1]['unbound'])
+            self.assertIsNotNone(processes[0].options['stdout'])
+        finally:
+            meter.close()
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        self.assertIn("meter = DspMeter(trace=trace, on_choice=unbound_choice)", launcher)
+        self.assertIn("value.action === 'level'", (ROOT / 'nam_sidebar.js').read_text(encoding='utf-8'))
 
     def test_launcher_and_build_include_the_meter(self):
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')

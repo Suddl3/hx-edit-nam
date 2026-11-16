@@ -1,12 +1,14 @@
 /build/
+/src/build/
 /HX Edit v3.82 Installer.exe
 __pycache__/
 /custom-names.csv
+/src/custom-names.csv
 # 3D model art: only hxedit/ and icons.json are kept here (the rest is shared as a separate pack)
-/helix_model_icons/full/
-/helix_model_icons/128/
-/helix_model_icons/contact-sheet.png
+/src/helix_model_icons/full/
+/src/helix_model_icons/128/
+/src/helix_model_icons/contact-sheet.png
 
 # Focus View backgrounds: the 1536 px source plates are shared as a separate pack
-/focus_backgrounds/plates/
-/focus_backgrounds/samples/
+/src/focus_backgrounds/plates/
+/src/focus_backgrounds/samples/

@@ -4,13 +4,13 @@ import shutil
 import subprocess
 import unittest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 
 
 @unittest.skipUnless(shutil.which('node'), 'Node is required for navigation replay')
 class ToneNavigationFlowTests(unittest.TestCase):
     def test_real_navigation_hooks_auto_bind_cleanup_geometry_and_lifetime(self):
-        run = subprocess.run(['node', str(ROOT / 'tests' / 'tone_navigation_flow_probe.cjs'),
+        run = subprocess.run(['node', str(ROOT.parent / 'tests' / 'tone_navigation_flow_probe.cjs'),
                               str(ROOT / 'tone_view.js')], capture_output=True, text=True,
                              encoding='utf-8', timeout=15)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)

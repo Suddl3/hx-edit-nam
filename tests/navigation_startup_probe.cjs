@@ -6,8 +6,8 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const { navigationBannerGuards } = require('../nav_banner.js');
-const { targetBindingGuards } = require('../target_binding.js');
+const { navigationBannerGuards } = require('../src/nav_banner.js');
+const { targetBindingGuards } = require('../src/target_binding.js');
 const source = fs.readFileSync(0, 'utf8');
 const base = 0x400000;
 const shared = [0x3bd120, 0x214ee0, 0x2156a0];

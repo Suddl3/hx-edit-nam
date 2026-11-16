@@ -131,14 +131,14 @@ class OptimizeJobTests(unittest.TestCase):
 
 
 class OptimizeFlowTests(unittest.TestCase):
-    def browse(self, folder, library, actions, *, optimize=True, job=None):
+    def browse(self, folder, library, actions, *, optimize=True, job=None, pedal_block=False):
         browser = Mock()
         browser.actions = Queue()
         for action in actions:
             browser.actions.put(action)
         browser.next_action = lambda: 'finish' if browser.actions.empty() else browser.actions.get_nowait()
         preview = TonePreview(Mock(), folder, Path(folder, 'tools', 'nam2ir.py'), Event(), Mock(),
-                              browser_factory=Mock(), library=library, optimize=optimize)
+                              browser_factory=Mock(), library=library, optimize=optimize, pedal_block=pedal_block)
         with patch('nam_optimize.OptimizeJob', job or Mock()):
             preview.browse(browser, 1, '')
         return browser
@@ -169,6 +169,12 @@ class OptimizeFlowTests(unittest.TestCase):
             last = browser.send.call_args_list[-1]
             self.assertIn('sounds the same', last.kwargs['text'])
             self.assertIs(last.kwargs['can_optimize'], True)
+            self.assertIn('needs Floor firmware', last.kwargs['text'])        # today's Floor has no NAM Pedal
+            self.assertIs(last.kwargs['pedal_block'], False)
+            browser = self.browse(folder, library, [f'optimize:{identity}'], job=FakeJob, pedal_block=True)
+            last = browser.send.call_args_list[-1]
+            self.assertNotIn('needs Floor firmware', last.kwargs['text'])     # a build for the pedal firmware
+            self.assertIs(last.kwargs['pedal_block'], True)
             # and removed again; the original stays
             self.browse(folder, library, [f'versionRemove:{identity}:pedal'])
             self.assertEqual(library.entries()[identity]['versions'], {})

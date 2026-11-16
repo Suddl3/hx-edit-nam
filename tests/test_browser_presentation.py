@@ -62,7 +62,7 @@ class PresentationRoundTrips {
     readonly object previewSession = new object();
     readonly List<string> notifications = new List<string>();
 
-    class Part { public string Text; public bool Enabled = true; public int Height; }
+    class Part { public string Text; public bool Enabled = true, Visible = true; public int Height; }
     class Hints { public void SetToolTip(Part control, string text) {} }
     class Core {
         public string Source;
@@ -93,6 +93,7 @@ class PresentationRoundTrips {
             ReparentPane, ApplyPresentationLayout, mode => notifications.Add(mode.ToString()), FocusPresentation);
     }
     void EnsureFloatingHost() { if (floatingHost == null) { floatingHost = new Shell(); shells++; } }
+    void ApplyChrome(Dictionary<string, object> message) {}
     IntPtr SetParent(IntPtr pane, IntPtr destination) {
         Check(pane == Handle); var old = nativeParent; nativeParent = destination; reparentCount++; return old;
     }

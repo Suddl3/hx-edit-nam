@@ -43,7 +43,7 @@ class PreviewCleanupLifecycleTests(unittest.TestCase):
         library = Mock()
         library.entries.return_value = {}
         library.view_state.return_value = {}
-        preview = TonePreview(Mock(), str(Path(__file__).resolve().parents[1]), 'unused', Event(), Mock(),
+        preview = TonePreview(Mock(), str(Path(__file__).resolve().parents[1] / 'src'), 'unused', Event(), Mock(),
                               library=library, browser_factory=Mock(return_value=browser))
         preview.navigation = True
         preview.session = 7

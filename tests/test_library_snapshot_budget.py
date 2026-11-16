@@ -10,7 +10,7 @@ def test_actual_snapshot_skips_all_rows_while_busy_then_reads_only_permanent_slo
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js unavailable')
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[1] / 'src'
     source = (root / 'nam_view.js').read_text(encoding='utf-8')
     begin = source.index('  function discoverySnapshot(')
     end = source.index('  function exportDiscoverySlot(', begin)

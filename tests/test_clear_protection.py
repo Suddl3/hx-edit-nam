@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import unittest
 
-SOURCE = (Path(__file__).resolve().parents[1] / 'nam_view.js').read_text(encoding='utf-8')
+SOURCE = (Path(__file__).resolve().parents[1] / 'src' / 'nam_view.js').read_text(encoding='utf-8')
 FUNCTION = re.search(r'^function presetIrSlots.*?^}$', SOURCE, re.S | re.M).group(0)
 CATALOG = {'HD2_ImpulseResponse1024': ['Index'], 'HD2_AmpNAMLite': ['Index'], 'HD2_Comp': []}
 
