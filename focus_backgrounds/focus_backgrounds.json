@@ -94,6 +94,7 @@
   {
    "id": "table",
    "name": "Walnut Table",
+   "group": "scene",
    "status": "candidate",
    "description": "Dark walnut tabletop under a warm lamp.",
    "background": "backgrounds/table.png",
@@ -118,6 +119,7 @@
   {
    "id": "stage",
    "name": "Stage",
+   "group": "scene",
    "status": "candidate",
    "description": "Black stage boards in a soft spotlight pool.",
    "background": "backgrounds/stage.png",
@@ -142,6 +144,7 @@
   {
    "id": "studio",
    "name": "Studio Desk",
+   "group": "scene",
    "status": "candidate",
    "description": "Charcoal desk in a dim, blurred recording studio.",
    "background": "backgrounds/studio.png",
@@ -166,6 +169,7 @@
   {
    "id": "pedalboard",
    "name": "Pedalboard",
+   "group": "scene",
    "status": "candidate",
    "description": "Grey loop-fabric pedalboard with an aluminium rail.",
    "background": "backgrounds/pedalboard.png",
@@ -190,6 +194,7 @@
   {
    "id": "space",
    "name": "Deep Space",
+   "group": "scene",
    "status": "candidate",
    "description": "Moon-rock plateau, calm starfield, a spiral galaxy top-left.",
    "background": "backgrounds/space.png",
@@ -214,6 +219,7 @@
   {
    "id": "aurora",
    "name": "Aurora",
+   "group": "scene",
    "status": "candidate",
    "description": "Frozen lake under a green aurora.",
    "background": "backgrounds/aurora.png",
@@ -238,6 +244,7 @@
   {
    "id": "synthwave",
    "name": "Synthwave",
+   "group": "scene",
    "status": "locked",
    "description": "Striped sunset, purple sky, wireframe mountains, glowing grid.",
    "background": "backgrounds/synthwave.png",
@@ -262,6 +269,7 @@
   {
    "id": "neon_rain",
    "name": "Neon Rain",
+   "group": "scene",
    "status": "locked",
    "description": "Rain-soaked city street at blue hour, colourful lights.",
    "background": "backgrounds/neon_rain.png",
@@ -286,6 +294,7 @@
   {
    "id": "neon_rain_simple",
    "name": "Neon Rain (simple)",
+   "group": "scene",
    "status": "variant",
    "description": "Simpler neon rain: a few big lights, visible rain.",
    "background": "backgrounds/neon_rain_simple.png",
@@ -310,6 +319,7 @@
   {
    "id": "desert_dusk",
    "name": "Desert Dusk",
+   "group": "scene",
    "status": "candidate",
    "description": "Cracked desert floor, orange-violet dusk, mesas.",
    "background": "backgrounds/desert_dusk.png",
@@ -334,6 +344,7 @@
   {
    "id": "lunar",
    "name": "Lunar",
+   "group": "scene",
    "status": "candidate",
    "description": "Grey moon dust, black sky, a blue planet glow.",
    "background": "backgrounds/lunar.png",
@@ -358,6 +369,7 @@
   {
    "id": "volcanic",
    "name": "Volcanic",
+   "group": "scene",
    "status": "candidate",
    "description": "Basalt floor, distant lava cracks and embers.",
    "background": "backgrounds/volcanic.png",
@@ -382,6 +394,7 @@
   {
    "id": "ice_cave",
    "name": "Ice Cave",
+   "group": "scene",
    "status": "candidate",
    "description": "Frosted ice floor in a turquoise ice cave.",
    "background": "backgrounds/ice_cave.png",
@@ -406,6 +419,7 @@
   {
    "id": "forest_moss",
    "name": "Mossy Forest",
+   "group": "scene",
    "status": "candidate",
    "description": "Mossy stone slab in a misty forest.",
    "background": "backgrounds/forest_moss.png",
@@ -430,6 +444,7 @@
   {
    "id": "deep_sea",
    "name": "Deep Sea",
+   "group": "scene",
    "status": "candidate",
    "description": "Sandy sea floor with rippling caustic light.",
    "background": "backgrounds/deep_sea.png",
@@ -454,6 +469,7 @@
   {
    "id": "marble_gallery",
    "name": "Marble Gallery",
+   "group": "scene",
    "status": "candidate",
    "description": "Black-and-gold marble plinth in a dark gallery.",
    "background": "backgrounds/marble_gallery.png",
@@ -478,6 +494,7 @@
   {
    "id": "cloud_sunset",
    "name": "Cloud Sunset",
+   "group": "scene",
    "status": "candidate",
    "description": "Glass platform above a sea of sunset clouds.",
    "background": "backgrounds/cloud_sunset.png",
@@ -502,6 +519,7 @@
   {
    "id": "retro_lounge",
    "name": "70s Lounge",
+   "group": "scene",
    "status": "candidate",
    "description": "Walnut hi-fi console in a 70s living room.",
    "background": "backgrounds/retro_lounge.png",
@@ -520,6 +538,181 @@
     "zoom": 1.15,
     "gain": 0.85,
     "blur": 2.5,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "patch_bay",
+   "name": "Patch Bay",
+   "group": "utility",
+   "status": "candidate",
+   "description": "Rack shelf in front of blurred patch bays and cables.",
+   "background": "backgrounds/patch_bay.png",
+   "preview": "previews/patch_bay.png",
+   "preview_gear": {
+    "render": "sr_fxloop1",
+    "display_name": "FX Loop 1",
+    "category": "send/return"
+   },
+   "source": {
+    "plate": "patch_bay.png",
+    "focus": [
+     0.5,
+     0.5
+    ],
+    "zoom": 1.05,
+    "gain": 1.0,
+    "blur": 1.5,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "rack",
+   "name": "Rack",
+   "group": "utility",
+   "status": "candidate",
+   "description": "Brushed rack shelf, blurred rack units with status LEDs.",
+   "background": "backgrounds/rack.png",
+   "preview": "previews/rack.png",
+   "preview_gear": {
+    "render": "io_output",
+    "display_name": "Outputs",
+    "category": "io"
+   },
+   "source": {
+    "plate": "rack.png",
+    "focus": [
+     0.5,
+     0.5
+    ],
+    "zoom": 1.05,
+    "gain": 1.0,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "road_cases",
+   "name": "Road Cases",
+   "group": "utility",
+   "status": "candidate",
+   "description": "Lid of a black road case backstage, stacked cases and truss behind.",
+   "background": "backgrounds/road_cases.png",
+   "preview": "previews/road_cases.png",
+   "preview_gear": {
+    "render": "route_split",
+    "display_name": "Split",
+    "category": "routing"
+   },
+   "source": {
+    "plate": "road_cases.png",
+    "focus": [
+     0.5,
+     0.56
+    ],
+    "zoom": 1.0,
+    "gain": 1.0,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "foh_desk",
+   "name": "Front of House",
+   "group": "utility",
+   "status": "candidate",
+   "description": "Black desk at FOH, blurred mixing console and venue lights.",
+   "background": "backgrounds/foh_desk.png",
+   "preview": "previews/foh_desk.png",
+   "preview_gear": {
+    "render": "io_input",
+    "display_name": "Inputs",
+    "category": "io"
+   },
+   "source": {
+    "plate": "foh_desk.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.3,
+    "gain": 1.0,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "anodized",
+   "name": "Anodized Panel",
+   "group": "utility",
+   "status": "candidate",
+   "description": "Charcoal brushed-aluminium panel, almost plain black.",
+   "background": "backgrounds/anodized.png",
+   "preview": "previews/anodized.png",
+   "preview_gear": {
+    "render": "sr_send1",
+    "display_name": "Send 1",
+    "category": "send/return"
+   },
+   "source": {
+    "plate": "anodized.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.3,
+    "gain": 1.0,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "soft_glow",
+   "name": "Soft Glow",
+   "group": "utility",
+   "status": "candidate",
+   "description": "Plain black with a soft grey floor glow (no AI).",
+   "background": "backgrounds/soft_glow.png",
+   "preview": "previews/soft_glow.png",
+   "preview_gear": {
+    "render": "looper_main",
+    "display_name": "Stereo Looper",
+    "category": "looper"
+   },
+   "source": {
+    "plate": "soft_glow.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.0,
+    "gain": 1.0,
+    "blur": 0,
+    "category_tint": 0.0
+   }
+  },
+  {
+   "id": "black",
+   "name": "Black",
+   "group": "utility",
+   "status": "candidate",
+   "description": "Plain black, like stock (no AI).",
+   "background": "backgrounds/black.png",
+   "preview": "previews/black.png",
+   "preview_gear": {
+    "render": "route_join",
+    "display_name": "Join",
+    "category": "routing"
+   },
+   "source": {
+    "plate": "black.png",
+    "focus": [
+     0.5,
+     0.6
+    ],
+    "zoom": 1.0,
+    "gain": 1.0,
+    "blur": 0,
     "category_tint": 0.0
    }
   }

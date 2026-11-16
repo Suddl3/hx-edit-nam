@@ -252,5 +252,111 @@
   "gain": 0.85,
   "tint": 0.0,
   "blur": 2.5
+ },
+ "patch_bay": {
+  "name": "Patch Bay",
+  "status": "candidate",
+  "group": "utility",
+  "description": "Rack shelf in front of blurred patch bays and cables.",
+  "showcase": "sr_fxloop1",
+  "plate": "patch_bay.png",
+  "focus": [
+   0.5,
+   0.5
+  ],
+  "zoom": 1.05,
+  "gain": 1.0,
+  "tint": 0.0,
+  "blur": 1.5
+ },
+ "rack": {
+  "name": "Rack",
+  "status": "candidate",
+  "group": "utility",
+  "description": "Brushed rack shelf, blurred rack units with status LEDs.",
+  "showcase": "io_output",
+  "plate": "rack.png",
+  "focus": [
+   0.5,
+   0.5
+  ],
+  "zoom": 1.05,
+  "gain": 1.0,
+  "tint": 0.0
+ },
+ "road_cases": {
+  "name": "Road Cases",
+  "status": "candidate",
+  "group": "utility",
+  "description": "Lid of a black road case backstage, stacked cases and truss behind.",
+  "showcase": "route_split",
+  "plate": "road_cases.png",
+  "focus": [
+   0.5,
+   0.56
+  ],
+  "zoom": 1.0,
+  "gain": 1.0,
+  "tint": 0.0
+ },
+ "foh_desk": {
+  "name": "Front of House",
+  "status": "candidate",
+  "group": "utility",
+  "description": "Black desk at FOH, blurred mixing console and venue lights.",
+  "showcase": "io_input",
+  "plate": "foh_desk.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.3,
+  "gain": 1.0,
+  "tint": 0.0
+ },
+ "anodized": {
+  "name": "Anodized Panel",
+  "status": "candidate",
+  "group": "utility",
+  "description": "Charcoal brushed-aluminium panel, almost plain black.",
+  "showcase": "sr_send1",
+  "plate": "anodized.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.3,
+  "gain": 1.0,
+  "tint": 0.0
+ },
+ "soft_glow": {
+  "name": "Soft Glow",
+  "status": "candidate",
+  "group": "utility",
+  "description": "Plain black with a soft grey floor glow (no AI).",
+  "showcase": "looper_main",
+  "plate": "soft_glow.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.0,
+  "gain": 1.0,
+  "tint": 0.0
+ },
+ "black": {
+  "name": "Black",
+  "status": "candidate",
+  "group": "utility",
+  "description": "Plain black, like stock (no AI).",
+  "showcase": "route_join",
+  "plate": "black.png",
+  "focus": [
+   0.5,
+   0.6
+  ],
+  "zoom": 1.0,
+  "gain": 1.0,
+  "tint": 0.0
  }
 }

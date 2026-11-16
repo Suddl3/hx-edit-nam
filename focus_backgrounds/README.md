@@ -5,20 +5,24 @@ block's gear sits in a scene (a table, a stage, deep space, a rainy city...) ins
 
 **Every picture here is newly generated.** The scenes are AI image renders made from short written
 descriptions (empty surfaces, no gear, no text), then framed and toned for the Floor's screen by
-`focus_bg.py`. The gear in the previews is the project's own render set (`../helix_model_icons`). No
+`focus_bg.py`. *Black* and *Soft Glow* are drawn by code (`make_plain_plates.py`), no AI. The gear in the previews is the project's own render set (`../helix_model_icons`). No
 Line 6 artwork is included, copied or traced.
 
 ## Contents
 
-- `backgrounds/` – 18 plain backgrounds, 800 × 480, full colour PNG. These are what goes to the unit.
+- `backgrounds/` – 25 plain backgrounds, 800 × 480, full colour PNG. These are what goes to the unit.
 - `previews/` – the same backgrounds with one piece of gear and a stand-in for the Floor's UI, dithered to
   the screen's 15-bit colour, to judge the look and legibility. Not for the unit.
-- `contact-sheet.png` – all 18 previews on one sheet.
+- `contact-sheet.png` – all 25 previews on one sheet.
 - `focus_backgrounds.json` – the manifest: screen facts, each style's files, status, preview gear and the
   settings it was made with.
-- `focus_bg.py`, `styles.json` – the generator. `python focus_bg.py pack <folder>` rebuilds everything.
+- `focus_bg.py`, `styles.json`, `make_plain_plates.py` – the generator. `python focus_bg.py pack <folder>` rebuilds everything.
   It needs the source plates (1536 px, shared as a separate pack, not in git) in `plates/` or
   `FOCUS_PLATES`, and the gear renders' `full/` set in `../helix_model_icons` or `HELIX_ICONS`. Pillow only.
+
+Groups (`group` in the manifest): 18 *scene* backgrounds (table, stage, space, synthwave...) and 7
+*utility* ones for I/O, split/merge, FX loop and looper blocks: Patch Bay, Rack, Road Cases, Front of
+House, Anodized Panel, Soft Glow and plain Black.
 
 Status: `locked` = chosen (Synthwave, Neon Rain); `variant` = an alternative of a locked style (Neon Rain
 simple); `candidate` = still open.
@@ -39,7 +43,7 @@ From the firmware findings (`hx-unbound-floor`, `helix-floor/docs/FINDINGS.md`, 
 
 - **Storage is not the limit.** The Focus View pictures already live on the eMMC past every partition
   (sector 0x400000 and up, written over USB by `floor_emmc_art.py`, ~1.7 GiB free there). A background is
-  750 KB in RGB555; all 18 are ~14 MB. Do **not** grow Entry 9 (the image partition) for them: it has ~1.9 MB
+  750 KB in RGB555; all 25 are ~19 MB. Do **not** grow Entry 9 (the image partition) for them: it has ~1.9 MB
   spare and overrunning it destroyed user data once (FOCUS11).
 - **Slots, not themes, in the firmware.** The firmware reads a small table *category → background slot*
   and draws that slot when the selected block's category changes; the PC side (HX Edit / the upload tool)

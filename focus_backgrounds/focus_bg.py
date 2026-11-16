@@ -242,9 +242,12 @@ def samples(names=None, sheet="contact-sheet.png"):
 
 
 CAT_LABEL = {"amp": "Amp", "distortion": "Distortion", "dynamics": "Dynamics", "modulation": "Modulation",
-             "delay": "Delay", "reverb": "Reverb", "wah": "Wah", "pitch": "Pitch/Synth", "eq": "EQ", "filter": "Filter"}
+             "delay": "Delay", "reverb": "Reverb", "wah": "Wah", "pitch": "Pitch/Synth", "eq": "EQ", "filter": "Filter",
+             "io": "I/O", "routing": "Split", "send/return": "FX Loop", "looper": "Looper", "volume": "Vol/Pan"}
 CAT_ACCENT = {"amp": (235, 60, 50), "distortion": (240, 160, 40), "dynamics": (235, 205, 60), "modulation": (70, 150, 245),
-              "delay": (70, 210, 110), "reverb": (240, 110, 40), "wah": (175, 100, 235), "pitch": (175, 100, 235)}
+              "delay": (70, 210, 110), "reverb": (240, 110, 40), "wah": (175, 100, 235), "pitch": (175, 100, 235),
+              "io": (190, 196, 205), "routing": (190, 196, 205), "send/return": (190, 196, 205), "looper": (190, 196, 205),
+              "volume": (60, 200, 190)}
 CAT_PARAMS = {
     "amp": (("6.0", "Drive"), ("5.0", "Bass"), ("5.5", "Mid"), ("6.5", "Treble"), ("7.0", "Ch Vol"), ("5.0", "Master")),
     "distortion": (("6.5", "Gain"), ("5.0", "Tone"), ("0.0dB", "Level"), ("", ""), ("", ""), ("", "")),
@@ -253,6 +256,10 @@ CAT_PARAMS = {
     "delay": (("1/8", "Time"), ("35%", "Feedback"), ("30%", "Mix"), ("0.0dB", "Level"), ("", ""), ("", "")),
     "reverb": (("5.0", "Decay"), ("80 ms", "Predelay"), ("93 Hz", "Low Cut"), ("6.6 kHz", "High Cut"), ("36%", "Mix"), ("0.0dB", "Level")),
     "wah": (("50%", "Position"), ("100%", "Mix"), ("0.0dB", "Level"), ("", ""), ("", ""), ("", "")),
+    "io": (("On", "Gate"), ("-48dB", "Threshold"), ("100 ms", "Decay"), ("", ""), ("", ""), ("", "")),
+    "routing": (("100%", "Path A"), ("100%", "Path B"), ("Off", "Bypass"), ("", ""), ("", ""), ("", "")),
+    "send/return": (("0.0dB", "Send"), ("0.0dB", "Return"), ("100%", "Mix"), ("Off", "Trails"), ("", ""), ("", "")),
+    "looper": (("0.0dB", "Playback"), ("0.0dB", "Overdub"), ("Off", "Low Cut"), ("Off", "High Cut"), ("", ""), ("", "")),
 }
 
 
@@ -286,14 +293,14 @@ def pack(dest):
         cells.append(ui)
         labels.append(st["name"] + ("  (locked)" if st["status"] == "locked" else ""))
         styles_out.append({
-            "id": sid, "name": st["name"], "status": st["status"], "description": st["description"],
+            "id": sid, "name": st["name"], "group": st.get("group", "scene"), "status": st["status"], "description": st["description"],
             "background": f"backgrounds/{sid}.png", "preview": f"previews/{sid}.png",
             "preview_gear": {"render": st["showcase"], "display_name": r["display_name"], "category": cat},
             "source": {"plate": st["plate"], "focus": list(focus), "zoom": st.get("zoom", 1.0), "gain": st.get("gain", 0.9),
                        "blur": st.get("blur", 0), "category_tint": st.get("tint", 0.0)},
         })
         print("packed", sid, flush=True)
-    overview(cells, labels, dest / "contact-sheet.png")
+    overview(cells, labels, dest / "contact-sheet.png", cols=5, cell_w=320)
     manifest = {
         "about": "Newly generated scene backgrounds for the Floor's Focus View (AI image renders from written scene "
                  "descriptions, framed and toned by focus_bg.py). No Line 6 artwork is included, copied or traced.",
