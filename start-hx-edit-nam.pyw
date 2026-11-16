@@ -49,6 +49,16 @@ def message(text, flags):
     return ctypes.windll.user32.MessageBoxW(editor_window(), str(text), TITLE, flags | 0x10000)
 
 
+def level_di(exe):
+    """Where a build says NAM's input file is (res/nam-level.flag), one more place Level looks for it."""
+    flag = exe.parent / 'res' / 'nam-level.flag'
+    try:
+        path = Path(flag.read_text(encoding='utf-8').strip())
+    except OSError:
+        return None
+    return path if path.suffix.lower() == '.wav' and path.is_file() else None
+
+
 def trace(payload):
     """Append editor diagnostics to TRACE; they hold no capture or preset names."""
     line = json.dumps({'time': datetime.now().isoformat(timespec='seconds'), **payload})
@@ -183,7 +193,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                               payload_callback=(lambda _: host.metadata_changed()) if host else None,
                               trace_callback=trace if navigation else None,
                               optimize=bool(navigation and (exe.parent / 'res' / 'nam-optimize.flag').is_file()),
-                              pedal_block=bool(navigation and (exe.parent / 'res' / 'nam-pedal.flag').is_file()))
+                              pedal_block=bool(navigation and (exe.parent / 'res' / 'nam-pedal.flag').is_file()),
+                              level=bool(navigation), level_di=level_di(exe) if navigation else None)
         if navigation:
             from nam_sidebar import NamSidebar
             def sidebar_action(action, identity):
@@ -192,7 +203,14 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             sidebar = NamSidebar(script, library, detached, action_handler=sidebar_action, trace=trace)
             preview.sidebar_status = sidebar.status
             from dsp_meter import DspMeter
-            meter = DspMeter(trace=trace)
+            # The HX Unbound menu button (beside the TONE3000 button): Level presets (in builds that have
+            # them) and the NAM library.
+            def unbound_choice(name):
+                if name == 'level' and preview.level:
+                    sidebar_action('level', '')
+                elif name == 'library':
+                    sidebar_action('expand', '')
+            meter = DspMeter(trace=trace, on_choice=unbound_choice)
 
         def on_message(event, _data):
             if event['type'] == 'error':

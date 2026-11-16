@@ -1209,12 +1209,161 @@ class NamLibrary : Form
     }
 }
 
+// The HX Unbound menu button: HX Unbound's own tools (and later its looks) in one place, beside
+// HX Edit's TONE3000 button. A child window of HX Edit like the meter; a choice is written to the
+// helper's output for dsp_meter.py.
+class UnboundButton : Form
+{
+    [DllImport("user32.dll")] static extern IntPtr SetParent(IntPtr child, IntPtr parent);
+    [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int w, int h, uint flags);
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
+    public const int Width = 104;
+    // Menu: (label, output) pairs; a null output is a section heading.
+    public static readonly Tuple<string,string>[] Choices = {
+        Tuple.Create("Level presets…", "level"),
+        Tuple.Create("NAM library…", "library"),
+    };
+    static readonly Color Back = Color.FromArgb(29, 29, 29), Face = Color.FromArgb(48, 48, 48), Hover = Color.FromArgb(66, 66, 66),
+        Ink = Color.FromArgb(225, 225, 225);
+    readonly IntPtr parent;
+    readonly ContextMenuStrip menu = new ContextMenuStrip();
+    // The menu belongs to this helper, not to HX Edit, so a click in HX Edit does not close it on its
+    // own: while it is open, a mouse press anywhere outside it (or outside this button) closes it.
+    readonly Timer outside = new Timer { Interval = 40 };
+    bool over, placed;
+    public UnboundButton(IntPtr parent){
+        this.parent=parent;
+        FormBorderStyle=FormBorderStyle.None; ShowInTaskbar=false; StartPosition=FormStartPosition.Manual;
+        BackColor=Back; DoubleBuffered=true; Font=new Font("Segoe UI", 8.25f, FontStyle.Bold); Bounds=new Rectangle(0,0,1,1);
+        Cursor=Cursors.Hand;
+        menu.ShowImageMargin=false; menu.BackColor=Color.FromArgb(37,37,37); menu.ForeColor=Ink;
+        menu.Renderer=new MenuRenderer();
+        var heading=new ToolStripLabel("TOOLS"){ForeColor=Color.FromArgb(150,150,150),Font=new Font("Segoe UI",7.5f)};
+        menu.Items.Add(heading);
+        foreach(var choice in Choices){
+            var output=choice.Item2;
+            var item=new ToolStripMenuItem(choice.Item1){ForeColor=Ink};
+            item.Click+=(sender,e)=>{try{Console.Out.WriteLine(output);Console.Out.Flush();}catch(Exception){}};
+            menu.Items.Add(item);
+        }
+        outside.Tick+=(sender,e)=>{
+            if(!menu.Visible){outside.Stop();return;}
+            if(Control.MouseButtons!=MouseButtons.None&&!menu.Bounds.Contains(Cursor.Position)&&
+               !RectangleToScreen(ClientRectangle).Contains(Cursor.Position))menu.Close();
+        };
+        menu.Opened+=(sender,e)=>outside.Start();
+        menu.Closed+=(sender,e)=>{outside.Stop();Invalidate();};
+        var handle=Handle;
+    }
+    // The highlight is painted here rather than left to the colour table: on this system the
+    // professional renderer still drew a light blue under the light text (Floor PC, November 16).
+    class MenuRenderer : ToolStripProfessionalRenderer {
+        public MenuRenderer() : base(new MenuColors()) { RoundedEdges=false; }
+        protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs args){
+            var item=args.Item;
+            var fill=item.Pressed?Color.FromArgb(78,78,78):item.Selected&&item.Enabled?Color.FromArgb(62,62,62):Color.FromArgb(37,37,37);
+            using(var brush=new SolidBrush(fill))args.Graphics.FillRectangle(brush,new Rectangle(Point.Empty,item.Size));
+            if(item.Selected&&item.Enabled)
+                using(var edge=new System.Drawing.Drawing2D.LinearGradientBrush(new Rectangle(0,0,3,item.Height),Violet,Teal,90f))
+                    args.Graphics.FillRectangle(edge,0,2,2,item.Height-4);
+        }
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs args){
+            if(args.Item is ToolStripMenuItem)args.TextColor=Ink;
+            base.OnRenderItemText(args);
+        }
+    }
+    class MenuColors : ProfessionalColorTable {
+        // Dropdown items are drawn with the gradient colours, not MenuItemSelected (the default was a light
+        // blue under the light text): every highlight colour is set to the same dark grey.
+        public override Color MenuItemSelected { get { return Color.FromArgb(66,66,66); } }
+        public override Color MenuItemSelectedGradientBegin { get { return Color.FromArgb(66,66,66); } }
+        public override Color MenuItemSelectedGradientEnd { get { return Color.FromArgb(66,66,66); } }
+        public override Color MenuItemPressedGradientBegin { get { return Color.FromArgb(78,78,78); } }
+        public override Color MenuItemPressedGradientEnd { get { return Color.FromArgb(78,78,78); } }
+        public override Color ImageMarginGradientBegin { get { return Color.FromArgb(37,37,37); } }
+        public override Color ImageMarginGradientMiddle { get { return Color.FromArgb(37,37,37); } }
+        public override Color ImageMarginGradientEnd { get { return Color.FromArgb(37,37,37); } }
+        public override Color MenuItemBorder { get { return Color.FromArgb(90,90,90); } }
+        public override Color MenuBorder { get { return Color.FromArgb(70,70,70); } }
+        public override Color ToolStripDropDownBackground { get { return Color.FromArgb(37,37,37); } }
+    }
+    protected override CreateParams CreateParams {get{var settings=base.CreateParams;settings.Parent=parent;
+        settings.Style=(settings.Style&~unchecked((int)0x80000000))|0x40000000;return settings;}}   // WS_CHILD
+    protected override bool ShowWithoutActivation { get { return true; } }
+    protected override void SetVisibleCore(bool value){ base.SetVisibleCore(value&&placed); }
+    public void Show(Rectangle place){
+        placed=!place.IsEmpty;
+        if(GetParent(Handle)!=parent)SetParent(Handle,parent);
+        if(placed)SetWindowPos(Handle,IntPtr.Zero,place.X,place.Y,place.Width,place.Height,0x0010|0x0040);
+        else ShowWindow(Handle,0);
+        Invalidate();
+    }
+    protected override void OnMouseEnter(EventArgs args){ over=true; Invalidate(); base.OnMouseEnter(args); }
+    protected override void OnMouseLeave(EventArgs args){ over=false; Invalidate(); base.OnMouseLeave(args); }
+    protected override void OnMouseClick(MouseEventArgs args){
+        if(args.Button==MouseButtons.Left){
+            if(menu.Visible)menu.Close();
+            else menu.Show(this,new Point(0,ClientSize.Height));
+        }
+        base.OnMouseClick(args);
+    }
+    static System.Drawing.Drawing2D.GraphicsPath Rounded(RectangleF box,float radius){
+        var path=new System.Drawing.Drawing2D.GraphicsPath();float d=radius*2;
+        path.AddArc(box.X,box.Y,d,d,180,90);path.AddArc(box.Right-d,box.Y,d,d,270,90);
+        path.AddArc(box.Right-d,box.Bottom-d,d,d,0,90);path.AddArc(box.X,box.Bottom-d,d,d,90,90);
+        path.CloseFigure();return path;
+    }
+    static readonly Color Violet = Color.FromArgb(150, 110, 250), Teal = Color.FromArgb(45, 212, 191), Rest = Color.FromArgb(78, 78, 78);
+    protected override void OnPaint(PaintEventArgs args){
+        var g=args.Graphics;g.Clear(Back);
+        g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+        var box=new RectangleF(0.5f,1.5f,ClientSize.Width-1.5f,ClientSize.Height-3.5f);
+        bool open=menu.Visible;
+        // Square-cornered like HX Edit's own buttons (TONE3000, the preset bar), with the violet-to-teal edge.
+        using(var path=Rounded(box,2f)){
+            using(var brush=new SolidBrush(over||open?Hover:Face))g.FillPath(brush,path);
+            // The violet-to-teal edge only while it is pointed at or open; at rest a plain grey like HX Edit's.
+            if(over||open)
+                using(var edge=new System.Drawing.Drawing2D.LinearGradientBrush(box,Violet,Teal,0f))
+                using(var pen=new Pen(edge,1f))g.DrawPath(pen,path);
+            else using(var pen=new Pen(Rest,1f))g.DrawPath(pen,path);
+        }
+        // The mark: three stacked lines (a menu), in the same violet-to-teal.
+        float lineWidth=11f, cx=box.X+9f, cy=box.Y+box.Height/2f;
+        var marks=new RectangleF(cx,cy-4f,lineWidth,8f);
+        using(var edge=new System.Drawing.Drawing2D.LinearGradientBrush(marks,Violet,Teal,0f))
+        using(var pen=new Pen(edge,1.6f){StartCap=System.Drawing.Drawing2D.LineCap.Round,EndCap=System.Drawing.Drawing2D.LineCap.Round})
+            for(int i=-1;i<=1;i++)g.DrawLine(pen,cx,cy+i*3.5f,cx+lineWidth,cy+i*3.5f);
+        // The name, letter-spaced, centred in the room right of the mark.
+        using(var font=new Font("Segoe UI Semibold",7.5f))
+        using(var ink=new SolidBrush(Ink)){
+            float width=0f;
+            foreach(char letter in "UNBOUND")
+                width+=g.MeasureString(letter.ToString(),font,PointF.Empty,StringFormat.GenericTypographic).Width+1.3f;
+            width-=1.3f;
+            float start=cx+lineWidth, x=start+(box.Right-start-width)/2f, y=box.Y+(box.Height-font.GetHeight(g))/2f;
+            foreach(char letter in "UNBOUND"){
+                g.DrawString(letter.ToString(),font,ink,x,y,StringFormat.GenericTypographic);
+                x+=g.MeasureString(letter.ToString(),font,PointF.Empty,StringFormat.GenericTypographic).Width+1.3f;
+            }
+        }
+    }
+}
+
 // The DSP meter beside HX Edit's TONE3000 button (dsp_meter.py). It only draws what it is sent:
 // one JSON line per change, {visible, x, y, w, h (parent client pixels), dsp: [{load, used, budget,
-// level} or null, ...]}. No device, file or network access. Closing its input ends it.
+// level} or null, ...], unbound}. No device, file or network access. Closing its input ends it.
+// With unbound it also shows the HX Unbound menu button at the start of that row (right of the
+// TONE3000 button); a menu choice writes its name ("level", "library") to its output, and
+// dsp_meter.py opens that page.
 class DspMeter : Form
 {
     [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
+    [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hwnd, int index, int value);
+    const int GWL_STYLE = -16, WS_CLIPCHILDREN = 0x02000000;
     [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr hwnd);
     [DllImport("user32.dll")] static extern IntPtr SetParent(IntPtr child, IntPtr parent);
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int w, int h, uint flags);
@@ -1234,6 +1383,9 @@ class DspMeter : Form
     // narrower gaps of smaller windows (124..219 px, at most 150). Under 124 px: hidden.
     public const int MeterMax = 300, MeterMin = 220, CompactMax = 150, CompactMin = 124;
     bool compact;
+    bool unbound;
+    UnboundButton unboundButton;
+    public const int UnboundGap = 10;   // between the HX Unbound button and the meter
     static readonly Color Back = Color.FromArgb(29, 29, 29), Track = Color.FromArgb(58, 58, 58),
         Ink = Color.FromArgb(200, 200, 200), Dim = Color.FromArgb(130, 130, 130);
 
@@ -1242,6 +1394,11 @@ class DspMeter : Form
         FormBorderStyle=FormBorderStyle.None; ShowInTaskbar=false; StartPosition=FormStartPosition.Manual;
         BackColor=Back; DoubleBuffered=true; Font=new Font("Segoe UI", 8.25f); Bounds=new Rectangle(0,0,1,1);
         var handle=Handle;   // the child window exists before any line arrives (BeginInvoke needs it)
+        // HX Edit repaints its whole window on every preset or snapshot change, over its child windows
+        // (this meter, the HX Unbound button), which then flashed until their next redraw. Clipping its
+        // children keeps its painting off them.
+        int style=GetWindowLong(parent,GWL_STYLE);
+        if(style!=0&&(style&WS_CLIPCHILDREN)==0)SetWindowLong(parent,GWL_STYLE,style|WS_CLIPCHILDREN);
         var reader=new System.Threading.Thread(Read){IsBackground=true};reader.Start();
         var watch=new Timer{Interval=250};
         // HX Edit repaints its whole window after a resize or maximize, over this child (it does not clip
@@ -1252,6 +1409,7 @@ class DspMeter : Form
             if(spanWidth==0&&width>0)spanWidth=width;   // a span that arrived while minimized: anchor it now
             if(spanWidth>=0&&width!=placedWidth)Place();
             if(shown)Invalidate();
+            if(unboundButton!=null)unboundButton.Invalidate();   // HX Edit paints over its children too
         };
         watch.Start();
     }
@@ -1276,6 +1434,8 @@ class DspMeter : Form
     void Apply(Dictionary<string,object> state){
         object value;
         // JavaScriptSerializer gives arrays as ArrayList (or object[]): any list will do.
+        unbound=state.TryGetValue("unbound",out value)&&value is bool&&(bool)value;
+        if(unbound&&unboundButton==null)unboundButton=new UnboundButton(parent);
         if(state.TryGetValue("dsp",out value)&&value is IList){var list=(IList)value;dsp=new object[]{list.Count>0?list[0]:null,list.Count>1?list[1]:null};}
         var span=state.TryGetValue("span",out value)?value as Dictionary<string,object>:null;
         if(span!=null){
@@ -1301,12 +1461,22 @@ class DspMeter : Form
         return widthThen<=0||widthNow<=0||width==0||height<=0?Rectangle.Empty:new Rectangle(end-width,top,width,height);
     }
     public static bool IsCompact(Rectangle place){ return !place.IsEmpty&&place.Width<MeterMin; }
+    // The HX Unbound button: at the start of the span (it does not move with the window's right edge),
+    // when the span has room for it; the meter then starts after it.
+    public static Rectangle ButtonPlacement(int left,int right,int top,int height,int widthThen,int widthNow){
+        int end=right+(widthNow-widthThen);
+        return widthThen<=0||widthNow<=0||height<=0||end-left<UnboundButton.Width?Rectangle.Empty:
+            new Rectangle(left,top,UnboundButton.Width,height);
+    }
     // The width a span is anchored to: HX Edit's client width, or 0 (wait) while it has none, e.g. minimized.
     public static int AnchorWidth(int parentWidth){ return parentWidth>0?parentWidth:0; }
     public static bool HasReading(object[] dsp){ return dsp!=null&&(dsp[0] is Dictionary<string,object>||dsp[1] is Dictionary<string,object>); }
     void Place(){
         placedWidth=ParentWidth();
-        var place=spanWidth<0?Rectangle.Empty:Placement(spanLeft,spanRight,spanTop,spanHeight,spanWidth,placedWidth);
+        var button=!unbound||spanWidth<0?Rectangle.Empty:ButtonPlacement(spanLeft,spanRight,spanTop,spanHeight,spanWidth,placedWidth);
+        if(unboundButton!=null)unboundButton.Show(button);
+        int left=button.IsEmpty?spanLeft:button.Right+UnboundGap;
+        var place=spanWidth<0?Rectangle.Empty:Placement(left,spanRight,spanTop,spanHeight,spanWidth,placedWidth);
         // No reading for either DSP (the Floor disconnected, or not answered yet): nothing to show, so
         // the meter is not left over HX Edit's "No device connected" screen.
         shown=!place.IsEmpty&&HasReading(dsp);
@@ -1349,16 +1519,17 @@ class DspMeter : Form
     }
     protected override void OnPaint(PaintEventArgs args){
         var g=args.Graphics;g.Clear(Back);
-        int half=ClientSize.Width/2, bar=Math.Max(40,half-96), barHeight=6;
+        int offset=0;
+        int half=(ClientSize.Width-offset)/2, bar=Math.Max(40,half-96), barHeight=6;
         if(compact){
             // No bars: the text itself is green, yellow or red.
             for(int i=0;i<2;i++)
-                TextRenderer.DrawText(g,CompactLabel(dsp[i],i),Font,new Rectangle(i*half,0,half,ClientSize.Height),LevelColor(dsp[i]),
+                TextRenderer.DrawText(g,CompactLabel(dsp[i],i),Font,new Rectangle(offset+i*half,0,half,ClientSize.Height),LevelColor(dsp[i]),
                     TextFormatFlags.VerticalCenter|TextFormatFlags.Right|TextFormatFlags.NoPadding|TextFormatFlags.EndEllipsis);
             return;
         }
         for(int i=0;i<2;i++){
-            int x=i*half+2, mid=ClientSize.Height/2;
+            int x=offset+i*half+2, mid=ClientSize.Height/2;
             var view=dsp[i] as Dictionary<string,object>;
             TextRenderer.DrawText(g,Label(dsp[i],i),Font,new Rectangle(x,0,90,ClientSize.Height),view==null?Dim:Ink,
                 TextFormatFlags.VerticalCenter|TextFormatFlags.Left|TextFormatFlags.NoPadding);
@@ -1390,6 +1561,10 @@ class DspMeter : Form
         if(CompactLabel(ok,0)!="DSP1 36%"||CompactLabel(half,1)!="DSP2 57%"||CompactLabel(null,0)!="DSP1 —")throw new Exception("DSP meter compact labels");
         if(HasReading(new object[]{null,null})||!HasReading(new object[]{null,ok})||HasReading(null))throw new Exception("DSP meter hides without readings");
         if(!Placement(310,1388,9,24,-1,1920).IsEmpty)throw new Exception("DSP meter without a span");
+        // The HX Unbound button sits at the span's start and stays there as the window narrows.
+        if(ButtonPlacement(310,1388,9,24,1920,1420)!=new Rectangle(310,9,UnboundButton.Width,24))throw new Exception("Unbound button placement");
+        if(!ButtonPlacement(310,1388,9,24,1920,850).IsEmpty)throw new Exception("Unbound button hides without room");
+        if(UnboundButton.Choices.Length<1||UnboundButton.Choices[0].Item2!="level")throw new Exception("Unbound menu");
         // Minimized: HX Edit's client width is 0. Nothing is placed, and a span is not anchored to it.
         if(!Placement(310,1388,9,24,1920,0).IsEmpty||!Placement(310,1388,9,24,0,1920).IsEmpty)throw new Exception("DSP meter while minimized");
         if(AnchorWidth(0)!=0||AnchorWidth(-1)!=0||AnchorWidth(1484)!=1484)throw new Exception("DSP meter span anchor");

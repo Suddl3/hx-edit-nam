@@ -24,6 +24,10 @@ function installNamSidebar(namView) {
           send({type:'namSidebarResizeResult',width:value.width,error:ok?'':'Sidebar layout is not available.'});
         } else if (value.action === 'expand') {
           namView.openExpandedLibrary(window);
+        } else if (value.action === 'level') {
+          // The Level button by the DSP meter: the Level page, docked where the library opens.
+          const opened=toneView.openBrowser(window,{level:true,dockPanel:navigationBanner.dockPanel()});
+          if (opened === false) send({type:'namSidebarResult',error:'Select a block in HX Edit, then press Level again.',busy:false});
         } else if (['load','use'].includes(value.action) && /^[a-f0-9]{64}$/.test(value.id || '')) {
           const opened=toneView.openBrowser(window,{headless:true,libraryAction:value.action+':'+value.id,
             dockPanel:navigationBanner.dockPanel()});

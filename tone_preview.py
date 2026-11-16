@@ -7,11 +7,12 @@ import os
 from pathlib import Path
 from queue import Empty, Full, Queue
 from string import Template
-from threading import Event, Lock, Thread, current_thread
-from time import monotonic
+from threading import Event, Lock, RLock, Thread, current_thread
+from time import monotonic, sleep
 from urllib.parse import urlsplit
 
 import tempfile
+import traceback
 
 from nam_convert import IR_NAME_LIMIT, convert_batch
 from nam_library import render_library
@@ -76,8 +77,16 @@ def render_card(tone=None, models=(), library=False):
 
 class TonePreview:
     def __init__(self, script, workspace, converter, detached, message, *, browser_factory=ToneBrowser, client_id='',
-                 library=None, payload_callback=None, trace_callback=None, optimize=False, pedal_block=False):
+                 library=None, payload_callback=None, trace_callback=None, optimize=False, pedal_block=False,
+                 level=False, level_di=None, level_files=None):
         self.script = script
+        # Level presets (HX Unbound): the player's recorded playing (or NAM's input file, when found)
+        # played through each snapshot to bring every preset to one output standard (nam_level_flow).
+        # level_di: one more place a build says NAM's input file is.
+        self.level = bool(level)
+        self.level_di = Path(level_di) if level_di else None
+        self.level_files = level_files or {}     # restore_file / records_file (tests use their own)
+        self.level_flow = None
         self.optimize = bool(optimize)   # Optimize (versions of a capture): experiment builds only for now
         # The Floor's firmware has the NAM Pedal block (builds for it: res/nam-pedal.flag); until a
         # firmware marker can be read, the build says so.
@@ -91,6 +100,7 @@ class TonePreview:
         self.browser_factory = browser_factory
         self.client_id = client_id
         self.replies = Queue()
+        self.command_lock = RLock()
         self.thread = None
         self.lifecycle_lock = Lock()
         self._library_notification_lock = Lock()
@@ -106,6 +116,7 @@ class TonePreview:
         self.navigation = False
         self.navigation_state = {}
         self.initial_library = False
+        self.initial_level = False     # opened from the Level button: the Level page, not the library
         self.initial_action = None
         self.headless = False
         self.close_reason = None
@@ -216,7 +227,7 @@ class TonePreview:
         elif payload['type'] == 'toneFocus':
             if payload['session'] == self.session and self.browser:
                 self.browser.send('focus')
-                if payload.get('page') in ('library', 'catalog'):
+                if payload.get('page') in ('library', 'catalog', 'level'):
                     self.browser.actions.put(payload['page'])
             else:
                 self._abandon_if_gone(payload['session'])
@@ -248,7 +259,8 @@ class TonePreview:
                     self.navigation = bool(payload.get('navigation'))
                     self.navigation_state = {}
                     self.target_ready.clear()
-                    self.initial_library = bool(payload.get('library'))
+                    self.initial_level = bool(payload.get('level'))
+                    self.initial_library = bool(payload.get('library')) or self.initial_level
                     self.initial_action = payload.get('libraryAction')
                     self.headless = bool(payload.get('headless'))
                     self.close_reason = None
@@ -281,6 +293,10 @@ class TonePreview:
             self._abandon(session)
 
     def command(self, session, action, **data):
+        with self.command_lock:
+            return self._command(session, action, **data)
+
+    def _command(self, session, action, **data):
         started = monotonic()
 
         def check_helper(request=None):
@@ -357,17 +373,24 @@ class TonePreview:
                     if self.headless and not self.target_ready.wait(5):
                         raise ToneError('HX Edit did not report the selected NAM block. Nothing was loaded.')
                     browser.send('target', **{key: value for key, value in self.navigation_state.items() if key != 'type'})
-                slot = self.browse(browser, session, '' if self.headless else client_id)
+                try:
+                    slot = self.browse(browser, session, '' if self.headless else client_id)
+                finally:
+                    flow, self.level_flow = self.level_flow, None
+                    if flow is not None:
+                        flow.close()   # a scan or Apply stops, the routing goes back, the watcher ends
             else:
                 self._trace('browser', 'unavailable', session, started=started)
         except (ToneError, ValueError, OSError) as error:
             self._trace('browser', 'failed', session, started=started)
+            traceback.print_exc()            # the local launch log only; the trace never holds exceptions
             if self.headless and self.sidebar_status:
                 self.sidebar_status({'text':str(error), 'error':str(error), 'busy':False})
             if not self.detached.is_set():
                 notice = (str(error), 0x10)
         except Exception:
             self._trace('browser', 'failed', session, started=started)
+            traceback.print_exc()            # the local launch log only
             if self.headless and self.sidebar_status:
                 self.sidebar_status({'text':'Could not complete the library action. Nothing was retried.', 'busy':False})
             if not self.detached.is_set():
@@ -437,6 +460,8 @@ class TonePreview:
         light_job = None
         optimizing = None    # Optimize: the version being made for one capture, shown on the library page
         optimize_job = None
+        leveling = None      # Level presets: a nam_level_flow.LevelFlow while the Level page has been opened
+        level_page = False   # the page shows Level instead of the library
         tone_modes = {}  # TONE3000 tone ID -> the conversion chosen for it (nam_modes.MODES key)
         mode_now = None  # the conversion of the profile being auditioned
         taken = None     # every User IR slot taken: [slot, name] pairs to choose one to replace from
@@ -489,6 +514,8 @@ class TonePreview:
                          installed=loaded_now,
                          can_train=not self.navigation,
                          optimize=optimizing, can_optimize=self.optimize, pedal_block=self.pedal_block,
+                         level=leveling.view() if leveling else None, can_level=self.level,
+                         levelPage=level_page,
                          can_install=self.navigation and bool(self.navigation_state.get('bound')) and
                          not self.navigation_state.get('preview') and not self.navigation_state.get('quarantined'))
 
@@ -770,6 +797,36 @@ class TonePreview:
             else:
                 status(text, busy=True)
 
+        def level_command(action, **data):
+            reply = self.command(session, action, **data)
+            if reply.get('error'):
+                raise ToneError(reply['error'])
+            return reply
+
+        def level_open():
+            # The Level page: the current preset, after putting right a measurement cut short. It is a
+            # tool of its own (HX Unbound menu), so it opens in its own window without the NAM-block bar.
+            nonlocal leveling, level_page
+            if not level_page:
+                browser.send('chrome', targetBar=False, title='Level presets · HX Unbound')
+                browser.send('presentation', mode='floating', focus=True)
+            level_page = True
+            from nam_level_flow import LevelFlow
+            if leveling is None:
+                leveling = LevelFlow(level_command, lambda: browser.actions.put({'levelChanged': True}),
+                                     di=self.level_di, **self.level_files)
+                self.level_flow = leveling      # closed by run() too, if browse() ends with an error
+            leveling.open()
+            status(leveling.view()['message'])
+
+        def level_do(name, *args):
+            from nam_level_flow import LevelError
+            try:
+                getattr(leveling, name)(*args)
+                status(leveling.view()['message'], busy=True)
+            except (LevelError, ToneError, ValueError, TypeError, KeyError) as failure:
+                status(f'Level: {failure}')
+
         def light_event(state):
             nonlocal light, light_job
             light.update(state)
@@ -792,6 +849,12 @@ class TonePreview:
                 status(message)
             else:
                 status(text)
+
+        if self.initial_level and self.level:     # opened from the Level button
+            try:
+                level_open()
+            except (ToneError, OSError) as failure:
+                status(f'Level: {failure}')
 
         while (action := browser.next_action()) is not None:
             if isinstance(action, dict):
@@ -821,6 +884,9 @@ class TonePreview:
                     light_event(action['light'])
                 if optimizing is not None and 'optimize' in action:
                     optimize_event(action['optimize'])
+                if leveling is not None and 'levelChanged' in action:
+                    view = leveling.view()
+                    status(view['progress'] or view['message'], busy=bool(view['running']))
                 continue
             if self.navigation and action in ('bind', 'end'):
                 try:
@@ -923,6 +989,9 @@ class TonePreview:
                             status(KEY_HELP)
                             continue
                         library = command == 'library'
+                        if level_page:
+                            browser.send('chrome', targetBar=True, title='TONE3000 · HX Edit NAM')
+                        level_page = False
                         library_visibility()
                         show_card()
                     elif command == 'keep' and argument == str(trial):
@@ -956,6 +1025,35 @@ class TonePreview:
                         start_optimize(identity)
                     elif command == 'optimizeCancel' and optimize_job is not None:
                         optimize_job.cancel()
+                    elif command in ('level', 'levelOpen') and self.level:
+                        try:
+                            level_open()
+                        except (ToneError, OSError) as failure:
+                            status(f'Level: {failure}')
+                    elif command == 'levelScan' and leveling:
+                        spec = json.loads(argument)
+                        signal = spec.get('signal')
+                        level_do('scan', spec.get('presets') or [], spec.get('snapshots') or 'all',
+                                 str(signal)[:40] if signal else None)
+                    elif command == 'levelApply' and leveling:
+                        spec = json.loads(argument)
+                        # {changes, target: {value, metric}}; a bare {preset: {snapshot: dB}} still works.
+                        changes = spec.get('changes', spec) if isinstance(spec, dict) else {}
+                        # (not named "target": browse() has a target() of its own that status() calls)
+                        leveled_to = spec.get('target') if isinstance(spec.get('target'), dict) else None
+                        if leveled_to:
+                            leveled_to = {'value': float(leveled_to['value']) if isinstance(leveled_to.get('value'), (int, float)) else None,
+                                          'metric': 'peak' if leveled_to.get('metric') == 'peak' else 'lufs'}
+                        level_do('apply', {int(k): {int(n): float(v) for n, v in snaps.items()}
+                                           for k, snaps in changes.items() if k not in ('changes', 'target')}, leveled_to)
+                    elif command == 'levelUndo' and leveling:
+                        level_do('undo')
+                    elif command == 'levelGuitarRemove' and leveling:
+                        level_do('remove_guitar', argument[:40])
+                    elif command == 'levelGuitar' and leveling:
+                        level_do('measure_guitar', 10.0, argument[:40])
+                    elif command == 'levelCancel' and leveling:
+                        leveling.cancel()
                     elif command == 'versionRemove' and identity in self.library.entries():
                         if self.library.remove_version(identity, value):
                             if library:
@@ -985,4 +1083,6 @@ class TonePreview:
             light_job.cancel()
         if optimize_job is not None:
             optimize_job.cancel()
+        if leveling is not None:
+            leveling.close()      # a scan stops and puts the routing back (never left on USB 7/8)
         return slot

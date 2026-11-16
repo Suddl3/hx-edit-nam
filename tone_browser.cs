@@ -63,6 +63,7 @@ sealed class ToneBrowser : Form
     Uri callback;
     bool panelVisible = true;
     string catalogPage;
+    string savedBoundsFile;   // the Level window keeps its place and size here (ApplyChrome)
     string openAfterLoad;   // a tone page to open once the selection catalog has loaded (the block's own tone)
     bool canRetry;
     bool hasTone;
@@ -115,6 +116,35 @@ sealed class ToneBrowser : Form
         // Frida serializes the x86 HWND as uint32. Preserve its bits even when
         // the high bit is set; IntPtr(long) would overflow in the x86 helper.
         return IntPtr.Size == 4 ? new IntPtr(unchecked((int)handle)) : new IntPtr((long)handle);
+    }
+
+    // A window's last place and size ("x y w h"), when it is still on a screen; null otherwise.
+    internal static Rectangle? SavedBounds(string file)
+    {
+        try
+        {
+            if (file == null || !File.Exists(file)) return null;
+            var parts = File.ReadAllText(file).Split(' ');
+            if (parts.Length != 4) return null;
+            var bounds = new Rectangle(int.Parse(parts[0], CultureInfo.InvariantCulture), int.Parse(parts[1], CultureInfo.InvariantCulture),
+                int.Parse(parts[2], CultureInfo.InvariantCulture), int.Parse(parts[3], CultureInfo.InvariantCulture));
+            if (bounds.Width < 400 || bounds.Height < 300) return null;
+            foreach (var screen in Screen.AllScreens)
+                if (screen.WorkingArea.IntersectsWith(new Rectangle(bounds.X, bounds.Y, bounds.Width, 40))) return bounds;
+        }
+        catch (Exception) { }
+        return null;
+    }
+
+    static void SaveBounds(string file, Rectangle bounds)
+    {
+        if (file == null) return;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(file));
+            File.WriteAllText(file, string.Join(" ", bounds.X, bounds.Y, bounds.Width, bounds.Height));
+        }
+        catch (Exception) { }
     }
 
     internal static Rectangle FloatingBounds(Rectangle workingArea)
@@ -210,15 +240,31 @@ sealed class ToneBrowser : Form
         return mode == WindowMode.Floating ? "floating" : "embedded";
     }
 
+    // The Level page (HX Unbound) is a tool of its own: no NAM-block bar, its own window title.
+    void ApplyChrome(Dictionary<string, object> message)
+    {
+        object value;
+        if (message.TryGetValue("targetBar", out value) && value is bool) targetBar.Visible = (bool)value;
+        if (message.TryGetValue("title", out value) && value is string && ((string)value).Length > 0 && ((string)value).Length <= 80)
+        {
+            Text = (string)value;
+            savedBoundsFile = Text.StartsWith("Level presets") ? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HX Edit NAM", "level-window.txt") : null;
+            if (floatingHost != null) floatingHost.Text = Text;
+        }
+        LayoutPane(true);
+    }
+
     void EnsureFloatingHost()
     {
         if (floatingHost != null) return;
         var work = Screen.FromHandle(parent).WorkingArea;
         floatingHost = new Form { Text = Text, Icon = Icon, StartPosition = FormStartPosition.Manual,
             FormBorderStyle = FormBorderStyle.Sizable, ShowInTaskbar = true, AutoScaleMode = AutoScaleMode.None,
-            BackColor = BackColor, Bounds = FloatingBounds(work),
+            BackColor = BackColor, Bounds = SavedBounds(savedBoundsFile) ?? FloatingBounds(work),
             MinimumSize = new Size(Math.Min(640, work.Width), Math.Min(420, work.Height)) };
         floatingHost.Resize += (sender, args) => { if (windowMode == WindowMode.Floating) LayoutPane(); };
+        floatingHost.ResizeEnd += (sender, args) => SaveBounds(savedBoundsFile, floatingHost.Bounds);
         floatingHost.FormClosing += (sender, args) => {
             if (closing) return;
             args.Cancel = true; RequestCancel("window-close");
@@ -528,6 +574,7 @@ sealed class ToneBrowser : Form
             FocusPresentation(windowMode);
             return;
         }
+        if ((string)message["type"] == "chrome") { ApplyChrome(message); return; }
         if ((string)message["type"] == "presentation")
         {
             object value;
@@ -633,7 +680,7 @@ sealed class ToneBrowser : Form
                 SetWindowPos(Handle, IntPtr.Zero, 0, 0, client.Width, client.Height, 0x0010);
                 applied = floatingBounds;
             }
-            int height = DetailHeight(client.Height - targetBar.Height, library, hasTone);
+            int height = DetailHeight(client.Height - (targetBar.Visible ? targetBar.Height : 0), library, hasTone);
             if (detailRow.Height != height) detailRow.Height = height;
             bool canDock = panelVisible && dock.Width > 60 && dock.Height > 60;
             if (popOut.Enabled != canDock)
@@ -649,7 +696,7 @@ sealed class ToneBrowser : Form
         if (!show) return;
         var bounds = dock;
         // The NAM library page covers the TONE3000 catalog while it is open.
-        var detailHeight = DetailHeight(dock.Height - targetBar.Height, library, hasTone);
+        var detailHeight = DetailHeight(dock.Height - (targetBar.Visible ? targetBar.Height : 0), library, hasTone);
         if (detailRow.Height != detailHeight) detailRow.Height = detailHeight;
         if (bounds != applied)
         {

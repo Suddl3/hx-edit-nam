@@ -33,7 +33,7 @@ workflow. No scheduled watcher or automatic upstream merge is currently configur
 | New navigation integration | Candidate63, published as the `floor-navigation` branch. On one Floor: preview and second preview, Close/End restore, Use on Floor from the NAM tab, Save to PC + Floor from the card, preview replacing User IR 128, recovery after the editor closed mid-preview, and a launch that reads no slots have each run at least once. Not accepted as the everyday build yet; still to test: snapshot or preset change during a preview, and Load on Floor from the NAM tab for a new capture. See FLOOR-WORKFLOW.md |
 | Firmware integration | Red Dragon's PRs #1, #3 and #4 merged. His reported hardware evidence is separate from subsequent offline repairs. Default DSP cost remains 3600; screen mirroring remains off unless explicitly built in |
 | DSP display and broader Floor UI | Planned. Screen-mirror tooling aids research but is not the proposed on-device DSP display |
-| Leveling assistant | Separate offline prototype: its verification report records 88 backend tests and 79 interface checks. No live native Apply, device acquisition or real preset saving |
+| Level presets | Built (HX Unbound menu): silent USB measuring with the player's own recording, review, Apply with Undo and saving; tested on one Floor |
 | Optimization and alternate engines | Planned, gated on explicit Floor support and quality comparison; not silently enabled by upstream editor availability |
 
 Use the [Floor pairing guide](https://github.com/Suddl3/hx-unbound-floor/blob/main/EDITOR.md)
@@ -144,7 +144,7 @@ custom NAM blocks. Track preservation and hardware evidence per supported workfl
 | F01, F03 | Small visible Floor feature, declared-budget display, later measured per-DSP load | Declared budget: shown in HX Edit's toolbar since November 14 ("DSP 1 27/75", the Floor's own figures, labeled as declared cost, not measured load); on the Floor itself by the firmware's DSP meter build. Measured per-DSP load still to come. Diagnostic output must not replace ordinary audio accidentally |
 | F02, F04, R01 | Kernel efficiency, optional reduced-layer/pedal engines, full/stereo/capacity research | Research and measured integration. No promised simultaneous count, automatic feature enablement or unsupported firmware/editor combination |
 | F05–F09 | On-device NAM categories/browsing, optional modern screen/boot appearance, custom names, metronome, selected HXtra controls | Later Floor work. Adapt to Floor's switches, scribble strips, screen and snapshots; preserve stable preset references and readable labels |
-| W01 | Leveling assistant | Offline prototype described below; live audio/native editing remain separate gates |
+| W01 | Level presets | Built and tested on one Floor (described below); wider preset and device coverage still to test |
 | W02 | Preset-aware library maintenance | Later dependency index before moving/removing assets used by saved presets |
 | W03 | Clear setup, manual launch, update and release management | Pair versions/flags/hashes and recovery instructions; retain known-working launcher. Build firmware from each owner's stock file; no proprietary firmware distribution |
 | W04 | Phone/Pi editor access using ToneRelay research | Deferred until desktop/device ownership is reliable |
@@ -179,27 +179,39 @@ Helix LT; the Floor is measured before any number is shown.
 - **On the Floor itself** a version cannot be switched live (a snapshot cannot change a block's
   model); the editor is where versions change. To be tried in live use and adjusted.
 
-### Leveling assistant: Measure → Review → Apply
+### Level presets (built, November 16)
 
-The intended workflow uses the **same DI and capture profile** across the selected
-preset/snapshots, chooses a measured reference baseline, reviews output trims and
-headroom, then explicitly applies approved changes. Preset and snapshot offsets are
-additive: +1 dB preset plus +2 dB solo snapshot targets +3 dB relative to baseline.
-Keep intentional differences rather than flattening every sound to one level.
+What a player feels on stage is the final output of each preset and snapshot, so that is what is
+levelled: relative output, measured at the Floor's real output (stock blocks and captures alike).
+The player then sets one overall volume on their amp, PA or master and it stays consistent. Open it
+from the **HX Unbound** menu button beside TONE3000: **Level presets…**.
 
-Current implementation lives in a separate `feat/hx-edit-leveling-offline` worktree
-under `leveling/`, with its own scope/readme/verification record. Its movable helper,
-planner, synthetic Apply/Undo, saved-native inspection and read-only capture checklist
-are offline. The recorded 88 backend and 79 interface checks validate that scope,
-not real guitar loudness or live native edits.
-
-The retained real sample has no proven existing snapshot gain assignment or matched
-audio, so native corrections and Apply remain unavailable. Do not fabricate values,
-create assignments or infer native gain units from that sample. Native acquisition,
-UI-thread editing/readback, actual audio capture, preset Save/recall and a navigation
-entrypoint still need integration. Apply/Undo makes prior measurements stale; require
-remeasurement rather than inventing a new result. Preserve controller ownership,
-unknown preset data, NAM settings and unrelated snapshots, and reject stale plans.
+- **Silent measuring.** Each chosen preset is loaded (MIDI Program Change) and each snapshot recalled;
+  its input is switched to USB 7/8 and its outputs to USB 1/2 in the edit buffer only, a two-second
+  test signal is played in and the output recorded back over USB (WDM-KS, 48 kHz). Nothing comes out
+  of the amp, and the routing is put back afterwards (also after a crash, the next time Level opens).
+- **Loudness, BS.1770.** Each snapshot is read two to four times (more when the sound moves on its
+  own: modulation, delays) and the middle reading counts; steady sounds repeat within 0.1-0.3 dB.
+  Snapshots that measure alike show as one row. Peak dBFS is offered too; LUFS is the default.
+- **The test signal is the player's own playing.** "Record my guitar" (a 3-2-1 countdown, then 10
+  seconds of normal playing) keeps two typical seconds of it on this PC, played back as recorded, so
+  amps and drives see a real guitar's level. Recordings are saved by name ("Strat · neck") to reuse or
+  delete later. Neural Amp Modeler's standard reamp file (v3 input) is used instead when it is already
+  on the PC (its guitar part, at the last recorded guitar's level); nothing is bundled.
+- **Review, then Apply.** The target is the middle of the scan, as loud as a chosen preset, or a typed
+  level. Each snapshot shows its change to the output block's Level, held back (never clipped) past
+  12 dB or when its peak would pass -1 dBFS. Offsets keep a sound louder or quieter on purpose (a lead
+  +2 dB); they are remembered per preset and snapshot.
+- **Only output levels change.** Tone, drive and NAM settings are never touched. Output levels held by
+  a Snapshots controller keep their per-snapshot values. Apply to the loaded preset is left unsaved;
+  Apply to several presets saves each one. Undo puts the old levels back (also after a restart), and
+  each preset card notes when it was last leveled, with which guitar and to what.
+- **Captures are not re-levelled.** The converter already applies NAM's own "Normalized" output.
+- **Not built:** an always-on automatic leveler (it fights playing dynamics and solo boosts), and
+  applying without loading each preset.
+- **Tested** on one Helix Floor (presets 005, 030, 031): scans, multi-preset Apply and Undo, rescans
+  on target after Apply, recordings, the NAM file. Not yet: other setlists in depth, presets whose
+  output is on an expression pedal (refused, by design), a Helix LT or Stomp.
 
 ## Next work and acceptance
 
@@ -212,8 +224,8 @@ unknown preset data, NAM settings and unrelated snapshots, and reject stale plan
    and reports what differs on their unit.
 4. Add a NAM category to the block selector (Amp, Amp + cab, Pedal captures), first as
    a feasibility spike in the editor, coordinated with the firmware's own block menu.
-5. Continue the small Floor UI/capability work with Red Dragon and integrate leveling
-   only after its native/audio contracts are proven. Identify firmware, editor and
+5. Continue the small Floor UI/capability work with Red Dragon. Level presets is
+   integrated; test it on more presets and setlists before widening it. Identify firmware, editor and
    library changes independently so failures can be isolated.
 
 Offline test counts, USB connection and a responsive host process are not substitutes

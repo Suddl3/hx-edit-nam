@@ -50,6 +50,7 @@
   #ask[hidden] { display: none; }
   #ask .panel { background: #232323; border: 1px solid #575757; border-radius: 6px; width: min(460px, calc(100vw - 24px)); padding: 12px 14px; }
   #askText { margin: 0 0 12px; white-space: pre-wrap; line-height: 1.4; }
+  #askInput { width: 100%; box-sizing: border-box; margin: 0 0 12px; }
   #ask .buttons { display: flex; justify-content: flex-end; gap: 8px; }
   #picker .panel { background: #232323; border: 1px solid #575757; border-radius: 6px; width: min(640px, calc(100vw - 24px));
     max-height: calc(100vh - 24px); display: flex; flex-direction: column; }
@@ -84,7 +85,79 @@
   .chip[data-quality="same"] { border-color: #3d7a46; }
   .chip[data-quality="different"] { border-color: #a07a2a; }
   .chip[data-active="true"] { background: #3a3a3a; color: #fff; }
-  #optimizePanel, #light { flex-shrink: 0; }   /* the list gives way, not these panels */
+  #optimizePanel, #light, #levelPanel { flex-shrink: 0; }
+  #levelPanel { padding: 10px 14px; background: #1e1e1e; border-top: 1px solid #404040; }
+  #levelPanel p { margin: 0 0 6px; }
+  #levelPanel h2 { font-size: 15px; margin: 0 0 2px; letter-spacing: .2px; }
+  #levelPanel .note { color: #9a9a9a; font-size: 12px; }
+  #levelPanel .held { color: #e0b84a; }
+  #levelPanel input[type=number] { width: 4.2em; }
+  #levelPanel .bar { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 8px 10px;
+    margin: 8px 0 10px; background: #262626; border: 1px solid #353535; border-radius: 6px; }
+  #levelPanel .bar .group { display: flex; gap: 6px; align-items: center; }
+  #levelPanel .bar .label { color: #9a9a9a; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; }
+  #levelProgress { color: #c8c8c8; font-size: 12px; }
+  #levelProgress.recording { color: #fff; font-size: 15px; font-weight: 600; }
+  #levelRemoveGuitar { background: none; border-color: transparent; color: #9a9a9a; padding: 2px 6px; }
+  #levelRemoveGuitar:enabled:hover { color: #ef7d7d; border-color: #5a3a3a; }
+  /* Scan progress: the HX Unbound violet-to-teal, filling as snapshots are measured. */
+  #levelBar { display: flex; align-items: center; gap: 10px; margin: -4px 0 12px; }
+  #levelBar[hidden] { display: none; }
+  #levelBar .track { flex: 1; height: 6px; background: #2c2c2c; border: 1px solid #3a3a3a; border-radius: 4px; overflow: hidden; }
+  #levelBar .fill { height: 100%; width: 0; background: linear-gradient(90deg, #966efa, #2dd4bf); transition: width .6s ease; }
+  #levelBar .percent { min-width: 3.2em; text-align: right; color: #e0e0e0; font-size: 12px; font-variant-numeric: tabular-nums; }
+  #levelPanel .scanRow { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 0 0 12px; }
+  #levelPanel .scanRow .note { margin: 0; }
+  #levelPanel button.primary { background: #5b48d6; border-color: #7a68f0; color: #fff; font-weight: 600; padding: 5px 22px; }
+  #levelPanel button.primary:disabled { background: #3a3550; border-color: #4a4466; }
+  #levelCards { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+  .levelCard { background: #242424; border: 1px solid #353535; border-radius: 6px; padding: 6px 16px 8px 12px; }
+  .levelCard.current { border-color: #5a5a5a; }
+  .levelCard .cardHead { display: flex; align-items: baseline; gap: 10px; padding: 2px 0 6px; border-bottom: 1px solid #333; margin-bottom: 4px; background: none; }
+  .levelCard .cardHead b { font-size: 13px; }
+  .levelCard .cardHead .tag { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: #1e1e1e;
+    background: #9a9a9a; border-radius: 3px; padding: 0 4px; }
+  .levelCard .cardHead .summary { margin-left: auto; color: #9a9a9a; font-size: 12px; }
+  .levelCard .cardHead .leveled { color: #8a8a8a; font-size: 11px; }
+  .levelRow { display: grid; grid-template-columns: minmax(150px, 1.3fr) 64px minmax(90px, 2fr) 170px 124px;
+    gap: 10px; align-items: center; padding: 3px 0; font-variant-numeric: tabular-nums; }
+  .levelRow .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 0; }
+  .levelRow .what small { color: #8a8a8a; }
+  .levelRow .num { text-align: right; }
+  .levelRow .change { text-align: right; font-weight: 600; }
+  .levelRow .change.none { color: #7a7a7a; font-weight: normal; }
+  .levelRow .why { grid-column: 1 / -1; font-size: 11px; margin-top: -2px; }
+  .levelRow .out { text-align: right; white-space: nowrap; }
+  .stepper { display: inline-flex; align-items: center; border: 1px solid #575757; border-radius: 4px; overflow: hidden; width: max-content; }
+  .stepper button { border: 0; border-radius: 0; padding: 2px 7px; background: #3a3a3a; line-height: 1.2; }
+  .stepper button:enabled:hover { background: #4a4a4a; }
+  .stepper .unit { padding: 0 6px 0 0; background: #2c2c2c; color: #8a8a8a; font-size: 11px; align-self: stretch; display: flex; align-items: center; }
+  .stepper.set .unit { color: #cfc4ff; }
+  .levelRow .what .kept { display: inline-block; vertical-align: 1px; line-height: 14px; margin-left: 8px; padding: 0 7px; border: 1px solid #a08cf5; border-radius: 9px; color: #cfc4ff; font-size: 10.5px; white-space: nowrap; }
+  .stepper input { width: 2.6em; border: 0; border-radius: 0; padding: 2px 2px; text-align: right; background: #2c2c2c; }
+  .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .stepper:not(.set) { opacity: .55; }   /* optional: quiet until used */
+  .stepper:not(.set):hover, .stepper:not(.set):focus-within { opacity: 1; }
+  .stepper.set { border-color: #a08cf5; }
+  .stepper.set input { color: #cfc4ff; font-weight: 600; }
+  #levelNext { margin: 0 0 8px; color: #cfcfcf; }
+  .levelRow .out b { font-weight: 600; }
+  .levelRow .out .same { color: #7a7a7a; }
+  .levelCard.skipped { opacity: .45; }
+  .levelCard .skip { margin-left: 8px; padding: 1px 8px; font-size: 11px; }
+  #levelTargetNote { margin: -4px 0 8px; }
+  .meter { position: relative; height: 8px; background: #333; border-radius: 4px; }
+  .meter .aim { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #e0b84a; }
+  .meter .now { position: absolute; top: 0; height: 8px; width: 8px; margin-left: -4px; border-radius: 50%; background: #c8c8c8; }
+  .meter .move { position: absolute; top: 3px; height: 2px; background: #7a7a7a; }
+  /* The Level page (opened from the HX Unbound menu) is its own view: no library. */
+  body.levelMode > header, body.levelMode .rows, body.levelMode #optimizePanel, body.levelMode #light,
+  body.levelMode footer > :not(#status):not(#finish) { display: none !important; }
+  body.levelMode #levelPanel { flex: 1 1 auto; overflow: auto; border-top: 0; }
+  .levelHead { align-items: end; }
+  .levelHead small { display: block; text-transform: none; letter-spacing: 0; font-size: 10.5px; color: #747474; }
+  .levelHead { color: #8a8a8a; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  #levelPanel .buttons { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }   /* the list gives way, not these panels */
   #optimizePanel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; background: #1e1e1e; border-top: 1px solid #404040; }
   #optimizePanel p { margin: 0; flex-basis: 100%; }
   #optimizeBar { flex: 1; min-width: 80px; }
@@ -124,9 +197,49 @@
 <div id="ask" role="alertdialog" aria-modal="true" aria-labelledby="askText" hidden>
   <div class="panel">
     <p id="askText"></p>
+    <input id="askInput" type="text" maxlength="40" placeholder="My guitar" aria-label="Name" hidden>
     <div class="buttons"><button id="askNo">Cancel</button><button id="askYes"></button></div>
   </div>
 </div>
+<section id="levelPanel" hidden aria-label="Level presets">
+  <h2>Level presets</h2>
+  <p class="note" title="A short test signal plays through each snapshot while the output goes to USB only, and each snapshot is measured two to four times. Only each output block's Level changes.">Brings presets and snapshots to one output level, silently and without touching the tone. Allow about a minute per preset.</p>
+  <div class="bar">
+    <div class="group" title="Which presets to scan: the one HX Edit is on, or a range of the current setlist (each one is loaded on the Floor in turn)"><span class="label">Scan</span>
+      <label><input type="radio" name="levelScope" value="current" checked> This preset</label>
+      <label><input type="radio" name="levelScope" value="range"> Presets
+        <input id="levelFrom" type="number" min="0" max="127" aria-label="First preset" title="First preset (000-127)"> to
+        <input id="levelTo" type="number" min="0" max="127" aria-label="Last preset" title="Last preset (000-127)"></label></div>
+    <div class="group"><span class="label">Snapshots</span>
+      <select id="levelSnaps" aria-label="Snapshots" title="All: every snapshot of each preset, so nothing is missed. 1 to 4: if you only use the first four. 1 only: presets that do not use snapshots. Fewer snapshots scan faster.">
+        <option value="all">All snapshots</option><option value="4">Snapshots 1 to 4</option><option value="1">Snapshot 1 only</option></select></div>
+    <div class="group"><span class="label">Signal</span>
+      <select id="levelGuitar" aria-label="Test signal" title="What is played through each snapshot to measure it."></select>
+      <button id="levelMeasureGuitar" title="Play for 10 seconds: two seconds of it become the test signal (kept on this PC only)">Record my guitar…</button>
+      <button id="levelRemoveGuitar" class="quiet" hidden>Delete</button></div>
+    <div class="group"><span class="label">Target</span>
+      <select id="levelTarget" aria-label="Target" title="The level every snapshot is brought to: the middle of what was scanned (the fewest changes), as loud as a preset you like, or your own number">
+        <option value="middle">Middle of the scan</option><option value="custom">My own level</option></select>
+      <input id="levelStandard" type="number" step="0.5" aria-label="Target level" title="Your target level" hidden>
+      <select id="levelMetric" aria-label="Measure" title="LUFS: how loud it sounds (recommended). Peak: its highest point, which jumps around more and follows loudness less well.">
+        <option value="lufs">LUFS</option><option value="peak">Peak dBFS</option></select></div>
+  </div>
+  <div class="scanRow">
+    <button id="levelScan" class="primary" title="Measure the chosen presets and snapshots. Nothing is changed until you Apply.">Scan</button>
+    <button id="levelCancel" hidden title="Stop after the current snapshot; the presets are put back as they were">Cancel</button>
+    <span id="levelEstimate" class="note"></span>
+    <span id="levelProgress"></span>
+  </div>
+  <div id="levelBar" hidden><div class="track"><div class="fill"></div></div><span class="percent"></span></div>
+  <p id="levelTargetNote" class="note"></p>
+  <p id="levelNext" hidden></p>
+  <p id="levelCurrent" class="note"></p>
+  <div id="levelCards"></div>
+  <div class="buttons">
+    <button id="levelApply" disabled title="Set each output Level as shown. The current preset is changed but not saved; other presets are changed and saved (the old levels are kept for Undo).">Apply</button>
+    <button id="levelUndo" hidden title="Put the output levels of the last Apply back">Undo last Apply</button>
+  </div>
+</section>
 <section id="optimizePanel" hidden aria-label="Optimized versions">
   <p id="optimizeInfo" role="status"></p>
   <progress id="optimizeBar" max="1" value="0" hidden></progress>
@@ -189,6 +302,7 @@
   let sort = { key: 'name', direction: 1 };
   let selected = null, trial = null, busy = false, light = null, lightShown = false, canInstall = false, canTrain = true;
   let optimizing = null, canOptimize = false, pedalBlock = false;   // pedalBlock: the Floor's firmware has NAM Pedal
+  let leveling = null, canLevel = false, levelPage = false;
   const lighter = q('#lighter'), lightPanel = q('#light');
   const pct = value => value == null ? '—' : (100 * value).toFixed(2) + '%';
 
@@ -349,7 +463,422 @@
       'This kept capture is a converted WAV. Its original .nam file is needed to train a lighter version.' : '';
     renderLight();
     renderOptimize(capture);
+    renderLevel();
   }
+  // Level presets (PRODUCT-VISION "Level matching"): one output level for every preset and snapshot.
+  // The editor measures (silently, a short DI at a guitar's level, once per group of snapshots that
+  // sound alike) and reads each one's output Level. Here: the target (the middle of the scan, as loud as
+  // a preset you pick, or your own number), an optional offset per row, and what Apply will set:
+  //   target for a row = target + offset      new Level = Level now + (target for the row - loudness now)
+  // Python checks every change again before anything is applied.
+  const MAX_TRIM = 12, CEILING = -1;
+  const levelSkipped = new Set();   // preset numbers left out of Apply
+  // Offsets: a deliberate difference (a lead +3), kept for the next scans of that preset until changed.
+  // Keyed by setlist, preset number, preset name and snapshot, so a preset moved or replaced in that slot
+  // does not inherit it: "setlist:preset:name:snapshot" -> {dB, when}. Undo does not touch offsets.
+  const levelOffsets = (() => {
+    try {
+      const saved = JSON.parse(stored('levelOffsets2', '{}')) || {};
+      return typeof saved === 'object' ? saved : {};
+    } catch (_) { return {}; }
+  })();
+  const saveOffsets = () => store('levelOffsets2', JSON.stringify(levelOffsets));
+  const offsetKey = row => [row.setlist ?? '', row.preset, row.name || '', row.snapshot].join(':');
+  const offsetOf = row => Number(levelOffsets[offsetKey(row)]?.dB) || 0;
+  const offsetWhen = row => levelOffsets[offsetKey(row)]?.when || null;
+  const pad = n => String(n).padStart(3, '0');
+  const round1 = v => Math.round(v * 10) / 10 + 0;
+  function signed(value) { return value == null ? '—' : (value > 0 ? '+' : value < 0 ? '−' : '') + Math.abs(value).toFixed(1); }
+  function stored(key, fallback) { try { return localStorage.getItem(key) ?? fallback; } catch (_) { return fallback; } }
+  function store(key, value) { try { localStorage.setItem(key, value); } catch (_) { /* a convenience only */ } }
+  q('#levelMetric').value = stored('levelMetric', 'lufs') === 'peak' ? 'peak' : 'lufs';
+  q('#levelStandard').value = stored('levelCustom', '');
+  let levelTargetChoice = stored('levelTarget', 'middle');
+  let levelGuitarChoice = stored('levelSignal', '');
+  q('#levelGuitar').onchange = () => {
+    if (q('#levelGuitar').value === 'new') { renderLevelGuitar(); levelRecord(''); return; }
+    levelGuitarChoice = q('#levelGuitar').value; store('levelSignal', levelGuitarChoice); renderLevel();
+  };
+  // The test signal: a saved guitar (two seconds of the player's own playing, recorded once and named, like
+  // "Strat · neck"), or NAM's input file when it is on this PC (greyed out otherwise).
+  const levelGuitars = () => leveling?.guitars || [];
+  function levelSignal() {
+    const guitars = levelGuitars(), nam = leveling?.nam === true;
+    if (levelGuitarChoice === 'nam' && nam) return 'nam';
+    if (guitars.some(g => g.id === levelGuitarChoice)) return levelGuitarChoice;
+    return leveling?.lastGuitar || (guitars.length ? guitars[guitars.length - 1].id : nam && !guitars.length ? 'nam' : '');
+  }
+  const levelReady = () => levelSignal() === 'nam' ? leveling?.nam === true : levelGuitars().some(g => g.id === levelSignal());
+  function renderLevelGuitar() {
+    const select = q('#levelGuitar'), guitars = levelGuitars(), nam = leveling?.nam === true, signal = levelSignal();
+    const options = guitars.map(g => new Option(g.name, g.id));
+    if (!guitars.length) { const none = new Option('No guitar recorded yet', ''); none.disabled = true; options.push(none); }
+    const file = new Option(nam ? 'NAM input file' : 'NAM input file (not found)', 'nam'); file.disabled = !nam;
+    options.push(file, new Option('Record a new guitar…', 'new'));
+    const key = JSON.stringify(options.map(o => [o.value, o.textContent, o.disabled]));
+    if (select.dataset.key !== key) { select.replaceChildren(...options); select.dataset.key = key; }
+    select.value = signal;
+    const guitar = guitars.find(g => g.id === signal);
+    select.title = signal === 'nam'
+      ? 'NAM input file: the guitar part of Neural Amp Modeler’s standard reamp file, found on this PC, played at ' +
+        (guitars.length ? 'your last recorded guitar’s level' : 'a typical humbucker’s level') + '.'
+      : guitar ? guitar.name + ': two seconds of your playing, recorded ' + levelDay(guitar.when) + ' and played as you played it.'
+      : 'Record your guitar once (10 seconds), then pick it here; NAM input file is used when Neural Amp Modeler’s ' +
+        'standard reamp file (v3) is in your Downloads or Documents.';
+    const button = q('#levelMeasureGuitar');
+    button.hidden = signal === 'nam';
+    button.textContent = guitar ? 'Record again…' : 'Record my guitar…';
+    button.classList.toggle('primary', !guitars.length);
+    button.title = guitar ? 'Record "' + guitar.name + '" again (replaces it)' : 'Play for 10 seconds: two seconds of it become the test signal (kept on this PC only)';
+    const remove = q('#levelRemoveGuitar');
+    remove.hidden = !guitar;
+    if (guitar) remove.title = 'Delete the recording "' + guitar.name + '"';
+  }
+  function levelDay(when) {
+    if (!when) return '';
+    const day = new Date(when);
+    return day.toDateString() === new Date().toDateString() ? 'today' : day.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+  async function levelRecord(name) {
+    const typed = await ask('Plug your guitar into the Floor’s guitar input and name it (optional), like “Strat · neck”. ' +
+                            'After a 3-2-1 countdown, play for 10 seconds the way you usually do: some chords and some single notes. ' +
+                            'Mistakes do not matter: nobody hears it. Two seconds of it become the test signal, kept on this PC only. ' +
+                            'A name you already have is recorded again.', 'Record', name || '');
+    if (typed === false) return;
+    q('#levelMeasureGuitar').disabled = true;
+    levelGuitarChoice = ''; store('levelSignal', '');          // the new recording becomes the one used
+    host?.postMessage('levelGuitar:' + typed.trim().slice(0, 40));
+  }
+  q('#levelRemoveGuitar').onclick = async () => {
+    const guitar = levelGuitars().find(g => g.id === levelSignal());
+    if (!guitar || !await ask('Delete the recording “' + guitar.name + '”? Scans cannot use it afterwards. Presets ' +
+                              'already leveled with it keep their levels.', 'Delete')) return;
+    levelGuitarChoice = ''; store('levelSignal', '');
+    host?.postMessage('levelGuitarRemove:' + guitar.id);
+  };
+  q('#levelMeasureGuitar').onclick = () => {
+    const guitar = levelGuitars().find(g => g.id === levelSignal());
+    levelRecord(guitar ? guitar.name : '');
+  };
+  const levelMetric = () => q('#levelMetric').value === 'peak' ? 'peak' : 'lufs';
+  const levelUnit = () => levelMetric() === 'peak' ? 'dBFS' : 'LUFS';
+  const levelSnapshots = row => (row.snapshots || [row.snapshot]).length;
+  // The middle of the scan, each sound taken without its offset (a lead kept +3 on purpose does not pull
+  // the middle up).
+  function levelMiddle(rows) {
+    const values = rows.map(row => row[levelMetric()] - offsetOf(row)).filter(Number.isFinite).sort((a, b) => a - b);
+    if (!values.length) return null;
+    const m = values.length >> 1, median = values.length % 2 ? values[m] : (values[m - 1] + values[m]) / 2;
+    return Math.round(median * 2) / 2 + 0;
+  }
+  // A preset's own level: its main sound (the group with the most snapshots).
+  function levelOf(rows, preset) {
+    const mine = rows.filter(row => row.preset === preset && Number.isFinite(row[levelMetric()]));
+    if (!mine.length) return null;
+    const main = mine.reduce((a, b) => levelSnapshots(b) > levelSnapshots(a) ? b : a);
+    return main[levelMetric()] - offsetOf(main);
+  }
+  function levelTarget(rows) {
+    const choice = levelTargetChoice;
+    if (choice === 'custom') {
+      const typed = parseFloat(q('#levelStandard').value);
+      return Number.isFinite(typed) ? { value: typed, why: 'your own level' } : { value: null, why: 'type a level' };
+    }
+    if (choice.startsWith('preset:')) {
+      const number = Number(choice.slice(7)), value = levelOf(rows, number);
+      const name = rows.find(row => row.preset === number)?.name || '';
+      if (value != null) return { value: round1(value), why: 'as loud as ' + pad(number) + ' ' + name };
+    }
+    const middle = levelMiddle(rows);
+    return { value: middle, why: 'the middle of what you scanned' };
+  }
+  function levelCheck(change, peak) {
+    if (!Number.isFinite(change)) return 'not measured';
+    if (Math.abs(change) > MAX_TRIM) return 'more than ' + MAX_TRIM + ' dB away: check the sound itself';
+    if (Number.isFinite(peak) && peak + change > CEILING) return 'would peak at ' + signed(peak + change) + ' dBFS';
+    return '';
+  }
+  function levelPlan() {
+    const rows = leveling?.rows || [], metric = levelMetric(), target = levelTarget(rows).value;
+    return rows.map(row => {
+      const key = offsetKey(row), now = row[metric];
+      const offset = offsetOf(row);
+      const after = target == null ? null : round1(target + offset);
+      let change = after == null || !Number.isFinite(now) ? null : round1(after - now);
+      // Within the measuring wobble (0.5 dB; 1 dB for a sound that moves on its own): on target.
+      if (change != null && Math.abs(change) <= (row.varies ? 1.0 : 0.5)) change = 0;   // the edge counts as on target
+      const held = row.note || levelCheck(change, row.peak);
+      const output = Number.isFinite(row.level) && Number.isFinite(change) ? round1(row.level + change) : null;
+      return { ...row, key, now, offset, after, change, held, output,
+               use: !held && change !== 0 && !levelSkipped.has(row.preset) };
+    });
+  }
+  function levelLabel(row) {
+    const numbers = row.snapshots || [row.snapshot];
+    if (numbers.length === 1) return [row.snapName || 'Snapshot ' + row.snapshot, ''];
+    const run = numbers.every((n, i) => i === 0 || n === numbers[i - 1] + 1);
+    return ['Snapshots ' + (run ? numbers[0] + '–' + numbers[numbers.length - 1] : numbers.join(', ')), 'sound alike'];
+  }
+  function levelMeter(row, target) {
+    // A line at the target (+ offset); a dot where the sound is now; a stroke for the move.
+    const meter = document.createElement('div'); meter.className = 'meter';
+    if (target == null || !Number.isFinite(row.now) || row.after == null) return meter;
+    const at = v => Math.max(0, Math.min(100, 50 + (v - target) / 24 * 100));
+    const aim = document.createElement('i'); aim.className = 'aim'; aim.style.left = at(row.after) + '%';
+    const now = document.createElement('i'); now.className = 'now'; now.style.left = at(row.now) + '%';
+    const move = document.createElement('i'); move.className = 'move';
+    move.style.left = Math.min(at(row.now), at(row.after)) + '%'; move.style.width = Math.abs(at(row.after) - at(row.now)) + '%';
+    meter.title = 'Now ' + row.now.toFixed(1) + ' ' + levelUnit() + ', target ' + row.after.toFixed(1);
+    meter.append(move, aim, now);
+    return meter;
+  }
+  function levelRowView(row, running, target) {
+    const line = document.createElement('div'); line.className = 'levelRow';
+    const [name, aside] = levelLabel(row);
+    const what = document.createElement('span'); what.className = 'what'; what.textContent = name;
+    const asides = [aside, row.varies ? 'varies ±' + row.varies.toFixed(1) + ' dB' : ''].filter(Boolean);
+    if (asides.length) { const small = document.createElement('small'); small.textContent = ' · ' + asides.join(' · '); what.append(small); }
+    // A remembered offset: a tag in the Offset control's colour, so the two read as one thing.
+    const when = offsetWhen(row);
+    if (row.offset && when) {
+      const tag = document.createElement('span'); tag.className = 'kept';
+      tag.textContent = 'offset remembered';
+      tag.title = 'Your offset, remembered since ' + (new Date(when).toDateString() === new Date().toDateString() ? 'today' :
+        new Date(when).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })) +
+        '. It stays on this snapshot for every scan of this preset until you change it.';
+      what.append(tag);
+    }
+    if (row.varies) what.title = 'Its loudness moves on its own (modulation, delays): it was measured several times and the middle reading counts.';
+    const now = document.createElement('span'); now.className = 'num';
+    now.textContent = Number.isFinite(row.now) ? row.now.toFixed(1) : '—';
+    // The output block's Level, as HX Edit shows it: now -> after Apply.
+    const out = document.createElement('span'); out.className = 'out';
+    if (!Number.isFinite(row.level)) out.textContent = row.change ? signed(row.change) + ' dB' : '';
+    else if (!row.change || row.held) { const same = document.createElement('span'); same.className = 'same';
+      same.textContent = signed(row.level) + ' dB' + (row.held ? '' : ' · on target'); out.append(same); }
+    else { out.append(signed(row.level) + ' → '); const b = document.createElement('b'); b.textContent = signed(row.output) + ' dB'; out.append(b); }
+    out.title = 'The output block\'s Level in HX Edit' + (row.change && !row.held ? ': ' + signed(row.change) + ' dB' : '');
+    // Offset: a − / + stepper (0.5 dB) around the number, which can also be typed.
+    const offset = document.createElement('span'), current = offsetOf(row);
+    offset.className = 'stepper' + (current ? ' set' : '');
+    offset.title = 'Offset: keep this one louder or quieter than the target on purpose (a lead: +3). Set it after a ' +
+      'scan and before Apply; Apply uses it. It is remembered for the next scans of this preset; Undo does not change it.';
+    const setOffset = value => {
+      value = Math.max(-12, Math.min(12, round1(value)));
+      if (value) levelOffsets[offsetKey(row)] = { dB: value, when: new Date().toISOString() };
+      else delete levelOffsets[offsetKey(row)];
+      saveOffsets(); renderLevel();
+    };
+    const lower = document.createElement('button'), higher = document.createElement('button'), field = document.createElement('input');
+    lower.textContent = '−'; higher.textContent = '+';
+    lower.title = 'Quieter than the target by 0.5 dB more'; higher.title = 'Louder than the target by 0.5 dB more';
+    // A text field (a number field takes no '+'), so a boost reads +2 next to a cut's -2.
+    field.type = 'text'; field.inputMode = 'decimal'; field.maxLength = 5; field.placeholder = '0';
+    field.value = current ? signed(current).replace('.0', '') : ''; field.setAttribute('aria-label', 'Offset in dB');
+    field.onkeydown = event => {
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); setOffset(current + (event.key === 'ArrowUp' ? 0.5 : -0.5)); }
+      else if (event.key === 'Enter') field.blur();
+    };
+    const off = !!running || !Number.isFinite(row.now);
+    lower.disabled = higher.disabled = field.disabled = off;
+    lower.onclick = () => setOffset(current - 0.5);
+    higher.onclick = () => setOffset(current + 0.5);
+    field.onchange = () => { const v = parseFloat(field.value.replace(',', '.').replace('−', '-')); setOffset(Number.isFinite(v) ? v : 0); };
+    const unit = document.createElement('span'); unit.className = 'unit'; unit.textContent = 'dB';
+    offset.append(lower, field, unit, higher);
+    line.append(what, now, levelMeter(row, target), out, offset);
+    if (row.held) {
+      const why = document.createElement('span'); why.className = 'why held'; why.textContent = row.held;
+      line.append(why);
+    }
+    return line;
+  }
+  function renderLevelTargets(rows) {
+    const presets = [...new Set(rows.map(row => row.preset))];
+    const options = [['middle', 'Middle of the scan'], ...presets.map(n => ['preset:' + n,
+      'As loud as ' + pad(n) + ' ' + (rows.find(row => row.preset === n)?.name || '')]), ['custom', 'My own level']];
+    const select = q('#levelTarget'), signature = JSON.stringify(options);
+    if (select.dataset.options !== signature) {
+      select.replaceChildren(...options.map(([value, text]) => new Option(text, value)));
+      select.dataset.options = signature;
+    }
+    if (!options.some(([value]) => value === levelTargetChoice)) levelTargetChoice = 'middle';
+    select.value = levelTargetChoice;
+    q('#levelStandard').hidden = levelTargetChoice !== 'custom';
+  }
+  function renderLevel() {
+    const panel = q('#levelPanel');
+    document.body.classList.toggle('levelMode', canLevel && levelPage);
+    panel.hidden = !canLevel || !levelPage;
+    if (panel.hidden) return;
+    const running = leveling?.running || null, current = leveling?.current?.preset;
+    q('#levelCurrent').textContent = current ? 'HX Edit is on preset ' + pad(current.preset) + ' ' + (current.name || '') + '.' :
+      'Reading the preset…';
+    if (current && q('#levelFrom').value === '') q('#levelFrom').value = q('#levelTo').value = current.preset;
+    for (const id of ['#levelMetric', '#levelTarget', '#levelStandard', '#levelFrom', '#levelTo', '#levelSnaps', '#levelGuitar'])
+      q(id).disabled = !!running;
+    const rows = leveling?.rows || [];
+    renderLevelTargets(rows);
+    renderLevelGuitar();
+    q('#levelMeasureGuitar').disabled = q('#levelRemoveGuitar').disabled = !!running || busy;
+    const target = levelTarget(rows);
+    q('#levelTargetNote').textContent = !rows.length ? 'Scan first: the target can then be the middle of what you scanned, as loud as a preset you like, or your own level.'
+      : target.value == null ? 'Type your own target level.'
+      : 'Target ' + target.value.toFixed(1) + ' ' + levelUnit() + ': ' + target.why + '. Only each output block\'s Level changes.';
+    const plan = levelPlan(), presets = [...new Set(plan.map(row => row.preset))];
+    const pending = plan.some(row => row.use);
+    q('#levelNext').hidden = !rows.length || !!running;
+    q('#levelNext').textContent = pending
+      ? 'Next: Apply sets each snapshot\'s output Level as shown. Want one louder or quieter on purpose, like a lead? Change its Offset first.'
+      : 'Everything is on target: nothing to apply. To keep a snapshot louder or quieter on purpose, like a lead, change its Offset.';
+    q('#levelCards').replaceChildren(...presets.map(number => {
+      const mine = plan.filter(row => row.preset === number), skipped = levelSkipped.has(number);
+      const card = document.createElement('section');
+      card.className = 'levelCard' + (current?.preset === number ? ' current' : '') + (skipped ? ' skipped' : '');
+      const head = document.createElement('div'); head.className = 'cardHead';
+      const title = document.createElement('b'); title.textContent = pad(number) + ' ' + (mine[0].name || '');
+      head.append(title);
+      if (current?.preset === number) { const tag = document.createElement('span'); tag.className = 'tag'; tag.textContent = 'loaded'; head.append(tag); }
+      // When this preset was last levelled here, with which guitar and to what.
+      const last = (leveling?.leveled || {})[[mine[0].setlist ?? '', number, mine[0].name || ''].join(':')];
+      if (last) {
+        const note = document.createElement('span'); note.className = 'leveled';
+        note.textContent = 'last leveled ' + levelDay(last.when) + (last.with ? ' with ' + last.with : '') +
+          (Number.isFinite(last.target) ? ' to ' + last.target.toFixed(1) + (last.metric === 'peak' ? ' dBFS' : ' LUFS') : '');
+        note.title = 'The last Apply to this preset from this page (Undo puts the one before back).';
+        head.append(note);
+      }
+      const summary = document.createElement('span'); summary.className = 'summary';
+      const changes = [...new Set(mine.filter(row => row.change && !row.held).map(row => row.change))];
+      const sounds = mine.length, snapshots = mine.reduce((n, row) => n + levelSnapshots(row), 0);
+      summary.textContent = (sounds === 1 && snapshots > 1 ? 'All ' + snapshots + ' snapshots sound alike' :
+        sounds + (sounds === 1 ? ' sound' : ' different sounds')) + ' · ' + (skipped ? 'skipped' :
+        !changes.length ? 'on target' : changes.length === 1 ? signed(changes[0]) + ' dB' : changes.length + ' different changes');
+      const skip = document.createElement('button'); skip.className = 'skip'; skip.disabled = !!running;
+      skip.textContent = skipped ? 'Include' : 'Skip';
+      skip.title = skipped ? 'Change this preset too when you Apply' : 'Leave this preset as it is when you Apply';
+      skip.onclick = () => { skipped ? levelSkipped.delete(number) : levelSkipped.add(number); renderLevel(); };
+      if (presets.length > 1) summary.append(skip);   // only meaningful when several presets were scanned
+      head.append(summary);
+      const columns = document.createElement('div'); columns.className = 'levelRow levelHead';
+      // [heading, alignment, tooltip, second line]: the second line (smaller, not in capitals) keeps
+      // "set by Apply" and "optional" from reading as one phrase across the two headings.
+      for (const [text, align, tip, sub] of [['Snapshots'], ['Now', 'right'], [levelUnit()],
+          ['Output Level', 'right', 'Worked out for you: what Apply sets each snapshot’s output Level to', 'set by Apply'],
+          ['Offset', 'center', 'Only if you want a snapshot louder or quieter than the others on purpose (a lead: +3). Leave at 0 otherwise.', 'optional']]) {
+        const cell = document.createElement('span'); cell.textContent = text;
+        if (sub) { const second = document.createElement('small'); second.textContent = sub; cell.append(second); }
+        if (tip) cell.title = tip;
+        if (align) cell.style.textAlign = align;
+        columns.append(cell);
+      }
+      card.append(head, columns, ...mine.map(row => levelRowView(row, running, target.value)));
+      const left = (leveling?.skipped || {})[number];
+      if (left?.length) {
+        const note = document.createElement('p'); note.className = 'note';
+        note.textContent = 'Not scanned: snapshot' + (left.length === 1 ? ' ' : 's ') + left.join(', ') +
+          '. Choose Snapshots: All snapshots to include ' + (left.length === 1 ? 'it' : 'them') + '.';
+        card.append(note);
+      }
+      return card;
+    }));
+    const chosen = plan.filter(row => row.use), chosenPresets = new Set(chosen.map(row => row.preset));
+    q('#levelApply').textContent = !chosen.length ? 'Apply' : 'Apply to ' + chosenPresets.size + (chosenPresets.size === 1 ? ' preset' : ' presets');
+    q('#levelApply').disabled = !!running || busy || !chosen.length;
+    const undo = leveling?.undo;
+    q('#levelUndo').hidden = !undo;
+    if (undo) q('#levelUndo').textContent = 'Undo last Apply (' + undo.presets.map(pad).join(', ') + (undo.saved ? ', saved' : ', not saved') + ')';
+    q('#levelUndo').disabled = !!running || busy;
+    q('#levelScan').disabled = !!running || busy || !levelReady();
+    q('#levelCancel').hidden = running !== 'scan' && running !== 'guitar';
+    q('#levelProgress').classList.toggle('recording', running === 'guitar');
+    q('#levelProgress').textContent = running ? (leveling.progress || '') : '';
+    const fraction = (running === 'scan' || running === 'guitar') && Number.isFinite(leveling.fraction) ? Math.max(0, Math.min(1, leveling.fraction)) : null;
+    q('#levelBar').hidden = fraction === null;
+    if (fraction !== null) {
+      q('#levelBar .fill').style.width = (fraction * 100).toFixed(1) + '%';
+      q('#levelBar .percent').textContent = Math.round(fraction * 100) + '%';
+    }
+    const count = levelScanCount();
+    q('#levelEstimate').hidden = !!running;
+    q('#levelEstimate').textContent = !levelReady() ? 'First, record your guitar: 10 seconds of normal playing.'
+      : levelEstimate(count) + (count > 1 ? ' for ' + count + ' presets' : ' for this preset') + '.';
+  }
+  // How long a scan takes: per snapshot one second to settle and two readings (four when the sound moves
+  // on its own), about 7 to 12 s; per preset a few seconds to load and set up.
+  const PER_SNAPSHOT = [7, 12], PER_PRESET = 4;
+  function levelSnapshotsChoice() { const v = q('#levelSnaps').value; return v === 'all' ? 'all' : Number(v); }
+  // "45 s", "1 min", "1½ min", "12 min": seconds under a minute, half minutes up to 10, then whole ones.
+  function levelMinutes(seconds) {
+    if (seconds < 55) return Math.max(5, Math.round(seconds / 5) * 5) + ' s';
+    const halves = Math.max(2, Math.round(seconds / 30)), whole = Math.floor(halves / 2);
+    if (seconds > 600) return Math.round(seconds / 60) + ' min';
+    return (whole ? whole : '') + (halves % 2 ? '½' : '') + ' min';
+  }
+  function levelEstimate(presets) {
+    const choice = levelSnapshotsChoice(), count = choice === 'all' ? 8 : choice;
+    const low = presets * (PER_PRESET + count * PER_SNAPSHOT[0]), high = presets * (PER_PRESET + count * PER_SNAPSHOT[1]);
+    const [a, b] = [levelMinutes(low), levelMinutes(high)];
+    const range = a === b ? a : a.endsWith(' min') && b.endsWith(' min') ? a.replace(' min', '') + ' to ' + b : a + ' to ' + b;
+    const each = presets > 1 ? ' (' + levelMinutes(PER_PRESET + count * PER_SNAPSHOT[0]) + ' to ' +
+      levelMinutes(PER_PRESET + count * PER_SNAPSHOT[1]) + ' a preset)' : '';
+    return 'About ' + range + each;
+  }
+  function levelScanCount() {
+    if (q('input[name=levelScope]:checked').value !== 'range') return 1;
+    const from = parseInt(q('#levelFrom').value, 10), to = parseInt(q('#levelTo').value, 10);
+    return Number.isFinite(from) && Number.isFinite(to) ? Math.abs(to - from) + 1 : 1;
+  }
+  q('#levelSnaps').value = ['all', '4', '1'].includes(stored('levelSnaps', 'all')) ? stored('levelSnaps', 'all') : 'all';
+  q('#levelSnaps').onchange = () => { store('levelSnaps', q('#levelSnaps').value); renderLevel(); };
+  for (const id of ['#levelFrom', '#levelTo']) q(id).oninput = () => renderLevel();
+  for (const radio of document.querySelectorAll('input[name=levelScope]')) radio.onchange = () => renderLevel();
+  q('#levelMetric').onchange = () => { store('levelMetric', levelMetric()); renderLevel(); };
+  q('#levelTarget').onchange = () => { levelTargetChoice = q('#levelTarget').value; store('levelTarget', levelTargetChoice); renderLevel(); };
+  q('#levelStandard').oninput = () => { store('levelCustom', q('#levelStandard').value); renderLevel(); };
+  q('#levelScan').onclick = async () => {
+    const snapshots = levelSnapshotsChoice();
+    const now = leveling?.current?.preset?.preset;
+    let presets = [];
+    if (q('input[name=levelScope]:checked').value === 'range') {
+      let from = parseInt(q('#levelFrom').value, 10), to = parseInt(q('#levelTo').value, 10);
+      if (!Number.isFinite(from) || !Number.isFinite(to)) return;
+      from = Math.max(0, Math.min(127, from)); to = Math.max(0, Math.min(127, to));
+      if (to < from) [from, to] = [to, from];
+      for (let n = from; n <= to; n++) presets.push(n);
+      if (presets.some(n => n !== now)) {
+        if (!await ask('Scan ' + presets.length + (presets.length === 1 ? ' preset' : ' presets') + ' (' + pad(from) + ' to ' + pad(to) +
+                       ')? Each one is loaded on the Floor in turn, so unsaved changes to the current preset are lost. ' +
+                       levelEstimate(presets.length) + '. Nothing is changed or saved.', 'Scan')) return;
+      }
+    }
+    levelSkipped.clear();
+    q('#levelScan').disabled = true;
+    host?.postMessage('levelScan:' + JSON.stringify({ presets, snapshots, signal: levelSignal() || null }));
+  };
+  q('#levelCancel').onclick = () => host?.postMessage('levelCancel');
+  q('#levelApply').onclick = async () => {
+    const chosen = levelPlan().filter(row => row.use);
+    if (!chosen.length) return;
+    const changes = {};
+    for (const row of chosen) (changes[row.preset] ||= {})[row.snapshot] = row.change;
+    const presets = Object.keys(changes).map(Number), now = leveling?.current?.preset?.preset;
+    if (presets.some(n => n !== now) && !await ask('Change the output Level of ' + presets.length +
+        (presets.length === 1 ? ' preset' : ' presets') + ' (' + presets.map(pad).join(', ') +
+        ') and save each one on the Floor? The old levels are kept, so Undo can put them back.', 'Apply and save')) return;
+    q('#levelApply').disabled = true;
+    const target = levelTarget(leveling?.rows || []);
+    host?.postMessage('levelApply:' + JSON.stringify({ changes, target: { value: target.value, metric: levelMetric() } }));
+  };
+  q('#levelUndo').onclick = async () => {
+    const undo = leveling?.undo;
+    if (!undo) return;
+    if (undo.saved && !await ask('Put the old output levels back on ' + undo.presets.map(pad).join(', ') +
+                                 ' and save those presets again?', 'Undo')) return;
+    q('#levelUndo').disabled = true;
+    host?.postMessage('levelUndo');
+  };
+
   q('#optimize').onclick = () => {
     if (!canOptimize || !selected) return;
     if (q('#optimize').dataset.suits === 'true') host?.postMessage('optimize:' + selected);
@@ -364,21 +893,32 @@
 
   // Confirmations in the page: a browser confirm() is titled with the page's address
   // ("hx-edit-nam.invalid says"). Resolves true for the action, false for Cancel or Escape.
-  function ask(text, action) {
-    const box = q('#ask'), yes = q('#askYes'), no = q('#askNo');
+  // A yes/no question; with `input` (a string), also a text field: the answer is its text, or false.
+  let askCancel = null;
+  function ask(text, action, input) {
+    const box = q('#ask'), yes = q('#askYes'), no = q('#askNo'), field = q('#askInput');
     q('#askText').textContent = text;
     yes.textContent = action;
+    field.hidden = typeof input !== 'string';
+    if (!field.hidden) field.value = input;
     box.hidden = false;
-    no.focus();                                   // the safe choice has the focus
+    host?.postMessage('dialog:open');   // the window's Escape now closes this question, not the window
+    if (field.hidden) no.focus(); else field.focus();   // the safe choice has the focus
     return new Promise(resolve => {
       const done = answer => {
         box.hidden = true;
         yes.onclick = no.onclick = box.onkeydown = null;
-        resolve(answer);
+        askCancel = null;
+        host?.postMessage('dialog:closed');
+        resolve(answer && !field.hidden ? field.value : answer);
       };
+      askCancel = () => done(false);
       yes.onclick = () => done(true);
       no.onclick = () => done(false);
-      box.onkeydown = event => { if (event.key === 'Escape') done(false); };
+      box.onkeydown = event => {
+        if (event.key === 'Escape') done(false);
+        else if (event.key === 'Enter' && !field.hidden) done(true);
+      };
     });
   }
 
@@ -516,7 +1056,7 @@
     pickerReturn?.focus?.();
     pickerReturn = null;
   }
-  window.hxCloseDialog = closePicker;
+  window.hxCloseDialog = () => askCancel ? askCancel() : closePicker();
   q('#pickerClose').onclick = closePicker;
   picker.onclick = event => { if (event.target === picker) closePicker(); };
   // Escape closes the picker, not the pane: the pane is told while it is open (dialog:open), and the
@@ -655,6 +1195,9 @@
     canTrain = data.can_train !== false;
     canOptimize = data.can_optimize === true;
     pedalBlock = data.pedal_block === true;
+    canLevel = data.can_level === true;
+    leveling = data.level || null;
+    levelPage = data.levelPage === true;
     optimizing = data.optimize || null;
     q('#status').textContent = q('#status').title = data.text || '';
     q('#target').textContent = data.target || '';

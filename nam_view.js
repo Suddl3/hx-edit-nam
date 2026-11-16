@@ -1298,6 +1298,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
         const data = args[0].add(4).readPointer();
         const event = data.isNull() ? '' : data.add(0x10).readPointer().readUtf8String();
         if (presetUsageEvent.test(event)) schedulePresetUsage();
+        if (/^EditBuffer_(?:DevicePresetChanged|PresetContentsWillChange|TargetDeviceChanged)$/.test(event)) lastPresetHeader = null;
         if (this.context.ecx.readPointer().equals(address(0x8d948c))) {   // HXModelSelectViewController
           favoriteController = this.context.ecx;
           if (favoriteEvent.test(event)) noteFavoriteEvent(event, notificationIndex(args[1]));
@@ -1311,7 +1312,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     },
   });
 
-  function readCurrentPreset(lenient = false) {
+  function readCurrentPreset(lenient = false, raw = false) {
     const editor = presetEditor;
     if (editor.isNull() || !editor.readPointer().equals(editorVtable)) return { reason: 'editor-unavailable' };
     if (presetNotifying) return { reason: 'preset-changing' };
@@ -1335,6 +1336,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       if (JSON.stringify(first) !== JSON.stringify(second) || revision !== presetRevision) {
         return { reason: 'preset-changing' };
       }
+      if (raw) return { tree: first };
       return lenient ? presetIrSlotsLenient(first, irParameters) : presetIrSlots(first, irParameters);
     } catch (error) {
       return { reason: String(error.message) };
@@ -1350,6 +1352,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
   // with the IR slots it uses (presetIrSlots), here and in floor-memory.json, so a Clear can say
   // which other presets use a slot. Only presets opened in this editor are known.
   const presetUsageEvent = /^EditBuffer_(?:DevicePresetChanged|PresetContentsWillChange|PresetContentsDidChange|PresetSavedToDevice|DevicePresetIrReport)$/;   // a load sends WillChange only (Floor, Nov 14); read 1.5 s later
+  let lastPresetHeader = null;     // presetHeader's last good read, until the preset changes
   const presetUses = new Map();   // "setlist:preset" -> {setlist, preset, name, slots: number[] | null}
   for (const entry of Array.isArray(profile.presetUsage) ? profile.presetUsage : []) {
     if (Array.isArray(entry) && Number.isInteger(entry[0]) && Number.isInteger(entry[1]) && typeof entry[2] === 'string')
@@ -1843,6 +1846,17 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       return null;
     },
     modelSlot: () => hasActiveModel() ? getValue(activeModel) + 1 : null,
+    // The loaded preset as the editor holds it ({global, dsp0, dsp1, snapshot0..7, controller, …}), or
+    // {reason}. Read-only, try-locks only (Level presets compares snapshots with it).
+    presetTree: () => readCurrentPreset(true, true),
+    // Right after an edit the header can read as a shape unpackPresetHeader refuses for a moment (Floor,
+    // November 16: a save after Level's Apply found no header for 2 s): the last good one stands in until
+    // the preset changes (a load clears it).
+    presetHeader: () => {
+      const header = currentPresetHeader();
+      if (header) lastPresetHeader = {setlist: header.setlist, preset: header.preset, name: header.name || ''};
+      return lastPresetHeader ? {...lastPresetHeader} : null;
+    },
     favoriteSlot: name => favoriteSlots.has(name) ? favoriteSlots.get(name) : null,   // the slot a NAM favorite plays
     favoriteRevision: () => favoriteRevision,
     rememberFavoriteSlot(name, slot) {   // a favorite just saved from the Save As Favorite dialog

@@ -50,7 +50,7 @@ git clone https://github.com/andreidevs/helix-lt-nam.git
 git -C helix-lt-nam checkout c94834768546393420692794fdbb27c9cc31d718
 cd hx-edit-nam
 py -3 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install frida==17.5.2 msgpack==1.2.4
+.\.venv\Scripts\python.exe -m pip install frida==17.5.2 msgpack==1.2.4 numpy sounddevice==0.5.6 soundfile==0.14.0
 $env:T3K_PUBLISHABLE_KEY = "t3k_pub_your_own_key"
 .\.venv\Scripts\python.exe .\start-hx-edit-nam.pyw --floor-reference --navigation
 ```
@@ -63,11 +63,12 @@ Close HX Edit first. In your `hx-edit-nam` folder:
 git fetch origin
 git checkout floor-navigation
 git pull
+.\.venv\Scripts\python.exe -m pip install numpy sounddevice==0.5.6 soundfile==0.14.0
 $env:T3K_PUBLISHABLE_KEY = "t3k_pub_your_own_key"
 .\.venv\Scripts\python.exe .\start-hx-edit-nam.pyw --floor-reference --navigation --nam-category
 ```
 
-Nothing else needs reinstalling: the launcher rebuilds its working copy of HX Edit on every start. Leave off `--nam-category` to run without the NAM categories. Your library and remembered slots in `%LOCALAPPDATA%\HX Edit NAM` are kept.
+The `pip install` line is needed once, for Level presets (it measures over the Floor's USB audio). Nothing else needs reinstalling: the launcher rebuilds its working copy of HX Edit on every start. Leave off `--nam-category` to run without the NAM categories. Your library and remembered slots in `%LOCALAPPDATA%\HX Edit NAM` are kept.
 
 ### The NAM categories (`--nam-category`)
 

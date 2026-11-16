@@ -165,12 +165,12 @@ function installNavigationBanner(options) {
       // anchored) to before the tempo/tuner controls (right-anchored). A resize reaches HX Edit as a
       // sent message, never through here, so the helper follows the window's width itself (span.right
       // moves with it) and no native work is added to HX Edit's paints.
-      // The button's own bounds can sit right of its computed anchor (seen: 1155 vs 1092 in a 1440 px
-      // window), so the meter starts past whichever is further right: it never covers the button.
-      const shownButton = layout ? buttons[layout.id] : NULL;
-      const buttonRight = shownButton && !shownButton.isNull() ? (b => b.x + b.w)(bounds(shownButton)) : 0;
+      // The span starts at the TONE3000 button's computed place and width, not its live bounds: those
+      // are read before the button is moved (below), and at startup it is drawn wider while HX Edit
+      // settles its window, then narrows with no layout pass of its own. Either left the span, and the
+      // HX Unbound button with it, too far right for the session (Floor PC, November 16).
       const span = layout && !mainWindow.isNull()
-        ? { minLeft: Math.max(view.x + layout.left + layout.width, buttonRight) + 14, right: Math.floor(right - 12),
+        ? { minLeft: view.x + layout.left + layout.width + 14, right: Math.floor(right - 12),
             top: view.y + layout.top, height: Math.max(16, Math.round(rb.h)) } : null;
       const meterKey = JSON.stringify([mainWindow.isNull() ? 0 : mainWindow.toUInt32(), span, meter && meter.width]);
       if (meterKey !== dspMeterKey) {
@@ -246,8 +246,12 @@ function installNavigationBanner(options) {
       const event = args[0].add(4).readU32();
       // Never enter native widget layout from mouse movement. Paint is only a
       // recovery opportunity for initial/dirty layout, not a periodic scan.
-      const geometry = event === 5 || event === 0x47 || event === 0x232 || event === 0x202;
-      if (!geometry && event !== layoutWake && (event !== 15 || (!layoutDirty && !mainWindow.isNull()))) return;
+      // The layout wake counts as geometry: posted from here only when a layout is due, and by
+      // dsp_meter.py a few times after startup (HX Edit is still placing its editor view when the
+      // first layout runs, about 60 px off, and sends no geometry message once it has: Floor PC,
+      // November 16), so whoever posts it asks for a fresh layout.
+      const geometry = event === 5 || event === 0x47 || event === 0x232 || event === 0x202 || event === layoutWake;
+      if (!geometry && (event !== 15 || (!layoutDirty && !mainWindow.isNull()))) return;
       const hwnd = args[0].readPointer();
       if (hwnd.isNull() || (!mainWindow.isNull() && !hwnd.equals(mainWindow))) return;
       this.bannerWindow = hwnd;

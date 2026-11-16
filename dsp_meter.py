@@ -4,19 +4,42 @@ dsp_meter.js reports each DSP's load ({'type': 'dspLoad'}), nav_banner.js where 
 ({'type': 'dspMeterLayout'}, window client pixels). This passes both to the helper as JSON lines.
 The helper only draws: it has no device access, and closing its input ends it.
 """
+import ctypes
 import json
 from queue import Empty, Queue
 import subprocess
 from threading import Event, Thread
 
+# After the first layout HX Edit is still placing its editor view (about 60 px off when the Floor
+# connects: Floor PC, November 16) and sends no geometry message once it has, so nav_banner.js is
+# asked for a fresh layout a few times (seconds after the helper starts). Its own registered message.
+RELAYOUT_AFTER = (1.5, 4.0, 8.0, 15.0)
+LAYOUT_WAKE = 'HX NAM banner layout'
+
+
+def post_layout_wake(window):
+    try:
+        user = ctypes.windll.user32
+        message = user.RegisterWindowMessageW(LAYOUT_WAKE)
+        if message:
+            user.PostMessageW(ctypes.c_void_p(window), message, 0, 0)
+    except (AttributeError, OSError):
+        pass
+
 from nam_sidebar import prepare_sidebar
 
 
 class DspMeter:
-    def __init__(self, *, exe=None, process_factory=subprocess.Popen, trace=None):
+    """on_choice(name): a choice from the HX Unbound menu button ('level', 'library'); the button is
+    shown only when given."""
+
+    def __init__(self, *, exe=None, process_factory=subprocess.Popen, trace=None, on_choice=None,
+                 relayout=post_layout_wake, relayout_after=RELAYOUT_AFTER):
         self.exe = exe
+        self.relayout, self.relayout_after = relayout, relayout_after
         self.process_factory = process_factory
         self.trace = trace or (lambda value: None)
+        self.on_choice = on_choice
         self.process = None
         self.layout = None
         self.dsp = [None, None]
@@ -40,14 +63,33 @@ class DspMeter:
     def _start(self, parent):
         exe = self.exe or prepare_sidebar()
         self.process = self.process_factory([str(exe), '--dsp-meter', str(parent)], stdin=subprocess.PIPE,
+                                            stdout=subprocess.PIPE if self.on_choice else None,
                                             encoding='utf-8', errors='replace',
                                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        if self.on_choice and getattr(self.process, 'stdout', None) is not None:
+            Thread(target=self._clicks, args=(self.process.stdout,), daemon=True).start()
+
+    CHOICES = ('level', 'library')
+
+    def _clicks(self, output):
+        # The helper writes one line per choice from the HX Unbound menu.
+        try:
+            for line in output:
+                if line.strip() in self.CHOICES:
+                    try:
+                        self.on_choice(line.strip())
+                    except Exception as error:     # the meter keeps drawing whatever the page does
+                        self.trace({'type': 'dspMeter', 'event': 'choice-failed', 'error': str(error)})
+        except (OSError, ValueError):
+            pass
 
     def _send(self):
         if self.process is None or self.process.poll() is not None or self.layout is None:
             return
         state = {key: self.layout.get(key) for key in ('visible', 'x', 'y', 'w', 'h', 'span')}
         state['dsp'] = self.dsp
+        if self.on_choice is not None:
+            state['unbound'] = True
         try:
             self.process.stdin.write(json.dumps(state) + '\n')
             self.process.stdin.flush()
@@ -69,6 +111,7 @@ class DspMeter:
                 # A span is enough: a window too narrow now may be widened later (the helper follows).
                 if not started and (value.get('visible') or value.get('span')) and type(parent) is int and parent > 0:
                     started = True
+                    Thread(target=self._relayouts, args=(parent,), daemon=True).start()
                     try:
                         self._start(parent)
                     except (OSError, subprocess.SubprocessError) as error:
@@ -82,6 +125,14 @@ class DspMeter:
                 self.process.wait(timeout=3)
             except (OSError, ValueError, subprocess.TimeoutExpired):
                 self.process.terminate()   # presentation only
+
+    def _relayouts(self, window):
+        waited = 0.0
+        for when in self.relayout_after:
+            if self.closed.wait(max(0.0, when - waited)):
+                return
+            waited = when
+            self.relayout(window)
 
     def close(self):
         self.closed.set()

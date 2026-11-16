@@ -4,6 +4,10 @@ The maintained Floor-focused editor is [Suddl3/hx-edit-nam](https://github.com/S
 
 **This is the `floor-navigation` branch: newer than the `floor` source preview, and still a test build.** It adds the Browse TONE3000 banner button, the rich NAM tab, previews on User IR 128 that put the original capture back, and remembered slots. It has been exercised on one Helix Floor by one maintainer; see [what has and has not been tested](FLOOR-WORKFLOW.md#status-november-14).
 
+### New on November 16
+
+- **Level presets**, from the new **HX Unbound** menu button beside TONE3000: brings presets and snapshots to one output level. It measures each snapshot silently over USB with a short recording of your own playing (saved by guitar, reusable), suggests output-level changes toward one target, keeps intentional offsets (a lead +2 dB), then Applies with Undo. Only output levels change. [How it works](PRODUCT-VISION.md#level-presets-built-november-16).
+
 ### New on November 14
 
 - **Capture icons**: a gear picture for every NAM capture, picked from its name, in the NAM tab, the expanded library and the NAM model lists.
@@ -33,10 +37,12 @@ Our fork controls the Floor workflow. Useful upstream improvements are reviewed 
 
 One NAM collection across the NAM tab and its expanded view, full HX Edit controls, and consistent TONE3000 browsing, preview and save actions. Opt-in NAM categories in the block selector with a Model lock. Capture icons and a DSP meter (declared costs, as the Floor reports them). Next: storage, and measured DSP load once the firmware can report it.
 
-Volume leveling remains an isolated offline prototype; it is not live preset normalization. Optional optimization and new runtime models require separately verified Floor compatibility. Read PRODUCT-VISION.md before broadening scope.
+Level presets measures and sets output levels on request; it is not an always-on leveler. Optional optimization and new runtime models require separately verified Floor compatibility. Read PRODUCT-VISION.md before broadening scope.
 
 ## Attribution
 
 This work builds on [andreidevs/hx-edit-nam](https://github.com/andreidevs/hx-edit-nam) and the NAM/converter projects it credits. The prior README is preserved in [README_UPSTREAM.md](README_UPSTREAM.md) as upstream reference, not the current Floor setup guide. This documentation change does not change licensing. Stock HX Edit, firmware, personal captures and credentials are not distributed here.
+
+Level presets can use [Neural Amp Modeler](https://github.com/sdatkinson/neural-amp-modeler)'s standard reamp file (its v3 input) as a test signal when you already have it on your PC; the file is not distributed here, only looked for.
 
 The TONE3000 name and wordmark (`nav_images/tone3000-logo.png`, used on the Browse TONE3000 button) belong to TONE3000 and are used only to identify and open their service.
