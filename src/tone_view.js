@@ -171,7 +171,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   const tileByLabel = new Map(tiles.map((tile, index) => [tile.label, index]));
   // controller -> the model row selected before a tile was clicked: the block's own model
   const lastModel = new Map();
-  const title = Memory.allocUtf16String('TONE3000 · HX Edit NAM');
+  const title = Memory.allocUtf16String('TONE3000 · HX Edit Unbound');
   const eventAddress = base.add(0x217120);
   const eventTypes = ['pointer', 'uint', 'pointer', 'pointer', 'pointer'];
   const modelEvent = new NativeFunction(eventAddress, 'void', eventTypes, 'thiscall');

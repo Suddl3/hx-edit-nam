@@ -71,7 +71,7 @@ class LibraryFlagTests(unittest.TestCase):
     def test_any_is_kept_and_reaches_the_editor(self):
         self.library.set_instrument(self.plexi, 'any')
         self.assertEqual(self.rows()[self.plexi]['instrument'], 'any')
-        self.assertIn("instrument=instrument_of(entries[identity])", (Path(__file__).parents[1] / 'nam_library.py').read_text(encoding='utf-8'))
+        self.assertIn("instrument=instrument_of(entries[identity])", (Path(__file__).parents[1] / 'src' / 'nam_library.py').read_text(encoding='utf-8'))
 
     def test_bad_values_are_refused(self):
         with self.assertRaises(ValueError):

@@ -139,7 +139,7 @@ Interceptor.replace(importAddress, new NativeCallback(function (controller, batc
     if (controller.equals(namImportController)) namImportController = NULL;
     namView.refreshProfiles(controller);
     messageBox(getActiveWindow(), Memory.allocUtf16String(String(error.message)),
-      Memory.allocUtf16String('HX Edit NAM Import'), 0x10);
+      Memory.allocUtf16String('HX Edit Unbound Import'), 0x10);
     return;
   }
   importFiles(controller, batch, first);
@@ -248,7 +248,7 @@ Interceptor.attach(base.add(0x368d70), {
     if (!dragError) return;
     const text = dragError;
     dragError = null;
-    messageBox(getActiveWindow(), Memory.allocUtf16String(text), Memory.allocUtf16String('HX Edit NAM Import'), 0x10);
+    messageBox(getActiveWindow(), Memory.allocUtf16String(text), Memory.allocUtf16String('HX Edit Unbound Import'), 0x10);
   },
 });
 

@@ -1,8 +1,13 @@
 """Every test runs without the user's own settings.json and HX_EDIT_NAM_* variables: those turn on the
 firmware's extra blocks and the mode chooser, which would open Windows dialogs in the middle of a test."""
+from pathlib import Path
+import sys
 from unittest.mock import patch
 
 import pytest
+
+# The app's code lives in src/ (the repository root holds the README, docs and tests).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 
 
 @pytest.fixture(autouse=True)

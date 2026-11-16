@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 from tone_preview import TonePreview
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 TONE = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
 
 

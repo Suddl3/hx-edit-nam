@@ -6,7 +6,7 @@ import struct
 import subprocess
 import unittest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 
 
 @unittest.skipUnless(shutil.which('node'), 'Node is required for native JavaScript replay')
@@ -657,7 +657,7 @@ api.close();
 
 class PinnedNotificationContractTests(unittest.TestCase):
     def test_notification_index_schema_matches_pinned_editor_bytes(self):
-        binary = ROOT.parents[1] / 'research/hx-edit-nam-review/floor-port/integrated-candidate-53/app/HX Edit.exe'
+        binary = ROOT.parents[2] / 'research/hx-edit-nam-review/floor-port/integrated-candidate-53/app/HX Edit.exe'
         if not binary.is_file():
             self.skipTest('Pinned editor fixture is not installed')
         raw = binary.read_bytes()

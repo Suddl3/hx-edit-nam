@@ -1,6 +1,6 @@
 'use strict';
 const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path'),assert=require('node:assert/strict');
-const root=path.join(__dirname,'..'), receivers=new Map(),queued=[],sent=[],opened=[];
+const root=path.join(__dirname,'..','src'), receivers=new Map(),queued=[],sent=[],opened=[];
 let sink,accept=true;
 const window={toUInt32:()=>0xffffffff};
 const namView={setSidebarSink:fn=>sink=fn,queueSidebarAction:fn=>{if(!accept)return false;queued.push(fn);return true;},

@@ -65,8 +65,8 @@ def prepare_editor(source, destination, work, *, model_names=None, hx_nam=None):
     info = contents / 'Info.plist'
     plist = plistlib.loads(info.read_bytes())
     plist['CFBundleIdentifier'] = 'com.andreidevs.hxeditnam.editor'
-    plist['CFBundleName'] = 'HX Edit NAM'
-    plist['CFBundleDisplayName'] = 'HX Edit NAM'
+    plist['CFBundleName'] = 'HX Edit Unbound'
+    plist['CFBundleDisplayName'] = 'HX Edit Unbound'
     info.write_bytes(plistlib.dumps(plist))
     resources = contents / 'Resources'
     patch_catalog(resources, nam_layers(), nam_pedal())

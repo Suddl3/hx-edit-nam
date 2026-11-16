@@ -52,7 +52,7 @@ cd hx-edit-unbound
 py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install frida==17.5.2 msgpack==1.2.4 numpy sounddevice==0.5.6 soundfile==0.14.0
 $env:T3K_PUBLISHABLE_KEY = "t3k_pub_your_own_key"
-.\.venv\Scripts\python.exe .\start-hx-edit-nam.pyw --floor-reference --navigation
+.\.venv\Scripts\python.exe .\src\start-hx-edit-nam.pyw --floor-reference --navigation
 ```
 
 ### Updating an existing clone
@@ -66,14 +66,14 @@ git checkout floor-navigation
 git pull
 .\.venv\Scripts\python.exe -m pip install numpy sounddevice==0.5.6 soundfile==0.14.0
 $env:T3K_PUBLISHABLE_KEY = "t3k_pub_your_own_key"
-.\.venv\Scripts\python.exe .\start-hx-edit-nam.pyw --floor-reference --navigation --nam-category
+.\.venv\Scripts\python.exe .\src\start-hx-edit-nam.pyw --floor-reference --navigation --nam-category
 ```
 
 The `pip install` line is needed once, for Level presets (it measures over the Floor's USB audio). Nothing else needs reinstalling: the launcher rebuilds its working copy of HX Edit on every start. Leave off `--nam-category` to run without the NAM categories. Your library and remembered slots in `%LOCALAPPDATA%\HX Edit NAM` are kept.
 
 ### The NAM categories (`--nam-category`)
 
-![NAM categories in the block selector](docs/screenshots/nam-category.jpg)
+![NAM categories in the block selector](screenshots/nam-category.jpg)
 
 With `--nam-category` the block selector gains four categories under a thin line after Looper. Each lists the NAM A2 Lite block and the captures of that type that are on the Floor; picking one sets the block to it, and the block in the signal path takes the icon of its capture's type. A capture's type is the one shown in the NAM tab; changing it there moves the capture at once. A padlock left of the Model value locks a NAM block's capture against accidental changes (click it to unlock). What has been seen working and the known flaws are in [FLOOR-WORKFLOW.md](FLOOR-WORKFLOW.md#nam-categories-in-the-block-selector-opt-in---nam-category).
 

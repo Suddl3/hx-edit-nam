@@ -1352,6 +1352,121 @@ class UnboundButton : Form
     }
 }
 
+// HX Edit Unbound's look on HX Edit's own window: a violet-to-teal version of HX Edit's icon (title bar,
+// taskbar, Alt+Tab) and "HX Edit Unbound" in its title, so it is told apart from a stock HX Edit at a
+// glance. Nothing in HX Edit's files changes: the icon is made at run time from the running HX Edit's
+// own, and both are put back on the window whenever HX Edit sets its own again.
+static class UnboundLook
+{
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr w, IntPtr l);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int count);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern bool SetWindowText(IntPtr hwnd, string text);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+    [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr icon);
+    [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool QueryFullProcessImageName(IntPtr process, int flags, StringBuilder name, ref int size);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] static extern int SHDefExtractIcon(string file, int index, uint flags, out IntPtr large, out IntPtr small, uint size);
+    const int WM_SETICON = 0x80, WM_GETICON = 0x7F;
+    public const string Name = "HX Edit Unbound";
+    // The HX Unbound button's colours, a touch brighter: they replace the icon's white X.
+    static readonly Color Violet = Color.FromArgb(172, 132, 255), Teal = Color.FromArgb(56, 226, 204);
+    static readonly Color Tile = Color.FromArgb(46, 40, 62);   // at the tile's brightest (its middle)
+    static IntPtr big, small;
+    static bool failed;
+
+    public static void Apply(IntPtr window)
+    {
+        try
+        {
+            var text = new StringBuilder(256);
+            GetWindowText(window, text, 256);
+            var title = text.ToString();
+            if (Retitled(title) != title) SetWindowText(window, Retitled(title));
+            if (failed) return;
+            if (big == IntPtr.Zero)
+            {
+                var exe = ImageOf(window);
+                if (exe == null) { failed = true; return; }
+                big = Tinted(exe, SystemInformation.IconSize.Width);
+                small = Tinted(exe, SystemInformation.SmallIconSize.Width);
+                if (big == IntPtr.Zero) { failed = true; return; }
+            }
+            if (SendMessage(window, WM_GETICON, (IntPtr)1, IntPtr.Zero) != big)
+            {
+                SendMessage(window, WM_SETICON, (IntPtr)1, big);
+                if (small != IntPtr.Zero) SendMessage(window, WM_SETICON, IntPtr.Zero, small);
+            }
+        }
+        catch (Exception) { failed = true; }   // the look only; never in the way of the editor
+    }
+
+    // "HX Edit - Helix Floor" -> "HX Edit Unbound - Helix Floor"; anything else is left alone.
+    public static string Retitled(string title)
+    {
+        if (title == null || !title.StartsWith("HX Edit") || title.StartsWith(Name)) return title;
+        var rest = title.Substring("HX Edit".Length);
+        return rest.Length == 0 || rest[0] == ' ' ? Name + rest : title;
+    }
+
+    static string ImageOf(IntPtr window)
+    {
+        uint pid;
+        GetWindowThreadProcessId(window, out pid);
+        var process = OpenProcess(0x1000, false, pid);   // PROCESS_QUERY_LIMITED_INFORMATION
+        if (process == IntPtr.Zero) return null;
+        try
+        {
+            var name = new StringBuilder(1024);
+            int size = name.Capacity;
+            return QueryFullProcessImageName(process, 0, name, ref size) ? name.ToString() : null;
+        }
+        finally { CloseHandle(process); }
+    }
+
+    static IntPtr Tinted(string exe, int size)
+    {
+        IntPtr large, unused;
+        if (SHDefExtractIcon(exe, 0, 0, out large, out unused, (uint)size) != 0 || large == IntPtr.Zero) return IntPtr.Zero;
+        try
+        {
+            using (var source = Icon.FromHandle(large))
+            using (var picture = source.ToBitmap())
+                return Recolor(picture).GetHicon();
+        }
+        finally
+        {
+            DestroyIcon(large);
+            if (unused != IntPtr.Zero) DestroyIcon(unused);
+        }
+    }
+
+    // The light parts (HX Edit's white X) take the violet-to-teal gradient, top left to bottom right; the
+    // navy tile becomes HX Unbound's dark charcoal with a hint of violet, keeping its shading.
+    static int Clamp(float value) { return (int)Math.Max(0, Math.Min(255, value)); }
+
+    public static Bitmap Recolor(Bitmap picture)
+    {
+        var result = new Bitmap(picture.Width, picture.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        float span = Math.Max(1, picture.Width + picture.Height - 2);
+        for (int y = 0; y < picture.Height; y++)
+            for (int x = 0; x < picture.Width; x++)
+            {
+                var c = picture.GetPixel(x, y);
+                float light = Math.Min(c.R, Math.Min(c.G, c.B)) / 255f;
+                float k = Math.Max(0f, Math.Min(1f, (light - 0.18f) / 0.42f));   // HX Edit's X is light grey, not white
+                float t = (x + y) / span;
+                int r = (int)(Violet.R + (Teal.R - Violet.R) * t), g = (int)(Violet.G + (Teal.G - Violet.G) * t),
+                    b = (int)(Violet.B + (Teal.B - Violet.B) * t);
+                float shade = Math.Min(1.25f, Math.Max(c.R, Math.Max(c.G, c.B)) / 95f);   // the navy's own shading
+                float dr = Tile.R * shade, dg = Tile.G * shade, db = Tile.B * shade;
+                result.SetPixel(x, y, Color.FromArgb(c.A, Clamp(dr + (r - dr) * k), Clamp(dg + (g - dg) * k),
+                                                     Clamp(db + (b - db) * k)));
+            }
+        return result;
+    }
+}
+
 // The DSP meter beside HX Edit's TONE3000 button (dsp_meter.py). It only draws what it is sent:
 // one JSON line per change, {visible, x, y, w, h (parent client pixels), dsp: [{load, used, budget,
 // level} or null, ...], unbound}. No device, file or network access. Closing its input ends it.
@@ -1400,6 +1515,8 @@ class DspMeter : Form
         int style=GetWindowLong(parent,GWL_STYLE);
         if(style!=0&&(style&WS_CLIPCHILDREN)==0)SetWindowLong(parent,GWL_STYLE,style|WS_CLIPCHILDREN);
         var reader=new System.Threading.Thread(Read){IsBackground=true};reader.Start();
+        UnboundLook.Apply(parent);   // HX Edit Unbound's icon and title on HX Edit's window
+        int ticks=0;
         var watch=new Timer{Interval=250};
         // HX Edit repaints its whole window after a resize or maximize, over this child (it does not clip
         // children), so a shown meter redraws itself every tick; 300 x 29 pixels, double-buffered.
@@ -1410,6 +1527,7 @@ class DspMeter : Form
             if(spanWidth>=0&&width!=placedWidth)Place();
             if(shown)Invalidate();
             if(unboundButton!=null)unboundButton.Invalidate();   // HX Edit paints over its children too
+            if(++ticks%8==0)UnboundLook.Apply(parent);   // HX Edit sets its title again on device changes
         };
         watch.Start();
     }
@@ -1565,6 +1683,19 @@ class DspMeter : Form
         if(ButtonPlacement(310,1388,9,24,1920,1420)!=new Rectangle(310,9,UnboundButton.Width,24))throw new Exception("Unbound button placement");
         if(!ButtonPlacement(310,1388,9,24,1920,850).IsEmpty)throw new Exception("Unbound button hides without room");
         if(UnboundButton.Choices.Length<1||UnboundButton.Choices[0].Item2!="level")throw new Exception("Unbound menu");
+        // HX Edit Unbound's title and icon colours on HX Edit's window.
+        if(UnboundLook.Retitled("HX Edit - Helix Floor")!="HX Edit Unbound - Helix Floor"||UnboundLook.Retitled("HX Edit Unbound - Helix Floor")!="HX Edit Unbound - Helix Floor"||
+           UnboundLook.Retitled("HX Edit")!="HX Edit Unbound"||UnboundLook.Retitled("HX Editor")!="HX Editor")throw new Exception("Unbound title");
+        using(var tile=new Bitmap(2,2)){
+            tile.SetPixel(0,0,Color.FromArgb(255,250,250,250));tile.SetPixel(1,1,Color.FromArgb(255,20,30,60));
+            tile.SetPixel(1,0,Color.FromArgb(0,0,0,0));tile.SetPixel(0,1,Color.FromArgb(255,250,250,250));
+            using(var tinted=UnboundLook.Recolor(tile)){
+                var x=tinted.GetPixel(0,0);var navy=tinted.GetPixel(1,1);
+                if(!(x.B>x.G&&x.R>x.G&&x.R<200))throw new Exception("Unbound icon: the white X takes violet at the top left");
+                if(!(navy.R<60&&navy.B<80&&navy.B-navy.R<25&&navy.R>navy.G))throw new Exception("Unbound icon: the navy tile turns charcoal-violet");
+                if(tinted.GetPixel(1,0).A!=0)throw new Exception("Unbound icon: transparency kept");
+            }
+        }
         // Minimized: HX Edit's client width is 0. Nothing is placed, and a span is not anchored to it.
         if(!Placement(310,1388,9,24,1920,0).IsEmpty||!Placement(310,1388,9,24,0,1920).IsEmpty)throw new Exception("DSP meter while minimized");
         if(AnchorWidth(0)!=0||AnchorWidth(-1)!=0||AnchorWidth(1484)!=1484)throw new Exception("DSP meter span anchor");

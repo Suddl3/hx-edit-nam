@@ -1,4 +1,4 @@
-"""Start the local HX Edit NAM build and service the IR import converter."""
+"""Start the local HX Edit Unbound build and service the IR import converter."""
 
 import argparse
 import ctypes
@@ -11,13 +11,13 @@ from threading import Event
 
 
 ROOT = Path(__file__).resolve().parent
-CONVERTER = ROOT.parent / 'helix-lt-nam' / 'tools' / 'nam2ir.py'
-TITLE = 'HX Edit NAM'
+CONVERTER = ROOT.parent.parent / 'helix-lt-nam' / 'tools' / 'nam2ir.py'   # beside the repository folder
+TITLE = 'HX Edit Unbound'
 TRACE = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'HX Edit NAM' / 'trace.log'
 
 
 def editor_window():
-    """The visible HX Edit main window ("HX Edit - <device>"), or None.
+    """The visible HX Edit main window ("HX Edit - <device>", or "HX Edit Unbound - <device>"), or None.
 
     Notices from this background process opened behind HX Edit when they had no owner; owned by
     the editor's window they always open in front of it.
@@ -33,7 +33,7 @@ def editor_window():
     def visit(hwnd, _):
         if user32.IsWindowVisible(hwnd) and not user32.GetWindow(hwnd, 4):     # GW_OWNER: top level
             user32.GetWindowTextW(hwnd, buffer, 256)
-            if buffer.value.startswith('HX Edit - '):
+            if buffer.value.startswith(('HX Edit - ', 'HX Edit Unbound - ')):   # Unbound: NamLibrary.cs UnboundLook
                 found.append(hwnd)
                 return False
         return True
@@ -349,7 +349,7 @@ def main():
 
     device = frida.get_local_device()
     if any(p.name.lower() in {'hx edit.exe', 'hx edit nam.exe'} for p in device.enumerate_processes()):
-        raise RuntimeError('Close the open HX Edit window, then start HX Edit NAM again.')
+        raise RuntimeError('Close the open HX Edit window, then start HX Edit Unbound again.')
     if not CONVERTER.is_file():
         raise FileNotFoundError('Keep the helix-lt-nam checkout next to this editor\'s folder for the built-in converter.')
 

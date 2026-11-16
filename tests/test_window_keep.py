@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import unittest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 NODE = shutil.which('node')
 
 # A fake Frida world: base 0x400000, one window that is visible or not, and the helper hook.

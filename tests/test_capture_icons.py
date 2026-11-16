@@ -4,7 +4,7 @@ import sys
 import tempfile
 import unittest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 sys.path.insert(0, str(ROOT))
 
 import capture_icons  # noqa: E402

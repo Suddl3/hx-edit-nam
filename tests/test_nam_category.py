@@ -6,7 +6,7 @@ import unittest
 
 from nam_catalog import NAM_CATEGORY_GROUPS, NAM_CATEGORY_ICONS, NAM_SECTION_AFTER, nam_category_rows
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 
 
 class NamCategoryCatalogTests(unittest.TestCase):

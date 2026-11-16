@@ -13,7 +13,7 @@ from nam_convert import convert_batch, validate_import
 from nam_inventory import is_nam_profile, require_hx_device
 
 
-CONVERTER = ROOT.parent / 'helix-lt-nam' / 'tools' / 'nam2ir.py'
+CONVERTER = ROOT.parent.parent / 'helix-lt-nam' / 'tools' / 'nam2ir.py'
 BASELINE = ROOT / 'build' / 'HX Edit' / 'res'
 
 

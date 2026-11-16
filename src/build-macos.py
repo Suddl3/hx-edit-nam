@@ -1,4 +1,4 @@
-"""Build HX Edit NAM for Apple Silicon and package it for release."""
+"""Build HX Edit Unbound for Apple Silicon and package it for release."""
 
 import argparse
 from pathlib import Path
@@ -117,7 +117,7 @@ def package(source, checkout, release_version):
             '-framework', 'Cocoa', ROOT / 'macos-launcher.m', '-o', executable)
         (app / 'Contents' / 'Info.plist').write_bytes(plistlib.dumps({
             'CFBundleExecutable': executable.name, 'CFBundleIdentifier': 'com.andreidevs.hxeditnam',
-            **plist, 'CFBundleName': 'HX Edit NAM', 'CFBundlePackageType': 'APPL',
+            **plist, 'CFBundleName': 'HX Edit Unbound', 'CFBundlePackageType': 'APPL',
             'CFBundleShortVersionString': release_version[1:] if release_version else '3.82',
             'CFBundleVersion': '1', 'LSMinimumSystemVersion': '11.0',
             'LSUIElement': True,

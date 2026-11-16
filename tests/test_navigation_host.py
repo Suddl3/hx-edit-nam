@@ -11,7 +11,7 @@ import pytest
 
 from navigation_host import NavigationHost
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 
 
 def host_fixture(tmp_path):
@@ -152,7 +152,7 @@ def test_navigation_launcher_composes_and_routes_without_usb_or_real_process(tmp
                            capture_output=True, check=True, timeout=15)
             # Execute that same composition with code bytes changed by each
             # mocked interceptor, so guard-vs-hook ordering is observable.
-            result = subprocess.run(['node', str(ROOT / 'tests' / 'navigation_startup_probe.cjs')],
+            result = subprocess.run(['node', str(ROOT.parent / 'tests' / 'navigation_startup_probe.cjs')],
                                     input=injected, text=True, capture_output=True, timeout=15)
             assert result.returncode == 0, result.stdout + result.stderr
             assert 'navigation startup probe passed' in result.stdout

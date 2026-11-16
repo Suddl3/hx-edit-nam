@@ -110,7 +110,7 @@ def history_key(preset):
 
 
 def nam_input(extra=()):
-    """The path of NAM's v3 input file on this PC, or None: HX Edit NAM's folder, Downloads, Documents,
+    """The path of NAM's v3 input file on this PC, or None: the HX Edit NAM data folder, Downloads, Documents,
     and `extra` (paths given by a build). Checked by its length and rate, not only its name."""
     import wave
     home = Path.home()
@@ -261,7 +261,7 @@ class Meter:
     def _start(self):
         python = self.find_python(self.measurer)
         if python is None:
-            raise RuntimeError('Level presets needs numpy, sounddevice and soundfile in HX Edit NAM’s Python '
+            raise RuntimeError('Level presets needs numpy, sounddevice and soundfile in HX Edit Unbound’s Python '
                                '(FLOOR-SETUP.md, Updating an existing clone).')
         self.process = self.popen([python, '-u', '-B', '-X', 'utf8', str(self.measurer), '--serve'],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,

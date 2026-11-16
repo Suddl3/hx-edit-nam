@@ -14,7 +14,7 @@ static class WindowsLauncher
         try
         {
             if (!File.Exists(python) || !File.Exists(entry))
-                throw new FileNotFoundException("Extract the entire HX Edit NAM ZIP before starting the app.");
+                throw new FileNotFoundException("Extract the entire HX Edit Unbound ZIP before starting the app.");
             var start = new ProcessStartInfo(python, "-B -X utf8 \"" + entry + "\"")
             {
                 UseShellExecute = false,
@@ -32,7 +32,7 @@ static class WindowsLauncher
         }
         catch (Exception error)
         {
-            MessageBox.Show(error.Message, "HX Edit NAM", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(error.Message, "HX Edit Unbound", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 }

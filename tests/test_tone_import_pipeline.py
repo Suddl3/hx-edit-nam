@@ -10,7 +10,7 @@ import unittest
 from nam_convert import stage_tone_import, validate_import
 from test_floor_inventory import wav
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 
 
 @unittest.skipUnless(shutil.which('node'), 'Node is required for native import replay')
@@ -45,7 +45,7 @@ class ToneImportPipelineTests(unittest.TestCase):
                 {'file': first, 'nullBuffer': True, 'error': 'does not fit'},
                 {'file': first + '\0other.wav', 'error': 'does not fit'},
             ]
-            run = subprocess.run(['node', str(ROOT / 'tests' / 'tone_import_pipeline_probe.cjs')],
+            run = subprocess.run(['node', str(ROOT.parent / 'tests' / 'tone_import_pipeline_probe.cjs')],
                                  input=json.dumps({'root': str(ROOT), 'source': str(ROOT / 'nam_import.js'),
                                                    'python': sys.executable, 'scenarios': scenarios}),
                                  capture_output=True, text=True, encoding='utf-8', timeout=30)

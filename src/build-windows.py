@@ -1,4 +1,4 @@
-"""Package HX Edit NAM with the Windows x64 embeddable Python and WebView2 helper."""
+"""Package HX Edit Unbound with the Windows x64 embeddable Python and WebView2 helper."""
 
 import argparse
 from hashlib import sha256
@@ -95,7 +95,7 @@ def package_windows(version, worktree=False):
             shutil.copytree(ROOT / name, app / name)
         shutil.copyfile(sidebar, app / sidebar.name)
         shutil.copyfile(sidebar.with_suffix('.exe.sha256'), app / (sidebar.name + '.sha256'))
-        shutil.copyfile(ROOT / 'README.md', stage / 'README.md')
+        shutil.copyfile(ROOT.parent / 'README.md', stage / 'README.md')
         browser = app / 'build' / helper.parent.name
         browser.mkdir(parents=True)
         for name in (helper.name, *(Path(asset).name for asset in SDK_ASSETS)):
@@ -104,7 +104,7 @@ def package_windows(version, worktree=False):
             for name in ('LICENSE.txt', 'NOTICE.txt'):
                 (browser / name).write_bytes(sdk.read(name))
 
-        firmware = ROOT.parent / 'helix-lt-nam'
+        firmware = ROOT.parent.parent / 'helix-lt-nam'
         for name in FIRMWARE_FILES:
             destination = stage / 'helix-lt-nam' / name
             destination.parent.mkdir(parents=True, exist_ok=True)

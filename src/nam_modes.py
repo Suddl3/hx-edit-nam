@@ -164,7 +164,7 @@ def ask(window, instruction, content, options, default=None, owner=0):
     return options[pressed - BUTTON_BASE][0] if BUTTON_BASE <= pressed < BUTTON_BASE + len(options) else None
 
 
-def choose_mode(names, owner=0, pedal=False, default='original', window='HX Edit NAM Import'):
+def choose_mode(names, owner=0, pedal=False, default='original', window='HX Edit Unbound Import'):
     """The chosen MODES key for these captures, or None (cancelled). pedal: the firmware has NAM Pedal;
     default: the MODES key whose button Enter presses."""
     shown = ', '.join(names[:3]) + (f' and {len(names) - 3} more' if len(names) > 3 else '')
@@ -174,7 +174,7 @@ def choose_mode(names, owner=0, pedal=False, default='original', window='HX Edit
                [(k, t, d) for k, _, _, t, d in modes(pedal)], default, owner)
 
 
-# The firmware on the unit, asked when HX Edit NAM starts: which NAM blocks HX Edit's catalog has and which
+# The firmware on the unit, asked when HX Edit Unbound starts: which NAM blocks HX Edit's catalog has and which
 # import modes make sense. (key, title, detail); the key is settings.json's "namFirmware".
 FIRMWARES = (
     ('pedal', 'NAM5_PEDAL · five NAM blocks',
@@ -202,7 +202,7 @@ def tiles(firmware):
     return [dict(label=label, block=block, modes=list(keys)) for label, block, keys in TILES[firmware]]
 
 
-def choose_tile_mode(name, keys, owner=0, default=None, window='HX Edit NAM · TONE3000'):
+def choose_tile_mode(name, keys, owner=0, default=None, window='HX Edit Unbound · TONE3000'):
     """The MODES key for a profile going to a tile's block: its only mode, or the user's pick among keys."""
     if len(keys) == 1:
         return keys[0]
@@ -212,8 +212,8 @@ def choose_tile_mode(name, keys, owner=0, default=None, window='HX Edit NAM · T
 
 def choose_firmware(current='plain'):
     """The firmware key the user picks (Enter: current), or None (Cancel: keep the current one)."""
-    return ask('HX Edit NAM', 'Which NAM firmware is on your Helix?',
-               'HX Edit NAM shows the NAM blocks and the import modes of that firmware. A block the unit '
+    return ask('HX Edit Unbound', 'Which NAM firmware is on your Helix?',
+               'HX Edit Unbound shows the NAM blocks and the import modes of that firmware. A block the unit '
                'does not have would not load, so pick what is installed.', list(FIRMWARES), current)
 
 
@@ -358,7 +358,7 @@ def _train(captures, key, workspace, refine, owner=0, *, job=nam_light.LightJob,
 
         keep = CALLBACK(callback)
         config = CONFIG(cbSize=ctypes.sizeof(CONFIG), dwFlags=TDF_SHOW_PROGRESS_BAR | TDF_CALLBACK_TIMER,
-                        dwCommonButtons=TDCBF_CANCEL_BUTTON, pszWindowTitle='HX Edit NAM Import',
+                        dwCommonButtons=TDCBF_CANCEL_BUTTON, pszWindowTitle='HX Edit Unbound Import',
                         pszMainInstruction=f'Training: {title}', pszContent='Preparing…',
                         pfCallback=keep, cxWidth=300)
         _show(config)

@@ -32,6 +32,8 @@ sealed class ToneBrowser : Form
     [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
     [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr hwnd);
     [DllImport("user32.dll", SetLastError = true)] static extern IntPtr SetParent(IntPtr hwnd, IntPtr parent);
+    [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr w, IntPtr l);
+    [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
     [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hwnd);
@@ -177,7 +179,7 @@ sealed class ToneBrowser : Form
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
         AutoScaleMode = AutoScaleMode.None;
-        Text = "TONE3000 · HX Edit NAM";
+        Text = "TONE3000 · HX Edit Unbound";
         BackColor = Color.FromArgb(18, 18, 18);
         Font = new Font("Segoe UI", 9.0f, FontStyle.Regular);
         using (var resource = typeof(ToneBrowser).Assembly.GetManifestResourceStream("ToneBrowser.ico"))
@@ -259,6 +261,10 @@ sealed class ToneBrowser : Form
     {
         if (floatingHost != null) return;
         var work = Screen.FromHandle(parent).WorkingArea;
+        // HX Edit Unbound's violet-to-teal icon, as HX Edit's window has it (NamLibrary.cs UnboundLook).
+        // (parent is a panel inside HX Edit: its top-level window carries the icon)
+        var unbound = SendMessage(GetAncestor(parent, 2), 0x7F, (IntPtr)1, IntPtr.Zero);   // GA_ROOT; WM_GETICON, ICON_BIG
+        if (unbound != IntPtr.Zero) try { Icon = (Icon)Icon.FromHandle(unbound).Clone(); } catch (Exception) { }
         floatingHost = new Form { Text = Text, Icon = Icon, StartPosition = FormStartPosition.Manual,
             FormBorderStyle = FormBorderStyle.Sizable, ShowInTaskbar = true, AutoScaleMode = AutoScaleMode.None,
             BackColor = BackColor, Bounds = SavedBounds(savedBoundsFile) ?? FloatingBounds(work),

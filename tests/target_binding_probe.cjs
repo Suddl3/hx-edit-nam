@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
 const {installTargetBinding: install, targetBindingGuards: guards,
-  targetBindingRestoreAllowed: allowed} = require('../target_binding.js');
+  targetBindingRestoreAllowed: allowed} = require('../src/target_binding.js');
 const memory=new Map(), text=new Map(), native=new Map();
 let address=0x20000000, thread=42, constructions=0, destructions=0, writes=[];
 class Pointer {

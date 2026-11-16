@@ -132,8 +132,8 @@ def select_tone(client_id, stopped, *, open_browser):
             nonlocal done, result
             if self.headers.get('Host') == f'127.0.0.1:{server.server_port}' and not done:
                 done, result = callback_result(self.path, state)
-            body = (b'Loading the selected tone in HX Edit NAM...' if done
-                    else b'Invalid or expired HX Edit NAM request.')
+            body = (b'Loading the selected tone in HX Edit Unbound...' if done
+                    else b'Invalid or expired HX Edit Unbound request.')
             self.send_response(200 if done else 400)
             self.send_header('Content-Type', 'text/plain; charset=utf-8')
             self.send_header('Cache-Control', 'no-store')

@@ -3,7 +3,7 @@
 // lifecycle and exact-pointer click routing, not the real editor or its USB code.
 const assert = require('node:assert/strict');
 const { navigationBannerLayout: layout, navigationBannerGuards: guards,
-  installNavigationBanner: install } = require('../nav_banner.js');
+  installNavigationBanner: install } = require('../src/nav_banner.js');
 for (let available = 0; available < 500; available++) {
   const redo = { x: 400, y: 8, w: 35, h: 29 };
   const result = layout(redo, { right: 449 + available });

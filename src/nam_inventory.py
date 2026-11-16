@@ -71,7 +71,7 @@ def win_api(dll, name, result, *arguments):
 def require_hx_device(products, hx_nam):
     if list(products) != [HX_NAM_DEVICES[hx_nam][0]]:
         name = 'HX Stomp' if hx_nam == 'stomp' else 'HX Effects'
-        raise OSError(f'Connect only the {name} running NAM firmware, then restart HX Edit NAM.')
+        raise OSError(f'Connect only the {name} running NAM firmware, then restart HX Edit Unbound.')
 
 
 def device_path(hx_nam=None):

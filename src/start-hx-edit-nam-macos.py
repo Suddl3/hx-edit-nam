@@ -1,4 +1,4 @@
-"""Launch the local Apple Silicon HX Edit NAM build."""
+"""Launch the local Apple Silicon HX Edit Unbound build."""
 
 from contextlib import contextmanager
 import argparse
@@ -20,7 +20,7 @@ from prepare_editor_macos import EDITOR_BINARY, prepare_editor, run
 
 ROOT = Path(__file__).resolve().parent
 CONVERTER = ROOT / 'helix-lt-nam' / 'tools' / 'nam2ir.py'
-TITLE = 'HX Edit NAM'
+TITLE = 'HX Edit Unbound'
 APP_SUPPORT = Path.home() / 'Library' / 'Application Support' / TITLE
 
 
@@ -42,9 +42,9 @@ def single_instance():
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise RuntimeError('Close HX Edit NAM before starting it again.') from None
+            raise RuntimeError('Close HX Edit Unbound before starting it again.') from None
         if subprocess.run(['/usr/bin/pgrep', '-xq', 'HX Edit']).returncode == 0:
-            raise RuntimeError('Close the open HX Edit window, then start HX Edit NAM again.')
+            raise RuntimeError('Close the open HX Edit window, then start HX Edit Unbound again.')
         yield
 
 
@@ -109,7 +109,7 @@ def run_editor(editor, workspace, profiles, scan_failed):
                 break
             except (frida.ServerNotRunningError, frida.TransportError) as error:
                 if process.poll() is not None or monotonic() >= deadline:
-                    raise RuntimeError('Could not initialize HX Edit NAM.') from error
+                    raise RuntimeError('Could not initialize HX Edit Unbound.') from error
                 sleep(0.1)
 
         ready, detached = Event(), Event()
@@ -138,7 +138,7 @@ def run_editor(editor, workspace, profiles, scan_failed):
 
         def receive(event, _data):
             if event['type'] == 'error':
-                detail = event.get('stack', event.get('description', 'HX Edit NAM hook failed.'))
+                detail = event.get('stack', event.get('description', 'HX Edit Unbound hook failed.'))
                 errors.append(detail)
                 print(detail, file=sys.stderr, flush=True)
                 ready.set()
@@ -172,7 +172,7 @@ def run_editor(editor, workspace, profiles, scan_failed):
         script.on('message', receive)
         script.load()
         if not ready.wait(5) or errors:
-            raise RuntimeError(errors[0] if errors else 'HX Edit NAM did not initialize its hooks.')
+            raise RuntimeError(errors[0] if errors else 'HX Edit Unbound did not initialize its hooks.')
         device.resume(process.pid)
         code = process.wait()
         detached.set()

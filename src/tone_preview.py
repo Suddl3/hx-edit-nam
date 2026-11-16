@@ -24,7 +24,7 @@ from tone_browser import ToneBrowser
 
 CARD = Path(__file__).with_name('tone_card.html')
 KEY_HELP = ('Set T3K_PUBLISHABLE_KEY to the publishable key from TONE3000 → Settings → API Keys '
-            'and restart HX Edit NAM.')
+            'and restart HX Edit Unbound.')
 
 
 class _LibraryActionSession:
@@ -990,7 +990,7 @@ class TonePreview:
                             continue
                         library = command == 'library'
                         if level_page:
-                            browser.send('chrome', targetBar=True, title='TONE3000 · HX Edit NAM')
+                            browser.send('chrome', targetBar=True, title='TONE3000 · HX Edit Unbound')
                         level_page = False
                         library_visibility()
                         show_card()

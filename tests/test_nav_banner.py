@@ -11,9 +11,9 @@ import pytest
 
 from nav_resources import BUTTONS, EXE_SHA256, navigation_xml, patch_navigation_resources, library_navigation_xml
 
-SOURCE = Path(__file__).resolve().parents[1]
+SOURCE = Path(__file__).resolve().parents[1] / 'src'
 # A prepared copy of stock HX Edit 3.82 kept outside the repository; tests that need it skip without it.
-FIXTURE = SOURCE.parents[1] / 'research/hx-edit-nam-review/floor-port/integrated-candidate-53/app'
+FIXTURE = SOURCE.parents[2] / 'research/hx-edit-nam-review/floor-port/integrated-candidate-53/app'
 MINIMAL = b'''<xg><panel_widget id="edvw"><panel_widget id="udpl"><pushbutton_widget id="redb"/></panel_widget>
 <panel_widget id="tmvw"/><toggle_widget id="tunb"/><panel_widget id="PRVW"><text_widget id="prms"/></panel_widget>
 </panel_widget></xg>'''
@@ -110,7 +110,7 @@ def test_native_event_and_responsive_layout_contract():
     node = shutil.which('node')
     if not node:
         pytest.skip('node is not installed')
-    result = subprocess.run([node, str(SOURCE / 'tests' / 'nav_banner_probe.cjs')],
+    result = subprocess.run([node, str(SOURCE.parent / 'tests' / 'nav_banner_probe.cjs')],
                             capture_output=True, text=True, timeout=30, cwd=SOURCE)
     assert result.returncode == 0, result.stdout + result.stderr
     assert 'navigation banner probe passed' in result.stdout

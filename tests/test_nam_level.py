@@ -592,7 +592,7 @@ class LevelFlowTests(unittest.TestCase):
 
 class LevelPageTests(unittest.TestCase):
     def page(self):
-        return Path(__file__).resolve().parents[1].joinpath('library_card.html').read_text(encoding='utf-8')
+        return (Path(__file__).resolve().parents[1] / 'src').joinpath('library_card.html').read_text(encoding='utf-8')
 
     def test_every_level_button_talks_to_the_editor(self):
         import re

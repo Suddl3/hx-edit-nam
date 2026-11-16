@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
-const source = fs.readFileSync(path.join(__dirname, '../nam_view.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../src/nam_view.js'), 'utf8');
 const start = source.indexOf('  Interceptor.attach(address(0x2156a0),');
 const end = source.indexOf('  const constructing =', start);
 assert.ok(start >= 0 && end > start);

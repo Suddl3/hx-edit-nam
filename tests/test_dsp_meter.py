@@ -6,7 +6,7 @@ import sys
 import time
 import unittest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 sys.path.insert(0, str(ROOT))
 
 from dsp_meter import DspMeter  # noqa: E402
