@@ -69,6 +69,63 @@ class FloorIdentityTests(unittest.TestCase):
             self.assertIsNone(floor_firmware.from_identity(reply))
 
 
+FAKE_HX_CTL = """
+class HxError(Exception):
+    pass
+EDITOR = dict(local=0x1000, remote=0x03ED, svc=6)
+REPLY = None
+CLOSED = []
+class Channel:
+    def __init__(self, link, timeout, **stream):
+        assert stream == EDITOR and link == 'link'
+    def request(self, cmd, params=None):
+        assert cmd == 0x53
+        if isinstance(REPLY, Exception):
+            raise REPLY
+        return REPLY
+    def close(self):
+        CLOSED.append(True)
+"""
+
+
+class AskFloorTests(unittest.TestCase):
+    def setUp(self):
+        self.tools = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tools.cleanup)
+        Path(self.tools.name, 'hx_ctl.py').write_text(FAKE_HX_CTL, encoding='utf-8')
+        import sys
+        sys.modules.pop('hx_ctl', None)
+        self.addCleanup(sys.modules.pop, 'hx_ctl', None)
+
+    def ask(self, reply, path='floor'):
+        from contextlib import contextmanager
+        import sys
+
+        @contextmanager
+        def opener(p):
+            self.assertEqual(p, 'floor')
+            yield 'link'
+        sys.path.insert(0, self.tools.name)
+        try:
+            import hx_ctl
+        finally:
+            sys.path.pop(0)
+        hx_ctl.REPLY = reply if not callable(reply) else reply(hx_ctl)
+        result = floor_firmware.ask_floor(self.tools.name, find=lambda: path, opener=opener)
+        return result, hx_ctl.CLOSED
+
+    def test_reply_with_raw_keys_gives_the_profile(self):
+        firmware, closed = self.ask({b'fmt': 1, b'blocks': [[380, 3250]], b'feat': [b'pair', b'mirror']})
+        self.assertEqual((firmware.nam_cost, firmware.pedal, firmware.source), (3250, False, 'floor'))
+        self.assertEqual(closed, [True])
+
+    def test_refusal_no_floor_or_failure_give_none(self):
+        self.assertEqual(self.ask(lambda m: m.HxError('cmd 0x53 refused: status 255'))[0], None)
+        self.assertEqual(self.ask({b'fmt': 1}, path=None)[0], None)
+        self.assertEqual(self.ask(lambda m: OSError('timed out'))[0], None)
+        self.assertEqual(self.ask({b'fmt': 9, b'blocks': [[380, 3600]]})[0], None)
+
+
 @unittest.skipUnless(BASELINE.is_dir(), 'requires the prepared HX Edit 3.82 baseline')
 class FloorCatalogTests(unittest.TestCase):
     def setUp(self):

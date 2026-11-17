@@ -102,6 +102,51 @@ def from_identity(reply):
         return None
 
 
+INFO_COMMAND = 0x53
+
+
+def _text(value):
+    if isinstance(value, bytes):
+        return value.decode('ascii', 'replace')
+    if isinstance(value, dict):
+        return {_text(k): _text(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_text(v) for v in value]
+    return value
+
+
+def ask_floor(firmware_tools, *, find=None, opener=None, timeout=1.5):
+    """Ask the connected Floor which firmware it runs (editor command 0x53), before HX Edit takes the USB editor
+    interface: one request on the editor service through the same WinUSB link the LT profile scan uses. The profile
+    from its reply, or None (no Floor, stock firmware or a build without the command, no answer in time: right after
+    a power-on the Floor does not answer USB for about a minute). Never raises: the caller keeps the configured profile."""
+    try:
+        import nam_inventory
+        find = find or nam_inventory.device_path
+        opener = opener or nam_inventory.open_link
+        path = find()
+        if not path:
+            return None
+        import sys
+        sys.path.insert(0, str(firmware_tools))
+        try:
+            from hx_ctl import Channel, EDITOR, HxError
+        finally:
+            sys.path.pop(0)
+        with opener(path) as link:
+            channel = Channel(link, timeout=timeout, **EDITOR)
+            try:
+                reply = channel.request(INFO_COMMAND)
+            except HxError:
+                return None
+            finally:
+                channel.close()
+        return from_identity(_text(reply))
+    except Exception as error:                  # a probe: any failure means "not known", never a failed launch
+        print(f'Could not ask the Floor which firmware it runs: {error}')
+        return None
+
+
 def record(resources, firmware):
     """Write the profile a prepared copy's catalog was built with into its res folder."""
     data = {k: v for k, v in asdict(firmware).items() if k != 'source'}

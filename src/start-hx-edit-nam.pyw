@@ -366,6 +366,14 @@ def main():
         if args.floor_reference:
             import floor_firmware
             floor = floor_firmware.profile()
+            # Ask the Floor itself (firmware with editor command 0x53), opt-in until tried on the unit:
+            # settings.json "floorFirmwareAsk": true or HX_EDIT_FLOOR_ASK=1. Its answer wins over the setting.
+            from nam_catalog import load_settings
+            if os.environ.get('HX_EDIT_FLOOR_ASK') == '1' or load_settings().get('floorFirmwareAsk') is True:
+                asked = floor_firmware.ask_floor(CONVERTER.parent)
+                print('Floor firmware: ' + (f'{asked.describe()} (the Floor says)' if asked else
+                                            f'{floor.describe()} (the Floor did not say; from {floor.source})'))
+                floor = asked or floor
         exe = prepare_copy(workspace, scan_error, hx_nam=args.hx_nam, floor=floor)
         if args.navigation:
             from nav_resources import patch_navigation_resources, patch_library_navigation
