@@ -168,10 +168,12 @@ function fixture(options = {}) {
     listeners.forEach((listener, i) => listener.onEnter?.call(frames[i], [message]));
     listeners.forEach((listener, i) => listener.onLeave?.call(frames[i]));
   }
+  let swallowWake = false;   // a modal loop of HX Edit's that takes the wake message without dispatching it
   function pump() {
     for (let i = 0; posts.length; i++) {
       assert.ok(i < 100, 'UI message replay must remain bounded');
-      dispatch(posts.shift().event);
+      const event = posts.shift().event;
+      if (!(swallowWake && event === wake)) dispatch(event);
     }
   }
   function tick(ms = 100) { now += ms; const ready = timers.splice(0); ready.forEach(callback => callback()); pump(); }
@@ -195,6 +197,7 @@ function fixture(options = {}) {
   }
   return {a,b,c,select,view,window,panel,messages,sessions,library,foreground,writes,imports,captures,clears,
     command,target,pump,tick,dispatch,deliver,
+    setSwallowWake: value => { swallowWake = value; },
     open: (options = {}) => view.openBrowser(window, {dockPanel: panel, ...options}),
     setDelayedRestore: value => { delayedRestore = value; },
     finishRestore: () => { assert.ok(restorePending); restorePending(); restorePending = null; tick(); },
@@ -614,4 +617,21 @@ function fixture(options = {}) {
   const end=f.command('end'); assert.equal(f.reply(end).retained,true);
   assert.equal(f.a.slot,128); assert.equal(f.clears.length,0);
 }
-console.log('29 navigation flow scenarios passed');
+// A wake message taken by a modal loop of HX Edit's (saving a preset): the command still runs, posted
+// again a second later; one that never gets through is dropped, and the next command is not refused.
+{
+  const f=fixture(); f.select(f.a); f.open();
+  f.setSwallowWake(true);
+  const id=f.command('audition',{file:'lost.wav'});
+  assert.equal(f.reply(id), undefined);
+  f.setSwallowWake(false); f.tick(1000);
+  assert.equal(f.reply(id).slot,128);
+  f.setSwallowWake(true);
+  const stuck=f.command('audition',{file:'stuck.wav'});
+  for (let i = 0; i < 36 && !f.reply(stuck); i++) f.tick(1000);
+  assert.match(f.reply(stuck).error, /in time/);
+  f.setSwallowWake(false);
+  const next=f.command('audition',{file:'next.wav'});
+  assert.equal(f.reply(next).slot,128);
+}
+console.log('30 navigation flow scenarios passed');

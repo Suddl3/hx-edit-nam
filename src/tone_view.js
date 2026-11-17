@@ -2195,13 +2195,36 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     const deadline = Date.now() + timeout;
     function check() {
       if (!active || request.session !== active.id) return;
-      command = { request, next, deadline, check, finishImport };
+      command = { request, next, deadline, check, finishImport, since: Date.now() };
       if (!post(active.window, wake, 0, 0)) {
         command = null;
         reply(request, { error: 'HX Edit closed during the TONE3000 operation.' });
-      }
+      } else watchWake(command);
     }
     check();
+  }
+
+  // A command runs when its wake message reaches HX Edit's window through DispatchMessageW. A modal loop
+  // of HX Edit's own (seen: saving a preset while Level presets polled, Floor PC, November 16) can take
+  // that message without dispatching it, and the command then waited forever: every later command was
+  // refused as "still finishing" until the window closed. So the wake is posted again each second while
+  // the command waits, and one still waiting after WAKE_GIVE_UP (the Python side stops waiting at 35 s)
+  // is dropped rather than run late.
+  const WAKE_GIVE_UP = 34000;
+  function watchWake(pending) {
+    setTimeout(() => {
+      if (command !== pending) return;                     // ran (or was replaced)
+      const session = active;
+      if (!session || pending.request.session !== session.id) { command = null; return; }
+      if (Date.now() - pending.since >= WAKE_GIVE_UP) {
+        command = null;
+        reply(pending.request, { error: 'HX Edit did not get to this step in time; it was not run.' });
+        if (session.queuedClose || session.cleanupRequested) post(session.window, wake, 0, 0);
+        return;
+      }
+      post(session.window, wake, 0, 0);
+      watchWake(pending);
+    }, 1000);
   }
 
   function awaitImport(request, transfer, imported) {
@@ -2918,12 +2941,15 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     recv('toneCommand', message => {
       const request = message.payload;
       const current = active && active.id === request.session;
+      if (current && command && Date.now() - (command.since || 0) >= WAKE_GIVE_UP + 2000) {
+        command = null;                                    // stale (see watchWake): never block what follows
+      }
       if (current && !command && (!active.navigation || !workflowRequest)) {
-        command = { request };
+        command = { request, since: Date.now() };
         if (!post(active.window, wake, 0, 0)) {
           command = null;
           reply(request, { error: 'The HX Edit window is unavailable.' });
-        }
+        } else watchWake(command);
       } else if (current && active.navigation && request.action === 'close' && !active.queuedClose) {
         // Escape/Close during another workflow (for example the automatic cleanup after a block
         // change). Rejecting it would end the supervisor's session while this one stays open, and
