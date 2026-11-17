@@ -110,7 +110,7 @@ assert.equal(friendlyNamCaption(128,raw,raw,undefined),raw);
 
     def test_use_on_floor_requires_current_content_identity(self):
         source = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
-        begin = source.index('    verifiedCaptureSlot(identity, requestedSlot) {')
+        begin = source.index('    verifiedCaptureSlot(identity, requestedSlot, version) {')
         getter = source[begin:source.index('\n    },', begin) + 7]
         self.node(['library_slot_state.js'], r'''
 const assert=require('node:assert/strict'), slotLedger=createLibrarySlotLedger();
@@ -125,6 +125,10 @@ occupied=false;assert.equal(view.verifiedCaptureSlot(identity),null);occupied=tr
 slotLedger.invalidate();assert.deepEqual(slotLedger.displaySlotsFor(content),[9,127]);
 assert.equal(view.verifiedCaptureSlot(identity),null); // previous display cannot authorize Use
 slotLedger.accept(slotLedger.epoch(),10,content);assert.equal(view.verifiedCaptureSlot(identity),10);
+// a kept Pedal version of the same capture: only found when asked for, never as the original
+const pedal='d'.repeat(64);payloadMetadata[pedal]={id:identity,version:'pedal'};slotLedger.accept(slotLedger.epoch(),14,pedal);
+assert.equal(view.verifiedCaptureSlot(identity,undefined,'pedal'),14);assert.equal(view.verifiedCaptureSlot(identity,14),null);
+assert.equal(view.verifiedCaptureSlot(identity),10);
 present=false;assert.equal(view.verifiedCaptureSlot(identity),null);
 ''')
 

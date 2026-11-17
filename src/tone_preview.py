@@ -670,7 +670,10 @@ class TonePreview:
                 current = None  # the TONE3000 card no longer describes the audition
                 status(message)
 
-        def install_local(identity, use_only=False):
+        def install_local(identity, use_only=False, capture_version=None):
+            """capture_version 'pedal': the kept NAM Pedal version instead of the original. On a NAM Pedal firmware
+            the block's model follows what goes on it (a Pedal model in a NAM A2 Lite block is silent, and the
+            other way round), so HX Edit changes the block's model first when it differs."""
             nonlocal current
             version = self.navigation_state.get('version')
             if not self.navigation_state.get('bound'):
@@ -682,7 +685,18 @@ class TonePreview:
             status('Using the installed capture…' if use_only else 'Loading the capture into the lowest empty User IR slot…', busy=True)
             try:
                 values = dict(identity=identity, targetVersion=version)
-                if not use_only:
+                if self.pedal_block:
+                    values['model'] = 'HD2_AmpNAMPedal' if capture_version == 'pedal' else 'HD2_AmpNAMLite'
+                if capture_version == 'pedal':
+                    made = self.library.version_path(identity, 'pedal')
+                    if not made.is_file():
+                        raise ToneError('This capture has no Pedal version yet. Optimize it first.')
+                    from floor_capture import validate_floor_capture_files
+                    validate_floor_capture_files([made], pedal=True)
+                    values.update(version='pedal', file=str(made))
+                    if self.payload_callback is not None:      # its slot is then recognized as this capture's Pedal version
+                        self.payload_callback(self.library.payload_metadata())
+                elif not use_only:
                     folder = tempfile.mkdtemp(prefix='library-', dir=self.workspace)
                     capture = self.library.export(identity, folder)
                     path = convert_batch([capture], self.workspace, self.converter)[0]
@@ -698,7 +712,9 @@ class TonePreview:
                 if not isinstance(destination, int) or not 1 <= destination <= 127:
                     raise ToneError('HX Edit did not confirm the library destination.')
                 current = None
-                if result.get('loadedSlot'):
+                if capture_version == 'pedal':
+                    status(f'The Pedal version plays in User IR {destination} on a NAM Pedal block. Preset remains unsaved.')
+                elif result.get('loadedSlot'):
                     self.library.mark_pending(identity, destination)
                     status(f'Loaded into User IR {destination}; verifying capture content. Preset remains unsaved.')
                 else:
@@ -1082,6 +1098,14 @@ class TonePreview:
                         audition_local(identity)
                     elif self.navigation and command in ('use', 'load') and identity in self.library.entries():
                         install_local(identity, use_only=command == 'use')
+                    elif self.navigation and command == 'useVersion' and identity in self.library.entries():
+                        # Optimize: put the Pedal version (or the original again) on the selected NAM block
+                        if not self.pedal_block:
+                            status('The Pedal version needs NAM Pedal firmware on the Floor.')
+                        elif value not in ('pedal', 'original'):
+                            status('Unknown version.')
+                        else:
+                            install_local(identity, capture_version='pedal' if value == 'pedal' else None)
                     elif command == 'gear':
                         self.library.update(identity, gear=value)
                     elif command == 'instrument' and identity in self.library.entries():

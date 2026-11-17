@@ -2776,10 +2776,71 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     }, 3500);
   }
 
+  // Optimize versions (NAM Pedal firmware builds): the NAM block a capture plays in, by model symbol.
+  const NAM_BLOCKS = {HD2_AmpNAMLite: 'NAM A2 Lite', HD2_AmpNAMPedal: 'NAM Pedal'};
+
+  function boundModel() {
+    // The bound block's model symbol, from the preset as the editor holds it; null when it cannot be read.
+    try {
+      const tree = namView.presetTree();
+      const dsp = active.controller.add(0x80).readS32();
+      const node = tree && tree[`dsp${dsp}`] && tree[`dsp${dsp}`][active.block];
+      return node && typeof node['@model'] === 'string' ? node['@model'] : null;
+    } catch (_) { return null; }
+  }
+
+  function pickModel(list, name) {
+    // the model list's row for this block (NAM category rows carry trailing spaces): exact text first
+    if (pick(list, name)) return true;
+    for (let index = 0, count = rowCount(list); index < count; index++) {
+      const row = getIrRow(list, index);
+      if (row.isNull() || row.readUtf8String().trimEnd() !== name) continue;
+      clearSelection(list, 0, 0);
+      selectRow(list, 1, index, 0, 0);
+      return true;
+    }
+    return false;
+  }
+
+  function switchModel(request, then) {
+    // A version and its original play in different blocks: the bound NAM block's model changes with the slot
+    // (as picking it in HX Edit's model list would; one Undo step), then `then` puts the capture on it.
+    const symbol = request.model;
+    if (!(symbol in NAM_BLOCKS)) throw new Error('Unknown NAM block for this version.');
+    const current = boundModel();
+    if (current === symbol) return then();
+    if (current === null) throw new Error('Could not read the model of the selected block. Select the block again and retry.');
+    if (!(current in NAM_BLOCKS)) throw new Error('The selected block is not a NAM block.');
+    const list = active.controller.add(0x58).readPointer();
+    if (list.isNull() || !pickModel(list, NAM_BLOCKS[symbol])) {
+      throw new Error(`Open the selected block's model list in HX Edit, then choose this version again (${NAM_BLOCKS[symbol]}).`);
+    }
+    send({type: 'toneTrace', reason: 'version-model', from: current, to: symbol});
+    modelEvent(active.controller, selectionEvent, list, NULL, NULL);
+    poll(request, expired => {
+      if (!active.controller || !controllerReady(active.controller)) throw new Error('The block went away while changing its model.');
+      if (boundModel() !== symbol) {
+        if (!expired) return null;
+        throw new Error(`HX Edit did not change the block to ${NAM_BLOCKS[symbol]}. Nothing else was changed.`);
+      }
+      active.block = block(active.controller);
+      active.position = position(active.controller);
+      active.model = NAM_BLOCKS[symbol];
+      captureTarget();
+      then();
+      return {};
+    }, 3500);
+  }
+
   function installPermanent(request) {
     if (active.transfer || active.pendingTransfer || active.orphanTransfer) throw new Error('End the current preview before loading a library capture.');
     if (typeof request.identity !== 'string' || !/^[a-f0-9]{64}$/.test(request.identity)) throw new Error('Invalid library capture identity.');
-    const existing = namView.verifiedCaptureSlot(request.identity);
+    if (request.model && !request.switched) {
+      if (request.version !== undefined && request.version !== 'pedal') throw new Error('Unknown capture version.');
+      request.switched = true;
+      return switchModel(request, () => installPermanent(request));
+    }
+    const existing = namView.verifiedCaptureSlot(request.identity, undefined, request.version);
     if (existing) return applyPermanent(request, existing, null);
     if (request.action === 'use') throw new Error('The installed slot is no longer verified. Wait for verification, then try again.');
     const slot = namView.freeSlots(AUDITION_SLOT).find(value => value >= 1 && value <= 127);

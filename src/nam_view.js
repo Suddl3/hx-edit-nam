@@ -1737,7 +1737,8 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       if (!slotLedger) return result;
       for (const [slot, contentId] of slotLedger.entries()) {
         const capture = payloadMetadata[contentId];
-        if (!capture || slot === AUDITION_SLOT) continue;
+        // A version (the NAM Pedal model) plays only in its own block: not offered under NAM A2 Lite rows.
+        if (!capture || slot === AUDITION_SLOT || capture.version) continue;
         result.push({slot, name: capture.name || profiles[slot] || 'Capture', gear: capture.gear || '', icon: capture.icon || '',
           instrument: ['guitar', 'bass', 'any'].includes(capture.instrument) ? capture.instrument : 'guitar'});
       }
@@ -1832,13 +1833,16 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       return { epoch: slotLedger?.epoch() || 0, state: inventoryState,
         entries: slotLedger?.displayEntries() || [], verified: slotLedger?.entries() || [] };
     },
-    verifiedCaptureSlot(identity, requestedSlot) {
+    verifiedCaptureSlot(identity, requestedSlot, version) {
+      // version: a kept version of the capture ('pedal'); none = the original. A slot holding a version is never
+      // the original's (the Pedal model in a NAM A2 Lite block is silent), and the other way round.
       if (!slotLedger || typeof identity !== 'string' || !/^[0-9a-f]{64}$/.test(identity)) return null;
       const list = irList();
       if (list.isNull()) return null;
       for (const [slot, contentId] of slotLedger.entries()) {
         if (requestedSlot !== undefined && slot !== requestedSlot) continue;
         if (payloadMetadata[contentId]?.id !== identity || slot === AUDITION_SLOT) continue;
+        if ((payloadMetadata[contentId].version || undefined) !== (version || undefined)) continue;
         // Current accepted epoch + the native occupied row, never display history.
         const row = getIrRow(list, slot - 1);
         if (!row.isNull() && row.add(0x10c).readU32()) return slot;
