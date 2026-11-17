@@ -161,6 +161,10 @@
   #optimizePanel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; background: #1e1e1e; border-top: 1px solid #404040; }
   #optimizePanel p { margin: 0; flex-basis: 100%; }
   #optimizeBar { flex: 1; min-width: 80px; }
+  #listen { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex-basis: 100%; }
+  #listen button[aria-pressed="true"] { background: #3a3a3a; border-color: #888; color: #fff; }
+  #listenMatch { color: #aaa; font-size: 12px; }
+  #listenBadge { margin-left: 0; }
   #light { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; background: #1e1e1e; border-top: 1px solid #404040; }
   #light p { margin: 0; flex-basis: 100%; }
   #light .note { color: #aaa; font-size: 12px; }
@@ -242,6 +246,13 @@
 </section>
 <section id="optimizePanel" hidden aria-label="Optimized versions">
   <p id="optimizeInfo" role="status"></p>
+  <span id="listen" hidden role="group" aria-label="Listen on this PC: the original against the Pedal version">Listen:
+    <button id="listenOriginal" aria-pressed="false" title="Play a few seconds of your guitar through the original capture on this PC">Original</button>
+    <button id="listenPedal" aria-pressed="false" title="Play the same guitar through the Pedal version on this PC, at the same loudness">Pedal</button>
+    <button id="listenStop" hidden>Stop</button>
+    <span id="listenBadge" class="chip"></span>
+    <span id="listenMatch"></span>
+  </span>
   <progress id="optimizeBar" max="1" value="0" hidden></progress>
   <button id="optimizeCancel" hidden>Cancel</button>
   <button id="versionRemove" hidden>Remove the Pedal version</button>
@@ -302,6 +313,7 @@
   let sort = { key: 'name', direction: 1 };
   let selected = null, trial = null, busy = false, light = null, lightShown = false, canInstall = false, canTrain = true;
   let optimizing = null, canOptimize = false, pedalBlock = false;   // pedalBlock: the Floor's firmware has NAM Pedal
+  let listening = null;   // Optimize A/B on this PC: {id, which, running, playing, match, source, error}
   let leveling = null, canLevel = false, levelPage = false;
   const lighter = q('#lighter'), lightPanel = q('#light');
   const pct = value => value == null ? '—' : (100 * value).toFixed(2) + '%';
@@ -328,6 +340,32 @@
       cell.append(chip);
     }
   }
+  // Listen: Original / Pedal renders the player's guitar through both on this PC, level-matched (nam_ab).
+  function matchText(match) {
+    const difference = match?.difference;
+    if (typeof difference !== 'number') return match ? 'Level-matched.' : '';
+    return 'Level-matched at ' + Math.round(match.lufs ?? -18) + ' LUFS (the Pedal version came out ' +
+      (Math.abs(difference) < 0.5 ? 'at the same level' : Math.abs(difference).toFixed(1) + ' dB ' +
+        (difference > 0 ? 'louder' : 'quieter')) + ').';
+  }
+  function renderListen(capture, pedal) {
+    const group = q('#listen');
+    group.hidden = !canOptimize || !capture || !pedal;
+    if (group.hidden) return;
+    const mine = listening && listening.id === capture.id ? listening : null;
+    const rendering = !!mine?.running;
+    for (const [id, which] of [['#listenOriginal', 'original'], ['#listenPedal', 'pedal']])
+      q(id).setAttribute('aria-pressed', (rendering ? mine.which : mine?.playing) === which ? 'true' : 'false');
+    q('#listenStop').hidden = !(rendering || mine?.playing);
+    const badge = q('#listenBadge');
+    badge.dataset.quality = pedal.quality;
+    badge.textContent = pedal.quality === 'same' ? 'Same' : pedal.quality === 'different' ? 'May differ ⚠' : 'Not compared';
+    badge.title = 'Pedal version: ' + qualityText(pedal) + (pedal.error != null ? ' (' + pct(pedal.error) + ' error)' : '');
+    q('#listenMatch').textContent = rendering ? 'Rendering ' + (mine.source || 'your guitar') + ' through both…' :
+      mine?.match ? matchText(mine.match) + ' Guitar: ' + (mine.source || '') + '.' :
+      mine?.error ? 'Listen: ' + mine.error : 'Plays on this PC, not the Floor, at the same loudness.';
+  }
+
   function renderOptimize(capture) {
     const optimizeButton = q('#optimize'), panel = q('#optimizePanel');
     optimizeButton.hidden = !canOptimize;
@@ -345,6 +383,7 @@
     q('#optimizeBar').hidden = q('#optimizeCancel').hidden = !running;
     if (running) q('#optimizeBar').value = (optimizing.step || 0) / Math.max(1, optimizing.steps || 400);
     q('#versionRemove').hidden = running || !pedal;
+    renderListen(capture, running ? null : pedal);
     q('#optimizeInfo').textContent = running ? 'Optimizing… step ' + (optimizing.step || 0) + ' of ' + (optimizing.steps || 400) :
       pedal ? 'Pedal version: ' + qualityText(pedal) + (pedal.error != null ? ' (' + pct(pedal.error) + ' error)' : '') +
         (pedalBlock ? '. It plays in a NAM Pedal block.' : '. It plays in a NAM Pedal block; using it needs Floor firmware with that block.') :
@@ -885,6 +924,9 @@
     else q('#status').textContent = q('#status').title = q('#optimize').title;   // why not, where it is seen
   };
   q('#optimizeCancel').onclick = () => host?.postMessage('optimizeCancel');
+  q('#listenOriginal').onclick = () => { if (canOptimize && selected) host?.postMessage('listen:' + selected + ':original'); };
+  q('#listenPedal').onclick = () => { if (canOptimize && selected) host?.postMessage('listen:' + selected + ':pedal'); };
+  q('#listenStop').onclick = () => host?.postMessage('listenStop');
   q('#versionRemove').onclick = async () => {
     const id = selected;
     if (id && await ask('Remove the Pedal version? The original capture stays.', 'Remove version') && id === selected)
@@ -1199,6 +1241,7 @@
     leveling = data.level || null;
     levelPage = data.levelPage === true;
     optimizing = data.optimize || null;
+    listening = data.listen || null;
     q('#status').textContent = q('#status').title = data.text || '';
     q('#target').textContent = data.target || '';
     q('#target').hidden = !data.target || !!data.navigation;

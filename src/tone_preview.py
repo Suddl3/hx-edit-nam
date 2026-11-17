@@ -78,7 +78,7 @@ def render_card(tone=None, models=(), library=False):
 class TonePreview:
     def __init__(self, script, workspace, converter, detached, message, *, browser_factory=ToneBrowser, client_id='',
                  library=None, payload_callback=None, trace_callback=None, optimize=False, pedal_block=False,
-                 level=False, level_di=None, level_files=None):
+                 level=False, level_di=None, level_files=None, listen_folder=None):
         self.script = script
         # Level presets (HX Unbound): the player's recorded playing (or NAM's input file, when found)
         # played through each snapshot to bring every preset to one output standard (nam_level_flow).
@@ -91,6 +91,8 @@ class TonePreview:
         # The Floor's firmware has the NAM Pedal block (builds for it: res/nam-pedal.flag); until a
         # firmware marker can be read, the build says so.
         self.pedal_block = bool(pedal_block)
+        # Optimize A/B: where the Listen renders are kept (nam_ab.RENDERS; tests use their own).
+        self.listen_folder = Path(listen_folder) if listen_folder else None
         self.library = library  # nam_library.Library on Windows; None hides the library
         self.payload_callback = payload_callback
         self.workspace = workspace
@@ -460,6 +462,9 @@ class TonePreview:
         light_job = None
         optimizing = None    # Optimize: the version being made for one capture, shown on the library page
         optimize_job = None
+        listening = None     # Optimize A/B on this PC (nam_ab): {id, key, which, running, match, source, error}
+        listen_job = None
+        player = None        # nam_ab.Player, made at the first Listen
         leveling = None      # Level presets: a nam_level_flow.LevelFlow while the Level page has been opened
         level_page = False   # the page shows Level instead of the library
         tone_modes = {}  # TONE3000 tone ID -> the conversion chosen for it (nam_modes.MODES key)
@@ -514,6 +519,7 @@ class TonePreview:
                          installed=loaded_now,
                          can_train=not self.navigation,
                          optimize=optimizing, can_optimize=self.optimize, pedal_block=self.pedal_block,
+                         listen=listening,
                          level=leveling.view() if leveling else None, can_level=self.level,
                          levelPage=level_page,
                          can_install=self.navigation and bool(self.navigation_state.get('bound')) and
@@ -797,6 +803,78 @@ class TonePreview:
             else:
                 status(text, busy=True)
 
+        def listen_renders():
+            import nam_ab
+            return nam_ab.Renders(self.listen_folder or nam_ab.RENDERS)
+
+        def listen(identity, which):
+            """Listen: Original / Pedal. Plays the kept pair at once, else renders it first (nam_ab)."""
+            nonlocal listening, listen_job
+            import nam_ab
+            import nam_optimize
+            if not self.optimize:
+                status('Optimize is not available in this build.')
+                return
+            if which not in nam_ab.WHICH:
+                return
+            entry = self.library.entries()[identity]
+            if 'pedal' not in (entry.get('versions') or {}) or entry.get('format', '.nam') != '.nam':
+                status('This capture has no Pedal version to compare yet. Optimize it first.')
+                return
+            if listen_job is not None:
+                if listening and listening.get('id') == identity:
+                    listening['which'] = which          # plays this one when the render is done
+                    status(text, busy=True)
+                return
+            source = nam_ab.pick_source(extra=[self.level_di] if self.level_di else [])
+            if source is None:
+                status('Listen needs a guitar to play through both: record your guitar on the Level page '
+                       '(HX Unbound menu), or put NAM\'s v3 input file in Downloads.')
+                return
+            capture, _ = self.library._source(identity, entry)
+            version = self.library.version_path(identity, 'pedal')
+            renders = listen_renders()
+            key = nam_ab.cache_key(source, capture, version)
+            listening = {'id': identity, 'key': 'pedal', 'which': which, 'running': False, 'match': None,
+                         'source': source['name'], 'error': None, 'playing': None}
+            match = renders.lookup(key)
+            if match is not None:
+                listening['match'] = match
+                listen_play()
+                return
+            listening['running'] = True
+            spec = {'fitter': str(nam_optimize.fitter_path(self.converter)), 'capture': str(capture),
+                    'version': str(version), 'source': source['path'], 'start': source['start'],
+                    'seconds': source['seconds'], 'peak': source['peak']}
+            listen_job = nam_ab.RenderJob(renders, key, spec, lambda state: browser.actions.put({'listen': state}))
+            status(f'Rendering {source["name"]} through the original and the Pedal version (about 10 seconds)…',
+                   busy=True)
+
+        def listen_play():
+            nonlocal player
+            import nam_ab
+            which = listening['which']
+            try:
+                player = player or nam_ab.Player()
+                player.play(listen_renders().path(listening['match']['key'], which))
+                listening['playing'] = which
+                status(f'Playing the {"original" if which == "original" else "Pedal version"} on this PC '
+                       f'({listening["source"]}). {nam_ab.match_text(listening["match"])}')
+            except (OSError, RuntimeError, ImportError) as error:
+                listening['playing'] = None
+                status(f'Could not play on this PC: {error}')
+
+        def listen_event(state):
+            nonlocal listen_job
+            listen_job = None
+            listening['running'] = False
+            if 'error' in state:
+                listening['error'] = None if state.get('cancelled') else state['error']
+                status('Listen cancelled.' if state.get('cancelled') else f'Listen failed: {state["error"]}')
+            else:
+                listening['match'] = state['match']
+                listen_play()
+
         def level_command(action, **data):
             reply = self.command(session, action, **data)
             if reply.get('error'):
@@ -884,6 +962,8 @@ class TonePreview:
                     light_event(action['light'])
                 if optimizing is not None and 'optimize' in action:
                     optimize_event(action['optimize'])
+                if listening is not None and 'listen' in action:
+                    listen_event(action['listen'])
                 if leveling is not None and 'levelChanged' in action:
                     view = leveling.view()
                     status(view['progress'] or view['message'], busy=bool(view['running']))
@@ -1025,6 +1105,15 @@ class TonePreview:
                         start_optimize(identity)
                     elif command == 'optimizeCancel' and optimize_job is not None:
                         optimize_job.cancel()
+                    elif command == 'listen' and identity in self.library.entries():
+                        listen(identity, value)
+                    elif command == 'listenStop' and listening is not None:
+                        if listen_job is not None:
+                            listen_job.cancel()
+                        if player is not None:
+                            player.stop()
+                        listening['playing'] = None
+                        status('Stopped.')
                     elif command in ('level', 'levelOpen') and self.level:
                         try:
                             level_open()
@@ -1055,6 +1144,10 @@ class TonePreview:
                     elif command == 'levelCancel' and leveling:
                         leveling.cancel()
                     elif command == 'versionRemove' and identity in self.library.entries():
+                        if listening is not None and listening.get('id') == identity and listen_job is None:
+                            if player is not None:
+                                player.stop()
+                            listening = None
                         if self.library.remove_version(identity, value):
                             if library:
                                 show_card()
@@ -1083,6 +1176,10 @@ class TonePreview:
             light_job.cancel()
         if optimize_job is not None:
             optimize_job.cancel()
+        if listen_job is not None:
+            listen_job.cancel()
+        if player is not None:
+            player.stop()
         if leveling is not None:
             leveling.close()      # a scan stops and puts the routing back (never left on USB 7/8)
         return slot

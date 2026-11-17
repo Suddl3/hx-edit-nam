@@ -176,6 +176,12 @@ Helix LT; the Floor is measured before any number is shown.
   original's row, the Optimize button (explains refusals), a real NAM Pedal fit in about 40 s with
   its quality badge, Remove version. Waiting on the NAM Pedal firmware block: using a version,
   A/B on the Floor, per-block switching. Not yet in the NAM tab's narrow list (the expanded library only).
+- **A/B on the PC meanwhile (Nov 16, same flag).** In the version panel, **Listen: Original | Pedal**
+  plays the player's saved guitar (Level presets' recording; else NAM's v3 input file) through the
+  original and through the pedal version as the NAM Pedal kernel computes it, level-matched at -18
+  LUFS, on the PC's default output (never the Floor), beside the quality badge and the level gap
+  between the two. Renders are kept per guitar and version, so a second listen is instant. A/B
+  through the Floor's own amp and cab is planned in `docs/OPTIMIZE-AB.md`, not built.
 - **On the Floor itself** a version cannot be switched live (a snapshot cannot change a block's
   model); the editor is where versions change. To be tried in live use and adjusted.
 
