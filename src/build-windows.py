@@ -25,7 +25,7 @@ APP_FILES = (
     'nam_view.js', 'nam_library.py', 'library_card.html', 'tone3000.py', 'tone_browser.py', 'tone_card.html',
     'tone_preview.py', 'tone_view.js', 'nam_light.py', 'nam_modes.py', 'nam_optimize.py', 'nam_level.py', 'nam_level_flow.py',
     'nam_level_measure.py',
-    'floor_reference.py', 'floor_capture.py', 'nam_navigation.py',
+    'floor_reference.py', 'floor_capture.py', 'floor_firmware.py', 'nam_navigation.py',
     'navigation_host.py', 'floor_inventory.py', 'device_connection_watch.py',
     'library_slot_state.js', 'automatic_slot_discovery.js', 'native_export_observer.js',
     'nav_resources.py', 'nav_banner.js', 'target_binding.js',

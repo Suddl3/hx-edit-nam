@@ -45,6 +45,24 @@ class FloorCaptureTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'needs firmware'):
                 self.check(wav(count=count))
 
+    def test_pedal_models_only_with_pedal_firmware(self):
+        pedal = wav(count=627 / 1024)
+        self.path.write_bytes(pedal)
+        validate_floor_capture_files([self.path], pedal=True)
+        with self.assertRaisesRegex(ValueError, 'needs firmware'):
+            validate_floor_capture_files([self.path])
+        self.path.write_bytes(wav(count=1000 / 1024))
+        with self.assertRaisesRegex(ValueError, 'needs firmware'):
+            validate_floor_capture_files([self.path], pedal=True)
+        self.path.write_bytes(wav(count=627 / 1024, layers=16 / 32))
+        with self.assertRaisesRegex(ValueError, 'Pedal header'):
+            validate_floor_capture_files([self.path], pedal=True)
+        self.path.write_bytes(wav(count=627 / 1024, scale=1.5))
+        with self.assertRaisesRegex(ValueError, 'scale'):
+            validate_floor_capture_files([self.path], pedal=True)
+        self.path.write_bytes(wav())                          # A2 Lite captures still pass on a pedal firmware
+        validate_floor_capture_files([self.path], pedal=True)
+
     def test_scale_must_be_supported_power_of_two(self):
         for scale in (0, 1.5, 128):
             with self.assertRaisesRegex(ValueError, 'scale'):

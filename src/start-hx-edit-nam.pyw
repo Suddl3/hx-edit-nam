@@ -121,7 +121,10 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
     from tone_browser import ToneBrowser
     from floor_reference import FLOOR_REFERENCE_OPTIONS
     from floor_capture import validate_floor_capture_files
+    import floor_firmware
 
+    # The Floor firmware this copy's catalog was built for (floor_firmware.py): the NAM Pedal block and pedal files.
+    floor_pedal = floor_reference and floor_firmware.recorded(exe.parent / 'res').pedal
     if navigation and not floor_reference:
         raise ValueError('Navigation requires the Floor reference profile.')
     library = library if library is not None else Library()
@@ -193,7 +196,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                               payload_callback=(lambda _: host.metadata_changed()) if host else None,
                               trace_callback=trace if navigation else None,
                               optimize=bool(navigation and (exe.parent / 'res' / 'nam-optimize.flag').is_file()),
-                              pedal_block=bool(navigation and (exe.parent / 'res' / 'nam-pedal.flag').is_file()),
+                              pedal_block=bool(navigation and floor_pedal),
                               level=bool(navigation), level_di=level_di(exe) if navigation else None)
         if navigation:
             from nam_sidebar import NamSidebar
@@ -260,7 +263,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         result = {'cancelled': True} if files is None else \
                             {'files': convert_batch(files, workspace, CONVERTER)}
                         if floor_reference and files is not None:
-                            validate_floor_capture_files(result['files'])
+                            validate_floor_capture_files(result['files'], floor_pedal)
                         for index, file in enumerate(payload['files'] if files is not None else []):
                             if file.lower().endswith('.nam'):
                                 try:
@@ -272,12 +275,12 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                                     print(f'Could not add {file} to the NAM library: {error}')
                     elif payload['type'] == 'stageTone':
                         if floor_reference:
-                            validate_floor_capture_files([payload['file']])
+                            validate_floor_capture_files([payload['file']], floor_pedal)
                         staged = stage_tone_import(payload['file'], workspace, audition=payload['audition'])
                         result = {'file': str(staged)}
                     else:
                         if floor_reference:
-                            validate_floor_capture_files(payload['files'])
+                            validate_floor_capture_files(payload['files'], floor_pedal)
                         imported = validate_import(payload['files'], payload['firstSlot'],
                                                    set(payload['occupied']), payload['namOnly'])
                         result = {'profiles': imported}
@@ -359,7 +362,11 @@ def main():
     firmware = 'plain' if args.hx_nam or args.floor_reference else ask_firmware()
     (ROOT / 'build').mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='nam-', dir=ROOT / 'build', ignore_cleanup_errors=True) as workspace:
-        exe = prepare_copy(workspace, scan_error, hx_nam=args.hx_nam)
+        floor = None
+        if args.floor_reference:
+            import floor_firmware
+            floor = floor_firmware.profile()
+        exe = prepare_copy(workspace, scan_error, hx_nam=args.hx_nam, floor=floor)
         if args.navigation:
             from nav_resources import patch_navigation_resources, patch_library_navigation
             patch_navigation_resources(exe.parent)

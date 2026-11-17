@@ -94,7 +94,9 @@ def nam_layers():
             or nam_pedal())
 
 
-def patch_catalog(resources, layers=False, pedal=False):
+def patch_catalog(resources, layers=False, pedal=False, *, nam_load=None, pedal_load=None):
+    """Add the NAM blocks to HX Edit's catalog. nam_load / pedal_load: the firmware's costs / 100 (the Floor's
+    profile, floor_firmware.py); None keeps the defaults (36.0, 36.5 with the LT's layers, the pedal's 8.5)."""
     symbols_path = resources / 'Helix.sym'
     definitions_path = resources / 'HelixModelDefs.bin'
     catalog_path = resources / 'HX_ModelCatalog.bin'
@@ -122,9 +124,11 @@ def patch_catalog(resources, layers=False, pedal=False):
     model['devices\0'] = [{'id\0': device, 'version\0': '0x03800000\0'} for device in DEVICE_IDS]
     model['params\0'] = parameters + [amp_params['@enabled\0'], amp_params['@bypassvolume\0']]
     del model['cablink\0'], model['ircablink\0']
-    blocks = [(NAM_SYMBOL, NAM_ID, 'NAM A2 Lite', NAM_LAYERS_LOAD if layers else 36.0)]
+    if nam_load is None:
+        nam_load = NAM_LAYERS_LOAD if layers else 36.0
+    blocks = [(NAM_SYMBOL, NAM_ID, 'NAM A2 Lite', nam_load)]
     blocks += list(NAM_LAYER_MODELS) if layers else []
-    blocks += [NAM_PEDAL_MODEL] if pedal else []
+    blocks += [NAM_PEDAL_MODEL[:3] + (NAM_PEDAL_MODEL[3] if pedal_load is None else pedal_load,)] if pedal else []
     for symbol, sym_id, name, load in blocks:
         if sym_id != NAM_ID and not symbols[sym_id]['symbol'].startswith(('Helix', 'HD2_MikeFiller')):
             raise ValueError(f'Unexpected HX Edit symbol table at model ID {sym_id}.')
@@ -501,7 +505,8 @@ def patch_sidebar(resources, width):
     tree.write(librarian, encoding='utf-8')
 
 
-def prepare_copy(working_directory, scan_error=False, *, hx_nam=None):
+def prepare_copy(working_directory, scan_error=False, *, hx_nam=None, floor=None):
+    """floor: a floor_firmware.FloorFirmware for a Floor launch (its blocks and costs, recorded in res)."""
     baseline = ROOT / 'build' / 'HX Edit'
     if not (baseline / 'HX Edit.exe').is_file():
         program_files = Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'))
@@ -518,7 +523,12 @@ def prepare_copy(working_directory, scan_error=False, *, hx_nam=None):
     exe = destination / 'HX Edit NAM.exe'
     (destination / source_exe.name).rename(exe)
     resources = destination / 'res'
-    patch_catalog(resources, nam_layers(), nam_pedal())
+    if floor is not None:
+        import floor_firmware
+        patch_catalog(resources, False, floor.pedal, nam_load=floor.nam_load, pedal_load=floor.pedal_load)
+        floor_firmware.record(resources, floor)
+    else:
+        patch_catalog(resources, nam_layers(), nam_pedal())
     if hx_nam:
         patch_hx_catalog(resources, hx_nam)
     if names := read_custom_names(ROOT / 'custom-names.csv'):
