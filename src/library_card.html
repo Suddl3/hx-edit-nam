@@ -165,6 +165,7 @@
   #listen button[aria-pressed="true"] { background: #3a3a3a; border-color: #888; color: #fff; }
   #listenMatch { color: #aaa; font-size: 12px; }
   #listenBadge { margin-left: 0; }
+  #useVersion { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex-basis: 100%; }
   #light { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; background: #1e1e1e; border-top: 1px solid #404040; }
   #light p { margin: 0; flex-basis: 100%; }
   #light .note { color: #aaa; font-size: 12px; }
@@ -252,6 +253,10 @@
     <button id="listenStop" hidden>Stop</button>
     <span id="listenBadge" class="chip"></span>
     <span id="listenMatch"></span>
+  </span>
+  <span id="useVersion" hidden role="group" aria-label="Use on the selected NAM block">On the selected block:
+    <button id="useOriginal" title="Put the original capture on the selected block (as a NAM A2 Lite block). The preset is not saved.">Original</button>
+    <button id="usePedal" title="Put the Pedal version on the selected block (HX Edit changes it to a NAM Pedal block). The preset is not saved.">Pedal</button>
   </span>
   <progress id="optimizeBar" max="1" value="0" hidden></progress>
   <button id="optimizeCancel" hidden>Cancel</button>
@@ -383,6 +388,10 @@
     q('#optimizeBar').hidden = q('#optimizeCancel').hidden = !running;
     if (running) q('#optimizeBar').value = (optimizing.step || 0) / Math.max(1, optimizing.steps || 400);
     q('#versionRemove').hidden = running || !pedal;
+    // On a NAM Pedal firmware: switch the selected NAM block between the original and the Pedal version
+    // (block type and slot together; one Undo step each in HX Edit). Enabled as Load on Floor is.
+    q('#useVersion').hidden = running || !pedal || !pedalBlock;
+    q('#useOriginal').disabled = q('#usePedal').disabled = q('#install').disabled;
     renderListen(capture, running ? null : pedal);
     q('#optimizeInfo').textContent = running ? 'Optimizing… step ' + (optimizing.step || 0) + ' of ' + (optimizing.steps || 400) :
       pedal ? 'Pedal version: ' + qualityText(pedal) + (pedal.error != null ? ' (' + pct(pedal.error) + ' error)' : '') +
@@ -927,6 +936,8 @@
   q('#listenOriginal').onclick = () => { if (canOptimize && selected) host?.postMessage('listen:' + selected + ':original'); };
   q('#listenPedal').onclick = () => { if (canOptimize && selected) host?.postMessage('listen:' + selected + ':pedal'); };
   q('#listenStop').onclick = () => host?.postMessage('listenStop');
+  q('#useOriginal').onclick = () => { if (pedalBlock && selected && !q('#useOriginal').disabled) host?.postMessage('useVersion:' + selected + ':original'); };
+  q('#usePedal').onclick = () => { if (pedalBlock && selected && !q('#usePedal').disabled) host?.postMessage('useVersion:' + selected + ':pedal'); };
   q('#versionRemove').onclick = async () => {
     const id = selected;
     if (id && await ask('Remove the Pedal version? The original capture stays.', 'Remove version') && id === selected)

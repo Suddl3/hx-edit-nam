@@ -198,6 +198,7 @@ class Library:
     def entries(self):
         """Local captures, decorated with this running editor's evidence only."""
         entries = self._read()
+        versions_by_content = self.version_payloads(entries)
         with self.lock:
             payload_index = {identity: set(payloads) for identity, payloads in self._payload_index.items()}
             slot_inventory = dict(self._slot_inventory)
@@ -211,6 +212,9 @@ class Library:
             payloads = payload_index.get(identity, set())
             entry['irSlots'] = sorted({slot for slot, content in slot_inventory['entries']
                                        if content in payloads})
+            # User IR slots holding a version that plays as an IR (the NAM Pedal model), by version
+            entry['versionSlots'] = {key: sorted({slot for slot, content in slot_inventory['entries'] if content == wanted})
+                                     for wanted, (owner, key) in versions_by_content.items() if owner == identity}
             entry['slotState'] = slot_inventory['state']
             entry['pendingSlots'] = sorted(slot for slot, capture in pending_slots.items() if capture == identity)
         return entries
@@ -260,11 +264,46 @@ class Library:
         entries = self._read()
         with self.lock:
             payload_index = {identity: set(payloads) for identity, payloads in self._payload_index.items()}
-        return {payload: dict(id=identity, name=entries[identity].get('name', ''),
-                              gear=entries[identity].get('gear', ''), instrument=instrument_of(entries[identity]),
-                              icon=icon_for(entries[identity], self.pictures))
-                for identity, payloads in payload_index.items() if identity in entries
-                for payload in payloads}
+        metadata = {payload: dict(id=identity, name=entries[identity].get('name', ''),
+                                  gear=entries[identity].get('gear', ''), instrument=instrument_of(entries[identity]),
+                                  icon=icon_for(entries[identity], self.pictures))
+                    for identity, payloads in payload_index.items() if identity in entries
+                    for payload in payloads}
+        # A version installed in a slot is the same capture to the player, marked with its version, so a slot
+        # holding the Pedal model is never taken for the original (nam_view.verifiedCaptureSlot compares both).
+        for payload, (identity, key) in self.version_payloads(entries).items():
+            entry = entries[identity]
+            metadata.setdefault(payload, dict(id=identity, version=key, name=f"{entry.get('name', '')} ({VERSIONS[key][0]})",
+                                              gear=entry.get('gear', ''), instrument=instrument_of(entry),
+                                              icon=icon_for(entry, self.pictures)))
+        return metadata
+
+    def version_payloads(self, entries=None):
+        """{payload content id: (identity, version key)} of the kept versions that play as a User IR (.wav: the NAM
+        Pedal model). Read from the version files, remembered by size and modification time."""
+        from floor_inventory import inspect_payload
+        entries = self._read() if entries is None else entries
+        found = {}
+        for identity, entry in entries.items():
+            versions = entry.get('versions')
+            for key in (versions if isinstance(versions, dict) else ()):
+                if key not in VERSIONS or VERSIONS[key][1] != '.wav':
+                    continue
+                try:
+                    path = self.version_path(identity, key)
+                    status = path.stat()
+                except (OSError, ValueError):
+                    continue
+                stamp = (str(path), status.st_size, status.st_mtime_ns)
+                cache = self.__dict__.setdefault('_version_content', {})
+                if stamp not in cache:
+                    try:
+                        cache[stamp] = inspect_payload(path.read_bytes())['contentId']
+                    except (OSError, ValueError):
+                        cache[stamp] = None
+                if cache[stamp]:
+                    found[cache[stamp]] = (identity, key)
+        return found
 
     def set_slot_inventory(self, value):
         """Consume the native observer's accepted, atomic view; never load disk mappings."""
