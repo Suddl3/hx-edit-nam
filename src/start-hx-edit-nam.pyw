@@ -11,7 +11,10 @@ from threading import Event
 
 
 ROOT = Path(__file__).resolve().parent
-CONVERTER = ROOT.parent.parent / 'helix-lt-nam' / 'tools' / 'nam2ir.py'   # beside the repository folder
+# helix-lt-nam's converter: inside a built package (beside src), else beside the repository folder
+CONVERTER = next((base / 'helix-lt-nam' / 'tools' / 'nam2ir.py' for base in (ROOT.parent, ROOT.parent.parent)
+                  if (base / 'helix-lt-nam' / 'tools' / 'nam2ir.py').is_file()),
+                 ROOT.parent.parent / 'helix-lt-nam' / 'tools' / 'nam2ir.py')
 TITLE = 'HX Edit Unbound'
 TRACE = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'HX Edit NAM' / 'trace.log'
 
@@ -207,10 +210,12 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             preview.sidebar_status = sidebar.status
             from dsp_meter import DspMeter
             # The HX Unbound menu button (beside the TONE3000 button): Level presets (in builds that have
-            # them) and the NAM library.
+            # them), the Floor look and the NAM library.
             def unbound_choice(name):
                 if name == 'level' and preview.level:
                     sidebar_action('level', '')
+                elif name == 'look':
+                    sidebar_action('look', '')
                 elif name == 'library':
                     sidebar_action('expand', '')
             meter = DspMeter(trace=trace, on_choice=unbound_choice)

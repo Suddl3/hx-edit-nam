@@ -171,6 +171,52 @@
   #light .note { color: #aaa; font-size: 12px; }
   #lightTitle { font-weight: 600; flex-basis: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #lightBar { flex: 1; min-width: 80px; }
+  /* The Floor look page (HX Unbound menu): its own view, like Level. */
+  body.lookMode > header, body.lookMode .rows, body.lookMode #optimizePanel, body.lookMode #light, body.lookMode #levelPanel,
+  body.lookMode footer > :not(#status):not(#finish):not(#lookSave) { display: none !important; }
+  body:not(.lookMode) #lookSave { display: none; }
+  body.lookMode #lookPanel { flex: 1 1 auto; overflow: auto; }
+  #lookPanel { padding: 10px 14px 14px; }
+  #lookPanel h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+  #lookPanel h3 { margin: 16px 0 2px; font-size: 13px; font-weight: 600; }
+  #lookPanel .note { margin: 0 0 8px; color: #9a9a9a; font-size: 12px; }
+  #lookSlots { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; }
+  .lookSlot { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 6px 6px; min-width: 0;
+    border: 1px solid #333; border-radius: 6px; background: #1f1f1f; color: inherit; text-align: center; }
+  .lookSlot:enabled:hover { background: #262626; border-color: #575757; }
+  .lookSlot img { width: 72px; height: 72px; object-fit: contain; }
+  .lookSlot .where { color: #8a8a8a; font-size: 11px; }
+  .lookSlot .name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .lookSlot:disabled { opacity: 1; cursor: default; }
+  .lookSlot:disabled .name { color: #9a9a9a; }
+  #lookScenes { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+  .lookScene { display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid #333; border-radius: 6px;
+    background: #1f1f1f; color: inherit; text-align: left; }
+  .lookScene:enabled:hover { background: #262626; border-color: #575757; }
+  .lookScene.main { border-color: #575757; }
+  /* Focus View's area (800 x 288): the background, and the kind of block's gear where the Floor draws it (256 px at 272, 16) */
+  .lookStage { position: relative; width: 100%; aspect-ratio: 800 / 288; border-radius: 3px; overflow: hidden; background: #000; }
+  .lookStage img { position: absolute; }
+  .lookStage img.bg { inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .lookStage img.gear { left: 34%; top: 5.56%; width: 32%; height: 88.9%; object-fit: contain; }
+  .lookScene .label { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; font-size: 12px; }
+  .lookScene .label b { font-weight: 600; }
+  .lookScene .label span { color: #9a9a9a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #pickerBody .scenes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  #pickerBody button.scene { display: flex; flex-direction: column; gap: 3px; padding: 4px; background: #2b2b2b; text-align: left; }
+  #pickerBody button.scene img { width: 100%; aspect-ratio: 800 / 288; object-fit: cover; border-radius: 3px; }
+  #pickerBody button.scene span { font-size: 12px; padding: 0 2px 2px; }
+  #pickerBody button.scene[aria-pressed="true"] { border-color: #e05a5b; background: #4a2425; }
+  /* The block type's own starting background: outlined and tagged, so one click puts just that one back */
+  #pickerBody button.scene { position: relative; }
+  #pickerBody button.scene.start { outline: 2px dashed #8a8a8a; outline-offset: 1px; }
+  #pickerBody button.scene .tag { position: absolute; top: 8px; left: 8px; padding: 1px 6px; border-radius: 3px;
+    background: rgba(0,0,0,.75); color: #fff; font-size: 11px; }
+  /* A card changed from its starting background gets a dot */
+  .lookScene.changed .label b::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 5px;
+    border-radius: 50%; background: #e05a5b; vertical-align: middle; }
+  #picker.wide .panel { width: min(900px, calc(100vw - 24px)); }
+  #lookBgButtons { display: flex; gap: 6px; align-items: center; margin: 6px 0 8px; }
 </style>
 <header>
   <input id="search" type="search" placeholder="Search the library" aria-label="Search the library">
@@ -245,6 +291,19 @@
     <button id="levelUndo" hidden title="Put the output levels of the last Apply back">Undo last Apply</button>
   </div>
 </section>
+<section id="lookPanel" hidden aria-label="Floor look">
+  <h2>Floor look</h2>
+  <p class="note">What Focus View shows on the Floor: the picture of each NAM capture and the background behind each
+    kind of block. Save writes these choices to a file. They go onto the Floor after the firmware install, with HX Edit
+    closed (about 16 minutes).</p>
+  <h3>Your captures on the Floor</h3>
+  <p class="note" id="lookSlotsNote"></p>
+  <div id="lookSlots"></div>
+  <h3>Backgrounds</h3>
+  <p class="note">The scene behind the gear picture, by the kind of block selected.</p>
+  <div id="lookBgButtons"><button id="lookReset" title="Back to the Floor tool's own choices">Use the defaults</button><span id="lookBgNote" class="note"></span></div>
+  <div id="lookScenes"></div>
+</section>
 <section id="optimizePanel" hidden aria-label="Optimized versions">
   <p id="optimizeInfo" role="status"></p>
   <span id="listen" hidden role="group" aria-label="Listen on this PC: the original against the Pedal version">Listen:
@@ -301,6 +360,7 @@
     <button id="save">Load on Floor</button>
   </div>
   <button id="catalog">Browse TONE3000</button>
+  <button id="lookSave" title="Write the pictures and backgrounds to the file the Floor's picture tool reads. Nothing changes on the Floor now.">Save for the Floor</button>
   <button id="finish">Close</button>
 </footer>
 <template id="gears">$gears</template>
@@ -320,6 +380,7 @@
   let optimizing = null, canOptimize = false, pedalBlock = false;   // pedalBlock: the Floor's firmware has NAM Pedal
   let listening = null;   // Optimize A/B on this PC: {id, which, running, playing, match, source, error}
   let leveling = null, canLevel = false, levelPage = false;
+  let look = null, lookPage = false, lookShown = '';   // the Floor look page (HX Unbound menu)
   const lighter = q('#lighter'), lightPanel = q('#light');
   const pct = value => value == null ? '—' : (100 * value).toFixed(2) + '%';
 
@@ -512,6 +573,7 @@
     renderLight();
     renderOptimize(capture);
     renderLevel();
+    renderLook();
   }
   // Level presets (PRODUCT-VISION "Level matching"): one output level for every preset and snapshot.
   // The editor measures (silently, a short DI at a guitar's level, once per group of snapshots that
@@ -984,6 +1046,7 @@
     return picture;
   }
   function openPicker(row) {
+    picker.classList.remove('wide');
     q('#pickerTitle').textContent = 'Icon for ' + row.name;
     const choose = ident => {
       row.icon = ident || row.iconAuto; row.iconChosen = !!ident;
@@ -1251,6 +1314,8 @@
     canLevel = data.can_level === true;
     leveling = data.level || null;
     levelPage = data.levelPage === true;
+    lookPage = data.lookPage === true;
+    look = data.look || null;
     optimizing = data.optimize || null;
     listening = data.listen || null;
     q('#status').textContent = q('#status').title = data.text || '';
@@ -1277,6 +1342,119 @@
     if (light?.result && selected == null && rows.some(row => row.id === light.result)) selected = light.result;
     render();
   };
+  // Floor look: each capture slot shows the picture its library capture has (chosen with the same picker as the
+  // library's Change icon, so a capture has one picture everywhere); a capture the library doesn't keep shows the one
+  // picked from its slot name. Backgrounds: one scene by default and one per kind of block.
+  function renderLook() {
+    document.body.classList.toggle('lookMode', lookPage);
+    q('#lookPanel').hidden = !lookPage;
+    if (!lookPage || !look) return;
+    q('#lookSlots').replaceChildren(...look.slots.map(slot => {
+      const row = slot.id ? rows.find(item => item.id === slot.id) : null;
+      const tile = document.createElement('button');
+      tile.className = 'lookSlot';
+      const where = document.createElement('span');
+      where.className = 'where'; where.textContent = 'User IR ' + slot.slot + (slot.version === 'pedal' ? ' · Pedal' : '');
+      const name = document.createElement('span');
+      name.className = 'name'; name.textContent = row ? row.name : slot.name;
+      tile.append(pictureOf(row ? row.icon : slot.icon), where, name);
+      tile.disabled = !row || busy;
+      tile.title = row ? 'Change the picture of ' + row.name : slot.name + ': not in your NAM library on this PC, so its ' +
+        'picture is picked from its name. Save it to your library to choose one.';
+      if (row) tile.onclick = () => openPicker(row);
+      return tile;
+    }));
+    q('#lookSlotsNote').textContent = look.slots.length ?
+      look.slots.length + (look.slots.length === 1 ? ' User IR slot holds' : ' User IR slots hold') +
+      ' a NAM capture. Click one to change its picture.' :
+      'No NAM captures seen on the Floor yet. Open the NAM library once with the Floor connected.';
+    q('#lookBgNote').textContent = look.chosen ? 'Your choices.' : "The Floor tool's defaults.";
+    q('#lookReset').disabled = !look.chosen || busy;
+    q('#lookSave').disabled = busy;
+    const shown = JSON.stringify([look.assign, look.scenes.map(scene => scene.id)]);
+    if (shown === lookShown) return;          // don't rebuild the menus under the pointer
+    lookShown = shown;
+    const byId = Object.fromEntries(look.scenes.map(scene => [scene.id, scene]));
+    const chosen = { default: look.assign.default, category: {} };
+    for (const [key] of look.categories) chosen.category[key] = look.assign.category[key] || look.assign.default;
+    const sendLook = () => host?.postMessage('lookAssign:' + JSON.stringify(chosen));
+    // Each kind of block is a card with its background; a click opens the gallery of every background.
+    const card = (label, key) => {
+      const value = () => key ? chosen.category[key] : chosen.default;
+      const box = document.createElement('button');
+      box.className = 'lookScene' + (key ? '' : ' main');
+      const stage = document.createElement('span');
+      stage.className = 'lookStage';
+      const picture = document.createElement('img');
+      picture.alt = ''; picture.className = 'bg';
+      const gear = document.createElement('img');
+      gear.alt = ''; gear.className = 'gear'; gear.src = look.gear?.[key || 'default'] || '';
+      gear.hidden = !gear.src;
+      stage.append(picture, gear);
+      const text = document.createElement('span');
+      text.className = 'label';
+      const name = document.createElement('b');
+      name.textContent = label;
+      const scene = document.createElement('span');
+      text.append(name, scene);
+      const starting = (key ? look.defaults?.category?.[key] : look.defaults?.default) || look.defaults?.default;
+      const show = () => {
+        picture.src = byId[value()]?.thumb || '';
+        scene.textContent = byId[value()]?.name || value();
+        const changed = !!starting && value() !== starting;
+        box.classList.toggle('changed', changed);
+        box.title = 'Background for ' + (key ? label + ' blocks' : 'every other block') + ': ' + scene.textContent +
+          (changed ? ' (changed from ' + (byId[starting]?.name || starting) + ')' : '') + '. Click to change it.';
+      };
+      show();
+      box.onclick = () => openScenes(key ? label + ' blocks' : 'Default (every other block)', value(), starting, id => {
+        if (key) chosen.category[key] = id; else chosen.default = id;
+        show(); sendLook();
+      });
+      box.append(stage, text);
+      return box;
+    };
+    q('#lookScenes').replaceChildren(card('Default', null), ...look.categories.map(([key, label]) => card(label, key)));
+  }
+  // The background gallery, in the picture picker's dialog.
+  function openScenes(title, current, starting, choose) {
+    q('#pickerTitle').textContent = 'Background for ' + title;
+    const parts = [];
+    for (const [scene, heading] of [[true, 'Scenes'], [false, 'Plain']]) {
+      const grid = document.createElement('div');
+      grid.className = 'scenes';
+      for (const item of look.scenes.filter(each => (each.group === 'scene') === scene)) {
+        const button = document.createElement('button');
+        button.className = 'scene';
+        button.setAttribute('aria-pressed', String(item.id === current));
+        const picture = document.createElement('img');
+        picture.alt = ''; picture.src = item.thumb || '';
+        const name = document.createElement('span');
+        name.textContent = item.name;
+        button.append(picture, name);
+        if (item.id === starting) {
+          button.classList.add('start');
+          const tag = document.createElement('span');
+          tag.className = 'tag'; tag.textContent = 'Default';
+          button.append(tag);
+          button.title = 'The starting background for these blocks. Click to put it back.';
+        }
+        button.onclick = () => { choose(item.id); closePicker(); };
+        grid.append(button);
+      }
+      const head = document.createElement('h3');
+      head.textContent = heading;
+      parts.push(head, grid);
+    }
+    pickerBody.replaceChildren(...parts);
+    picker.classList.add('wide');
+    if (picker.hidden) pickerReturn = document.activeElement;
+    picker.hidden = false;
+    host?.postMessage('dialog:open');
+    (pickerBody.querySelector('[aria-pressed="true"]') || pickerBody.querySelector('button'))?.focus();
+  }
+  q('#lookReset').onclick = () => { lookShown = ''; host?.postMessage('lookAssign:'); };
+  q('#lookSave').onclick = () => host?.postMessage('lookSave');
   host?.addEventListener?.('message', ({data}) => window.hxToneStatus(data));
   applyView(initialView);
   render();

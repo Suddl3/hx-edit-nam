@@ -30,7 +30,7 @@ from nam_sidebar import prepare_sidebar
 
 
 class DspMeter:
-    """on_choice(name): a choice from the HX Unbound menu button ('level', 'library'); the button is
+    """on_choice(name): a choice from the HX Unbound menu button ('level', 'look', 'library'); the button is
     shown only when given."""
 
     def __init__(self, *, exe=None, process_factory=subprocess.Popen, trace=None, on_choice=None,
@@ -69,7 +69,7 @@ class DspMeter:
         if self.on_choice and getattr(self.process, 'stdout', None) is not None:
             Thread(target=self._clicks, args=(self.process.stdout,), daemon=True).start()
 
-    CHOICES = ('level', 'library')
+    CHOICES = ('level', 'look', 'library')
 
     def _clicks(self, output):
         # The helper writes one line per choice from the HX Unbound menu.

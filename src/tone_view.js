@@ -442,7 +442,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       autoBindSelected();
       publishTarget(undefined, true); // Explicit reopen gets a fresh target snapshot.
       if (active.browserPid) allowForeground(active.browserPid);
-      send({ type: 'toneFocus', session: active.id, page: options.level ? 'level' : options.library ? 'library' : 'catalog' });
+      send({ type: 'toneFocus', session: active.id, page: options.level ? 'level' : options.look ? 'look' : options.library ? 'library' : 'catalog' });
       return true;
     }
     const panel = options.dockPanel || NULL;
@@ -457,7 +457,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       targetVersion: ++targetVersion, context: contextVersion, headless:!!options.headless };
     namView.setBrowserSessionActive?.(true);
     send({ type: 'toneStart', session: active.id, window: window.toUInt32(), bounds,
-      tile: tiles[0], profile: '', navigation: true, library: !!options.library, level: !!options.level,
+      tile: tiles[0], profile: '', navigation: true, library: !!options.library, level: !!options.level, look: !!options.look,
       headless:!!options.headless, libraryAction:options.libraryAction });
     autoBindSelected();
     publishTarget();

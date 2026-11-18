@@ -28,6 +28,10 @@ function installNamSidebar(namView) {
           // The Level button by the DSP meter: the Level page, docked where the library opens.
           const opened=toneView.openBrowser(window,{level:true,dockPanel:navigationBanner.dockPanel()});
           if (opened === false) send({type:'namSidebarResult',error:'Select a block in HX Edit, then press Level again.',busy:false});
+        } else if (value.action === 'look') {
+          // HX Unbound menu, Floor look: what Focus View shows on the Floor, in its own window.
+          const opened=toneView.openBrowser(window,{look:true,dockPanel:navigationBanner.dockPanel()});
+          if (opened === false) send({type:'namSidebarResult',error:'Select a block in HX Edit, then choose Floor look again.',busy:false});
         } else if (['load','use'].includes(value.action) && /^[a-f0-9]{64}$/.test(value.id || '')) {
           const opened=toneView.openBrowser(window,{headless:true,libraryAction:value.action+':'+value.id,
             dockPanel:navigationBanner.dockPanel()});

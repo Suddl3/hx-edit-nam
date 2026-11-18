@@ -204,7 +204,7 @@ class Library:
             slot_inventory = dict(self._slot_inventory)
             pending_slots = dict(self._pending_slots)
         for identity, entry in entries.items():
-            entry['canTrain'] = entry.get('format', '.nam') == '.nam'
+            entry['canTrain'] = entry.get('format', '.nam') == '.nam' or self.original_path(identity, entry) is not None
             versions = entry.get('versions')
             entry['versions'] = {key: dict(value, quality=version_quality(value.get('error')))
                                  for key, value in (versions.items() if isinstance(versions, dict) else ())
@@ -238,6 +238,50 @@ class Library:
         if source.is_symlink() or source.resolve().parent != self.folder.resolve():
             raise ValueError('Local capture path changed')
         return source, extension
+
+    def original_path(self, identity, entry=None):
+        """The capture's original .nam (what Optimize and lighter versions start from): a .nam entry's own file,
+        or the original attached to a kept WAV (attach_original). None when there is none."""
+        entry = self._read().get(identity) if entry is None else entry
+        if not isinstance(entry, dict):
+            return None
+        if entry.get('format', '.nam') == '.nam':
+            try:
+                return self._source(identity, entry)[0]
+            except ValueError:
+                return None
+        original = entry.get('original')
+        if not isinstance(original, str) or len(original) != 64 or any(c not in '0123456789abcdef' for c in original):
+            return None
+        path = self.folder / f'{original}.nam'
+        return path if path.is_file() and not path.is_symlink() else None
+
+    def attach_original(self, identity, capture):
+        """Keep the original .nam with a kept WAV (a capture known only as the Floor's copy), so it can be optimized
+        and made lighter. The entry keeps its identity, so its User IR slots still show. The caller checks it is the
+        same capture (its weights convert to this WAV's); the original file is kept unchanged."""
+        data = Path(capture).read_bytes()
+        original = sha256(data).hexdigest()
+        with self.lock:
+            entries = self._read(for_write=True)
+            entry = entries.get(identity)
+            if entry is None:
+                raise KeyError(identity)
+            if entry.get('format', '.nam') != '.wav':
+                raise ValueError('Only a kept WAV takes an original .nam')
+            if original in entries or any(other is not entry and other.get('original') == original
+                                          for other in entries.values() if isinstance(other, dict)):
+                raise ValueError('That .nam is already in the library')
+            self.folder.mkdir(parents=True, exist_ok=True)
+            target = self.folder / f'{original}.nam'
+            if not target.is_file():
+                temporary = target.with_name(target.name + '.part')
+                temporary.write_bytes(data)
+                temporary.replace(target)
+            entry['original'] = original
+            self._write(entries)
+        self._changed()
+        return original
 
     def register_payload(self, identity, wav):
         """Index a known conversion without changing the user's capture/catalog."""
@@ -505,8 +549,8 @@ class Library:
             entry = entries.get(identity)
             if entry is None:
                 raise KeyError(identity)
-            if entry.get('format', '.nam') != '.nam':
-                raise ValueError('Only a .nam capture can be optimized')
+            if self.original_path(identity, entry) is None:
+                raise ValueError('Only a capture with its original .nam can be optimized')
             self.folder.mkdir(parents=True, exist_ok=True)
             temporary = target.with_name(target.name + '.part')
             temporary.write_bytes(data)
@@ -545,9 +589,12 @@ class Library:
             entry = entries.pop(identity, None)
             if entry is not None:
                 source, _ = self._source(identity, entry)
+                original = self.original_path(identity, entry) if entry.get('format', '.nam') == '.wav' else None
                 # Catalog first: a failed write must not leave a record whose file is already gone.
                 self._write(entries)
                 source.unlink(missing_ok=True)
+                if original is not None:
+                    original.unlink(missing_ok=True)
                 for key in (entry.get('versions') or {}) if isinstance(entry.get('versions'), dict) else ():
                     if key in VERSIONS:
                         self.version_path(identity, key).unlink(missing_ok=True)
@@ -555,10 +602,16 @@ class Library:
                 self._view.update(selected=None, revision=self._view['revision'] + 1)
         self._changed()
 
-    def export(self, identity, directory):
-        """Copy a kept capture under its IR name so HX Edit shows a readable slot name."""
+    def export(self, identity, directory, original=False):
+        """Copy a kept capture under its IR name so HX Edit shows a readable slot name. original: its original .nam
+        instead (for training), also when the entry is a kept WAV with one attached."""
         entry = self.entries()[identity]
         source, extension = self._source(identity, entry)
+        expected = identity
+        if original and extension == '.wav':
+            source, extension, expected = self.original_path(identity, entry), '.nam', entry.get('original')
+            if source is None:
+                raise ValueError('This capture has no original .nam')
         name = entry.get('irName')
         if (not isinstance(name, str) or not name or name in ('.', '..') or
                 any(ord(c) < 32 or c in '<>:"/\\|?*' for c in name) or name != name.rstrip(' .')):
@@ -572,7 +625,7 @@ class Library:
             from floor_inventory import inspect_payload
             if inspect_payload(raw) != {'contentId': identity, 'kind': 'nam'}:
                 raise ValueError('Kept WAV no longer matches its library identity')
-        elif sha256(raw).hexdigest() != identity:
+        elif sha256(raw).hexdigest() != expected:
             raise ValueError('Kept NAM no longer matches its library identity')
         folder.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(raw)

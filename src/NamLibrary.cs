@@ -1222,6 +1222,7 @@ class UnboundButton : Form
     // Menu: (label, output) pairs; a null output is a section heading.
     public static readonly Tuple<string,string>[] Choices = {
         Tuple.Create("Level presets…", "level"),
+        Tuple.Create("Floor look…", "look"),
         Tuple.Create("NAM library…", "library"),
     };
     static readonly Color Back = Color.FromArgb(29, 29, 29), Face = Color.FromArgb(48, 48, 48), Hover = Color.FromArgb(66, 66, 66),
@@ -1471,7 +1472,7 @@ static class UnboundLook
 // one JSON line per change, {visible, x, y, w, h (parent client pixels), dsp: [{load, used, budget,
 // level} or null, ...], unbound}. No device, file or network access. Closing its input ends it.
 // With unbound it also shows the HX Unbound menu button at the start of that row (right of the
-// TONE3000 button); a menu choice writes its name ("level", "library") to its output, and
+// TONE3000 button); a menu choice writes its name ("level", "look", "library") to its output, and
 // dsp_meter.py opens that page.
 class DspMeter : Form
 {

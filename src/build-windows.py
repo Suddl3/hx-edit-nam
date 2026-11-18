@@ -30,7 +30,7 @@ APP_FILES = (
     'library_slot_state.js', 'automatic_slot_discovery.js', 'native_export_observer.js',
     'nav_resources.py', 'nav_banner.js', 'target_binding.js',
     'nam_sidebar.py', 'nam_sidebar.js', 'NamLibrary.cs', 'floor_memory.py', 'capture_icons.py',
-    'dsp_meter.py', 'dsp_meter.js', 'window_keep.js',
+    'dsp_meter.py', 'dsp_meter.js', 'window_keep.js', 'floor_store.py',
 )
 # Pictures the app's patches and the library read at run time (capture_icons, nam_catalog, nav_resources).
 ASSET_FOLDERS = ('nam_capture_icons', 'nam_category_icons', 'nav_images')

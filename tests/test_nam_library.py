@@ -97,6 +97,48 @@ class LibraryTests(unittest.TestCase):
             self.assertEqual(library.entries(), {})
             self.assertFalse(Path(folder, 'library', f'{first}.nam').exists())
 
+    def test_a_kept_wav_with_its_original_attached_can_be_trained_and_keeps_its_identity(self):
+        with tempfile.TemporaryDirectory() as folder:
+            library = Library(Path(folder, 'library'))
+            library.folder.mkdir()
+            identity = 'ab' * 32                                   # a Floor copy: identity = its payload's content id
+            Path(library.folder, identity + '.wav').write_bytes(b'RIFF floor copy')
+            library._write({identity: dict(name='Klon Gain=0', irName='Klon Gain=0', gear='pedal', format='.wav',
+                                           legacy=True)})
+            self.assertFalse(library.entries()[identity]['canTrain'])
+            with self.assertRaises(ValueError):
+                library.export(identity, Path(folder, 'out'), original=True)
+            original = Path(folder, 'Klon Gain=0.nam')
+            original.write_text('{"weights": [1]}', encoding='utf-8')
+            kept = library.attach_original(identity, original)
+            entry = library.entries()[identity]
+            self.assertTrue(entry['canTrain'])
+            self.assertEqual((list(library.entries()), entry['format'], entry['original']), ([identity], '.wav', kept))
+            exported = library.export(identity, Path(folder, 'out'), original=True)
+            self.assertEqual((exported.name, exported.read_bytes()), ('Klon Gain=0.nam', original.read_bytes()))
+            self.assertEqual(library.attach_original(identity, original), kept)   # again: no change
+            Path(library.folder, kept + '.nam').write_text('{"changed": 1}', encoding='utf-8')
+            with self.assertRaises(ValueError):
+                library.export(identity, Path(folder, 'again'), original=True)
+            library.remove(identity)
+            self.assertEqual(sorted(p.name for p in library.folder.iterdir() if p.suffix in ('.nam', '.wav')), [])
+
+    def test_an_original_already_kept_as_its_own_entry_is_not_attached_twice(self):
+        with tempfile.TemporaryDirectory() as folder:
+            library = Library(Path(folder, 'library'))
+            original = Path(folder, 'Mesa.nam')
+            original.write_text('{"weights": [2]}', encoding='utf-8')
+            own = library.add(original)
+            identity = 'cd' * 32
+            Path(library.folder, identity + '.wav').write_bytes(b'RIFF floor copy')
+            entries = library._read()
+            entries[identity] = dict(name='Mesa', irName='Mesa', format='.wav')
+            library._write(entries)
+            with self.assertRaises(ValueError):
+                library.attach_original(identity, original)
+            with self.assertRaises(ValueError):
+                library.attach_original(own, original)            # a .nam entry needs none
+
 
 if __name__ == '__main__':
     unittest.main()

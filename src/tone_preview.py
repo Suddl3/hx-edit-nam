@@ -119,6 +119,7 @@ class TonePreview:
         self.navigation_state = {}
         self.initial_library = False
         self.initial_level = False     # opened from the Level button: the Level page, not the library
+        self.initial_look = False      # opened from HX Unbound > Floor look: that page, not the library
         self.initial_action = None
         self.headless = False
         self.close_reason = None
@@ -229,7 +230,7 @@ class TonePreview:
         elif payload['type'] == 'toneFocus':
             if payload['session'] == self.session and self.browser:
                 self.browser.send('focus')
-                if payload.get('page') in ('library', 'catalog', 'level'):
+                if payload.get('page') in ('library', 'catalog', 'level', 'look'):
                     self.browser.actions.put(payload['page'])
             else:
                 self._abandon_if_gone(payload['session'])
@@ -262,7 +263,8 @@ class TonePreview:
                     self.navigation_state = {}
                     self.target_ready.clear()
                     self.initial_level = bool(payload.get('level'))
-                    self.initial_library = bool(payload.get('library')) or self.initial_level
+                    self.initial_look = bool(payload.get('look'))
+                    self.initial_library = bool(payload.get('library')) or self.initial_level or self.initial_look
                     self.initial_action = payload.get('libraryAction')
                     self.headless = bool(payload.get('headless'))
                     self.close_reason = None
@@ -467,6 +469,8 @@ class TonePreview:
         player = None        # nam_ab.Player, made at the first Listen
         leveling = None      # Level presets: a nam_level_flow.LevelFlow while the Level page has been opened
         level_page = False   # the page shows Level instead of the library
+        look_page = False    # the page shows the Floor look instead of the library
+        look_saved = None    # {path, at, slots}: the Floor look file written in this session
         tone_modes = {}  # TONE3000 tone ID -> the conversion chosen for it (nam_modes.MODES key)
         mode_now = None  # the conversion of the profile being auditioned
         taken = None     # every User IR slot taken: [slot, name] pairs to choose one to replace from
@@ -521,7 +525,8 @@ class TonePreview:
                          optimize=optimizing, can_optimize=self.optimize, pedal_block=self.pedal_block,
                          listen=listening,
                          level=leveling.view() if leveling else None, can_level=self.level,
-                         levelPage=level_page,
+                         levelPage=level_page, lookPage=look_page,
+                         look=look_view() if look_page else None,
                          can_install=self.navigation and bool(self.navigation_state.get('bound')) and
                          not self.navigation_state.get('preview') and not self.navigation_state.get('quarantined'))
 
@@ -753,7 +758,7 @@ class TonePreview:
             if layers not in nam_light.LAYERS:
                 raise ValueError(f'Unknown layer count: {layers}')
             folder = Path(tempfile.mkdtemp(prefix='light-', dir=self.workspace))
-            capture = self.library.export(identity, folder)
+            capture = self.library.export(identity, folder, original=True)
             suffix = f' L{layers}'
             output = folder / 'out' / (entry['irName'][:IR_NAME_LIMIT - len(suffix)].rstrip(' .') + suffix + '.nam')
             output.parent.mkdir()
@@ -780,7 +785,7 @@ class TonePreview:
                        'version once the Floor firmware has layer skipping.')
                 return
             folder = Path(tempfile.mkdtemp(prefix='optimize-', dir=self.workspace))
-            capture = self.library.export(identity, folder)
+            capture = self.library.export(identity, folder, original=True)
             output = folder / 'out' / 'version.wav'
             output.parent.mkdir()
             fitter = nam_optimize.fitter_path(self.converter)
@@ -834,7 +839,7 @@ class TonePreview:
             if which not in nam_ab.WHICH:
                 return
             entry = self.library.entries()[identity]
-            if 'pedal' not in (entry.get('versions') or {}) or entry.get('format', '.nam') != '.nam':
+            if 'pedal' not in (entry.get('versions') or {}) or not entry.get('canTrain'):
                 status('This capture has no Pedal version to compare yet. Optimize it first.')
                 return
             if listen_job is not None:
@@ -847,7 +852,7 @@ class TonePreview:
                 status('Listen needs a guitar to play through both: record your guitar on the Level page '
                        '(HX Unbound menu), or put NAM\'s v3 input file in Downloads.')
                 return
-            capture, _ = self.library._source(identity, entry)
+            capture = self.library.original_path(identity)
             version = self.library.version_path(identity, 'pedal')
             renders = listen_renders()
             key = nam_ab.cache_key(source, capture, version)
@@ -897,14 +902,62 @@ class TonePreview:
                 raise ToneError(reply['error'])
             return reply
 
+        def look_slots():
+            from floor_memory import FloorMemory
+            return {slot: {'name': name, 'contentId': content}
+                    for slot, name, content in FloorMemory(self.library.folder).slots()}
+
+        def look_view():
+            import floor_store
+            from nam_catalog import load_settings
+            return floor_store.view(look_slots(), self.library.payload_metadata(), load_settings().get('floorLook'),
+                                    look_saved)
+
+        def look_open():
+            # The Floor look page (HX Unbound menu): each capture slot's picture and the backgrounds, saved to the
+            # file the Floor's picture tool reads. Its own window, like Level.
+            nonlocal look_page, level_page, library
+            if not look_page:
+                browser.send('chrome', targetBar=False, title='Floor look · HX Unbound')
+                browser.send('presentation', mode='floating', focus=True)
+            look_page, level_page = True, False
+            if not library:
+                library = True
+                show_card()          # the page's library rows: a capture's picture is chosen on its library row
+            status('Floor look: the pictures and backgrounds Focus View shows. Save writes the file for the Floor.')
+
+        def look_assign(choice):
+            import floor_store
+            from nam_catalog import load_settings, save_setting
+            look = dict(load_settings().get('floorLook') or {})
+            if choice is None:
+                look.pop('assign', None)
+            else:
+                look['assign'] = floor_store.assignment(choice, [scene['id'] for scene in floor_store.scenes()])
+            save_setting('floorLook', look)
+            status('Backgrounds changed. Save to update the file for the Floor.' if choice is not None else
+                   'Backgrounds back to the defaults. Save to update the file for the Floor.')
+
+        def look_save():
+            nonlocal look_saved
+            import floor_store
+            from floor_memory import FloorMemory
+            from nam_catalog import load_settings
+            path, store = floor_store.write_for(self.library, FloorMemory(self.library.folder),
+                                                load_settings().get('floorLook'))
+            from datetime import datetime
+            look_saved = {'path': str(path), 'at': datetime.now().strftime('%H:%M'), 'slots': len(store['nam']['slots'])}
+            status(f'Saved for the Floor: {look_saved["slots"]} capture pictures and the backgrounds. It goes onto the '
+                   'Floor after the firmware install (HX Edit closed).')
+
         def level_open():
             # The Level page: the current preset, after putting right a measurement cut short. It is a
             # tool of its own (HX Unbound menu), so it opens in its own window without the NAM-block bar.
-            nonlocal leveling, level_page
+            nonlocal leveling, level_page, look_page
             if not level_page:
                 browser.send('chrome', targetBar=False, title='Level presets · HX Unbound')
                 browser.send('presentation', mode='floating', focus=True)
-            level_page = True
+            level_page, look_page = True, False
             from nam_level_flow import LevelFlow
             if leveling is None:
                 leveling = LevelFlow(level_command, lambda: browser.actions.put({'levelChanged': True}),
@@ -944,6 +997,11 @@ class TonePreview:
             else:
                 status(text)
 
+        if self.initial_look and self.library:     # opened from HX Unbound > Floor look
+            try:
+                look_open()
+            except (OSError, ValueError) as failure:
+                status(f'Floor look: {failure}')
         if self.initial_level and self.level:     # opened from the Level button
             try:
                 level_open()
@@ -1085,9 +1143,9 @@ class TonePreview:
                             status(KEY_HELP)
                             continue
                         library = command == 'library'
-                        if level_page:
+                        if level_page or look_page:
                             browser.send('chrome', targetBar=True, title='TONE3000 · HX Edit Unbound')
-                        level_page = False
+                        level_page = look_page = False
                         library_visibility()
                         show_card()
                     elif command == 'keep' and argument == str(trial):
@@ -1138,6 +1196,12 @@ class TonePreview:
                             player.stop()
                         listening['playing'] = None
                         status('Stopped.')
+                    elif command in ('look', 'lookOpen'):
+                        look_open()
+                    elif command == 'lookAssign':
+                        look_assign(json.loads(argument) if argument else None)
+                    elif command == 'lookSave':
+                        look_save()
                     elif command in ('level', 'levelOpen') and self.level:
                         try:
                             level_open()
