@@ -127,6 +127,11 @@ class NamSidebar:
         if isinstance(value, dict) and not self.closed.is_set():
             self.queue.put({'type': 'status', 'value': dict(value)})
 
+    def native_drag(self, identity):
+        """The library window started dragging a capture that is on the Floor (see _handle_action)."""
+        if not self.closed.is_set():
+            self.queue.put({'type': 'action', 'value': {'type': 'action', 'action': 'nativeDrag', 'contentId': identity}})
+
     def drop(self, identity, x, y):
         """A capture dragged from the library window onto HX Edit at (x, y): handled as a drop from
         this list, on the bridge's own thread (Use when it is on the Floor, else Load)."""
@@ -221,6 +226,11 @@ class NamSidebar:
                 self.send({'type': 'classificationResult', 'error': ''})
             except (OSError, ValueError, KeyError) as error:
                 self.send({'type': 'classificationResult', 'error': str(error)})
+            return
+        if action == 'nativeDrag':
+            # Dragging a capture that is on the Floor: HX Edit's own drop handling takes it from here.
+            if identity in self.library.entries():
+                self.script.post({'type': 'namSidebarAction', 'payload': {'action': 'nativeDrag', 'id': identity}})
             return
         if action not in ('load', 'select', 'drop'):
             return

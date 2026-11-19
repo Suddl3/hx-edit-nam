@@ -1,13 +1,14 @@
 'use strict';
 const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path'),assert=require('node:assert/strict');
 const root=path.join(__dirname,'..','src'), receivers=new Map(),queued=[],sent=[],opened=[];
-let sink,accept=true,blockResult='nam',blockReady=false;const made=[];
+let sink,accept=true,blockResult='nam',blockReady=false,nativeOk=true;const made=[],started=[],taken=new Set();
 const window={toUInt32:()=>0xffffffff};
 const namView={setSidebarSink:fn=>sink=fn,queueSidebarAction:fn=>{if(!accept)return false;queued.push(fn);return true;},
   resizeSidebarFromChild:width=>width===400,openExpandedLibrary:hwnd=>opened.push(['expand',hwnd]),setSidebarChildReady:()=>{}};
 const context=vm.createContext({send:value=>sent.push(value),recv:(kind,fn)=>receivers.set(kind,fn),
   toneView:{openBrowser:(hwnd,options)=>{opened.push([hwnd,options]);return true;},
-    makeNamBlock:gear=>{made.push(gear);return blockResult;},selectedIsNam:()=>blockReady},navigationBanner:{dockPanel:()=>42}});
+    makeNamBlock:gear=>{made.push(gear);return blockResult;},selectedIsNam:()=>blockReady,
+    startChainDrag:id=>{started.push(id);return nativeOk;},chainDragTook:id=>taken.delete(id)},navigationBanner:{dockPanel:()=>42}});
 vm.runInContext(fs.readFileSync(path.join(root,'nam_sidebar.js'),'utf8'),context,{timeout:1000});
 context.installNamSidebar(namView);
 sink({visible:true},window);sink({visible:true},window);
@@ -62,6 +63,15 @@ assert.equal(sent.at(-1).type,'namSidebarResult');assert.equal(sent.at(-1).busy,
   drop={state:'pending',posted:Date.now()-5000};run();
   assert.match(sent.at(-1).error,/did not take the drop/);assert.equal(sent.at(-1).busy,false);
   action({action:'drop',id:'nope',x:10,y:5,mode:'use'});assert.equal(drop.state,'none','a malformed drop does nothing');
+  // A capture on the Floor: HX Edit's own drop handling runs the drag, and the panel's drop on release is skipped.
+  action({action:'nativeDrag',id:identity});
+  assert.deepEqual(started,[identity]);
+  taken.add(identity);sent.length=0;let clicks=0;const click=namView.clickChain;namView.clickChain=(x,y)=>{clicks++;return click(x,y);};
+  action({action:'drop',id:identity,x:10,y:5,mode:'use'});
+  assert.equal(clicks,0,'no click: HX Edit already dropped it');assert.equal(sent.at(-1).busy,false);
+  action({action:'drop',id:identity,x:10,y:5,mode:'use'});
+  assert.equal(clicks,1,'without a native drag the panel drops as before');
+  namView.clickChain=click;run();
 }
 
 const source=fs.readFileSync(path.join(root,'nam_view.js'),'utf8');

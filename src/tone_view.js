@@ -1360,6 +1360,112 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   }
   try { installDropReplace(); } catch (error) { send({type: 'toneTrace', reason: 'drop-replace', stage: 'skipped', error: String(error.message)}); }
 
+  // --- A capture dragged from the NAM tab or the library, through HX Edit's own drop handling ---
+  // For a capture on the Floor, the drag behaves as one from HX Edit's IR list: the same zones,
+  // sliding preview, replace zone and Undo. HX Edit's window-level drag functions are driven
+  // directly (no OLE; research/ir-list-re/FINDINGS-drag.md, "D3") with an 'lbir' payload (the slot's
+  // row): over 0x38af00(W; sameSource, POINT* client, mods, dd, allowed, DropInfo*) while the button is
+  // down, then drop 0x38ae50(W; sameSource, POINT*, Item*, DropInfo*) or leave 0x38aec0(W; sameSource,
+  // dd). They run from a Win32 timer callback, not from inside a hook, so the replace-zone hooks above
+  // see them. The pointer comes from GetCursorPos: the drag's own window keeps the mouse meanwhile.
+  const chainDragGuards = {
+    '3b8bf0': '53568bd9578b7b548bb7b400000085f6', '38af00': '558bec8b451c83ec105356578bf9c700',
+    '38ae50': '558bec83ec1032c056578bf98bb78400', '38aec0': '558bec568bf18b968400000085d27428',
+    '3776a0': '558bec538bd956578b7d088b3385f674', '377740': '558bec83ec088bc1538945f88b1885db',
+  };
+  let chainDrag = null;              // {timer, window, dd, point, info, slot}
+  let chainDragTaken = null;         // {identity, at}: this drag's release is HX Edit's, not the panel's drop
+  const chainDragApi = (() => {
+    try {
+      if (!profile.navigation || !guardsMatch(chainDragGuards)) return null;
+      const user32 = Process.getModuleByName('user32.dll');
+      const api = (name, ret, args) => new NativeFunction(user32.getExportByName(name), ret, args, 'stdcall');
+      return {
+        windowOf: new NativeFunction(base.add(0x3b8bf0), 'pointer', ['pointer'], 'thiscall'),
+        over: new NativeFunction(base.add(0x38af00), 'int', ['pointer', 'int', 'pointer', 'int', 'pointer', 'int', 'pointer'], 'thiscall'),
+        drop: new NativeFunction(base.add(0x38ae50), 'int', ['pointer', 'int', 'pointer', 'pointer', 'pointer'], 'thiscall'),
+        leave: new NativeFunction(base.add(0x38aec0), 'int', ['pointer', 'int', 'pointer'], 'thiscall'),
+        add: new NativeFunction(base.add(0x3776a0), 'pointer', ['pointer', 'uint', 'pointer', 'uint', 'int', 'uint'], 'thiscall'),
+        clear: new NativeFunction(base.add(0x377740), 'void', ['pointer'], 'thiscall'),
+        find: new NativeFunction(base.add(0x3777f0), 'pointer', ['pointer', 'uint'], 'thiscall'),
+        setTimer: api('SetTimer', 'uint', ['pointer', 'uint', 'uint', 'pointer']),
+        killTimer: api('KillTimer', 'int', ['pointer', 'uint']),
+        keyState: api('GetAsyncKeyState', 'int16', ['int']),
+      };
+    } catch (_) { return null; }
+  })();
+  const chainDragTick = chainDragApi && new NativeCallback(() => {
+    // UI thread, from the message loop (WM_TIMER), outside any hook.
+    const drag = chainDrag;
+    if (!drag) return;
+    const native = chainDragApi;
+    try {
+      const at = namView.cursorInWindow();
+      if (at) { drag.point.writeS32(at.x); drag.point.add(4).writeS32(at.y); }
+      const escape = (native.keyState(0x1b) & 0x8000) !== 0, down = (native.keyState(0x01) & 0x8000) !== 0;
+      if (down && !escape && Date.now() < drag.until) {
+        if (at) { drag.info.writeU64(0); native.over(drag.window, 0, drag.point, 0, drag.dd, 3, drag.info); drag.hovered = true; }
+        return;
+      }
+      endChainDrag(!escape && drag.hovered);
+    } catch (error) {
+      send({type: 'toneTrace', reason: 'chain-drag', stage: 'tick-failed', error: String(error.message)});
+      endChainDrag(false);
+    }
+  }, 'void', ['pointer', 'uint', 'uint', 'uint'], 'stdcall');
+  function endChainDrag(dropIt) {
+    const drag = chainDrag, native = chainDragApi;
+    if (!drag) return;
+    chainDrag = null;
+    try { native.killTimer(NULL, drag.timer); } catch (_) { /* gone with the window */ }
+    try {
+      const effect = drag.info.readU8();
+      if (dropIt && (effect === 1 || effect === 2)) {
+        const entry = native.find(drag.dd, drag.info.add(4).readU32());
+        if (!entry.isNull()) native.drop(drag.window, 0, drag.point, entry, drag.info);
+        else native.leave(drag.window, 0, drag.dd);
+        send({type: 'toneTrace', reason: 'chain-drag', stage: 'dropped', slot: drag.slot, effect});
+      } else {
+        native.leave(drag.window, 0, drag.dd);
+        if (!dropIt) namView.clearIrPick?.();
+        send({type: 'toneTrace', reason: 'chain-drag', stage: 'left', slot: drag.slot});
+      }
+      drag.window.add(0x84).writePointer(NULL);   // no drop target left over
+    } catch (error) {
+      send({type: 'toneTrace', reason: 'chain-drag', stage: 'end-failed', error: String(error.message)});
+    } finally {
+      try { native.clear(drag.dd); } catch (_) { /* freed with the drag */ }
+    }
+  }
+  function startChainDrag(identity) {
+    // UI thread (a queued sidebar action). false: not possible here (the caller drops the old way).
+    if (!chainDragApi || chainDrag || !profile.namCategory) return false;
+    const slot = namView.verifiedCaptureSlot(identity);
+    if (!Number.isInteger(slot) || slot < 1 || slot >= AUDITION_SLOT || !namView.isNamSlot(slot)) return false;
+    const panel = namView.chainPanel?.();
+    if (!panel || panel.isNull()) return false;
+    const window = chainDragApi.windowOf(panel);
+    if (window.isNull() || (chainDragApi.keyState(0x01) & 0x8000) === 0) return false;
+    const dd = Memory.alloc(4), row = Memory.alloc(4);
+    dd.writePointer(NULL); row.writeU32(slot - 1);
+    chainDragApi.add(dd, LBIR, row, 4, 0, 0);
+    const timer = chainDragApi.setTimer(NULL, 0, 15, chainDragTick);
+    if (!timer) { chainDragApi.clear(dd); return false; }
+    namView.setIrPick(slot);
+    chainDrag = {timer, window, dd, row, slot, point: Memory.alloc(8), info: Memory.alloc(8), hovered: false,
+                 until: Date.now() + 60000};
+    chainDragTaken = {identity, at: Date.now()};
+    send({type: 'toneTrace', reason: 'chain-drag', stage: 'started', slot});
+    return true;
+  }
+  function chainDragTook(identity) {
+    // The panel's drop for this capture is already done by HX Edit's own drop handling.
+    const taken = chainDragTaken;
+    chainDragTaken = null;
+    return !!taken && taken.identity === identity && Date.now() - taken.at < 120000;
+  }
+
+
   function selectedIsNam() {
     // The block now selected is a NAM block and HX Edit shows its Model control.
     try {
@@ -3442,5 +3548,5 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     });
   }
   listen();
-  return { openBrowser, makeNamBlock, selectedIsNam };
+  return { openBrowser, makeNamBlock, selectedIsNam, startChainDrag, chainDragTook };
 }

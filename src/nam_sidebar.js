@@ -32,8 +32,12 @@ function installNamSidebar(namView) {
           // HX Unbound menu, Floor look: what Focus View shows on the Floor, in its own window.
           const opened=toneView.openBrowser(window,{look:true,dockPanel:navigationBanner.dockPanel()});
           if (opened === false) send({type:'namSidebarResult',error:'Select a block in HX Edit, then choose Floor look again.',busy:false});
+        } else if (value.action === 'nativeDrag' && /^[a-f0-9]{64}$/.test(value.id || '')) {
+          // A capture on the Floor: HX Edit's own drop handling runs the drag (tone_view startChainDrag).
+          if (!toneView.startChainDrag?.(value.id)) send({type:'toneTrace',reason:'chain-drag',stage:'not-started'});
         } else if (value.action === 'drop' && /^[a-f0-9]{64}$/.test(value.id || '') && ['load','use'].includes(value.mode)
             && Number.isInteger(value.x) && Number.isInteger(value.y)) {
+          if (toneView.chainDragTook?.(value.id)) { send({type:'namSidebarResult',text:'',busy:false}); return; }
           // A capture dropped from the NAM tab: click the block under it, then Use / Load there.
           if (!namView.clickChain(value.x, value.y))
             send({type:'namSidebarResult',error:'Drop the capture on a block in the signal chain.',busy:false});

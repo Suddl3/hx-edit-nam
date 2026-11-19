@@ -190,6 +190,12 @@ class SidebarBridgeTests(unittest.TestCase):
                 bridge.drop(identity, 30, 40)
                 bridge.drop('f' * 64, 1, 2)                         # not in the library: nothing
                 bridge.queue = worker_queue
+                # A capture on the Floor: the drag goes to HX Edit's own drop handling, busy untouched.
+                posted.clear(); bridge.operation_busy = False
+                bridge._handle_action({'type': 'action', 'action': 'nativeDrag', 'contentId': identity})
+                bridge._handle_action({'type': 'action', 'action': 'nativeDrag', 'contentId': 'f' * 64})
+                self.assertEqual(posted, [{'type': 'namSidebarAction', 'payload': {'action': 'nativeDrag', 'id': identity}}])
+                self.assertFalse(bridge.operation_busy)
                 drops = [event['value'] for event in queued if event.get('type') == 'action']
                 self.assertEqual([(d['contentId'], d['x'], d['y'], d['installed']) for d in drops],
                                  [(identity, 30, 40, False)])

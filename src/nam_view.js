@@ -1889,6 +1889,19 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     // A NAM slot pressed in the IR list within the last ten seconds ({slot, at}), else null.
     irPick() { return irPick && Date.now() - irPick.at < 10000 ? irPick : null; },
     clearIrPick() { irPick = null; },
+    // A drag of a capture that is on the Floor, run through HX Edit's own drop handling: its slot
+    // counts as picked, so an IR block it makes becomes a NAM block (tone_view convertIrPick).
+    setIrPick(slot) { irPick = Number.isInteger(slot) && Object.hasOwn(profiles, slot) ? {slot, at: Date.now()} : null; },
+    // A widget of the editor's chain (for HX Edit's window object), or NULL.
+    chainPanel() {
+      const view = sidebar();
+      return view ? canonical(findWidget(view.editor, chainIds[0], 1)) : NULL;
+    },
+    // Main-window client coordinates of the pointer, or null.
+    cursorInWindow() {
+      if (sidebarHost.isNull() || !getCursorPos(cursorPoint) || !screenToClient(sidebarHost, cursorPoint)) return null;
+      return {x: cursorPoint.readS32(), y: cursorPoint.add(4).readS32()};
+    },
     setSidebarChildReady(value) { sidebarChildReady = value === true; sidebarChildFailed = !sidebarChildReady; },
     queueSidebarAction(callback) {
       if (typeof callback !== 'function' || sidebarActions.length >= 8) return false;

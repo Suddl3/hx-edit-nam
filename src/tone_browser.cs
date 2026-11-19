@@ -98,6 +98,10 @@ sealed class ToneBrowser : Form
         if ((Control.MouseButtons & MouseButtons.Left) == 0) return;      // released before the message arrived
         dragId = (string)id;
         dragPicture = new DragPicture(name as string ?? "", DecodePicture(icon as string));
+        object installed;
+        // On the Floor: HX Edit's own drop handling runs the drag (its zones and preview); the drop
+        // sent on release is then skipped by the editor.
+        if (value.TryGetValue("installed", out installed) && installed is bool && (bool)installed) SendAction("nativeDrag:" + dragId);
         dragTimer.Start(); TrackDrag();
     }
     static Image DecodePicture(string uri) {

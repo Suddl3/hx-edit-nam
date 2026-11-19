@@ -479,7 +479,8 @@
         stop();
         getSelection()?.removeAllRanges();
         selected = row.id; render(); publishView();
-        host?.postMessage('dragStart:' + JSON.stringify({ id: row.id, name: row.name, icon: icons[row.icon] || '' }));
+        host?.postMessage('dragStart:' + JSON.stringify({ id: row.id, name: row.name, icon: icons[row.icon] || '',
+          installed: (row.irSlots || []).length > 0 }));
       };
       const stop = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', stop); };
       addEventListener('pointermove', move); addEventListener('pointerup', stop);

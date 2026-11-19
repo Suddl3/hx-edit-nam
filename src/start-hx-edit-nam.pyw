@@ -215,6 +215,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             sidebar = NamSidebar(script, library, detached, action_handler=sidebar_action, trace=trace)
             preview.sidebar_status = sidebar.status
             preview.drop_handler = sidebar.drop       # the library window's drag onto the chain
+            preview.native_drag_handler = sidebar.native_drag
             from dsp_meter import DspMeter
             # The HX Unbound menu button (beside the TONE3000 button): Level presets (in builds that have
             # them), the Floor look and the NAM library.

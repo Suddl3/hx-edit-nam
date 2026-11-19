@@ -530,6 +530,8 @@ class NamLibrary : Form
         string reason=DropReason(row,waiting,busy,loadConfirmation.Pending);
         if(reason.Length>0){status.Text=reason;noticeUntil=resizeClock.ElapsedMilliseconds+6000;return;}
         dragRow=row;ghost=new DropGhost(CaptureTitle(row),GearIcon(TextOf(row,"icon")));table.Capture=true;dragTimer.Start();TrackDrag();
+        // On the Floor: HX Edit's own drop handling runs the drag; the drop sent on release is then skipped.
+        if(TextOf(row,"deviceStatus")=="verified")output.WriteLine(json.Serialize(new{type="action",action="nativeDrag",contentId=TextOf(row,"contentId")}));
     }
     bool OverChain(int x,int y){foreach(var area in chain)if(area.Contains(x,y))return true;return false;}
     void TrackDrag(){
