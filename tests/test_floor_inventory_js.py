@@ -570,6 +570,7 @@ const libraryReady=()=>onUI,irList=()=>listAvailable?list:nil;
 const discoveryCount=()=>{snapshotReads++;return 128;};
 const getIrRow=(_list,index)=>{rowReads++;return rows[index];};
 const emitInventory=()=>events.push({type:'inventory',entries:slotLedger.displayEntries()});
+const markIrRows=()=>{};   // the IR list marks (not under test here)
 const hasActiveModel=()=>false,rebuildModelMenu=()=>assert.fail('no active model'),refreshDisplayedModelName=()=>{};
 const selectedSlot=()=>0,profileLabel=slot=>labelPrefix+slot;
 const clearRows=()=>{clearCount++;drawn=[];flushInventoryPresentation();}; // Native re-entry must be harmless.

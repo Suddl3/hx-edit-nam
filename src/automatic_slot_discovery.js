@@ -168,7 +168,11 @@ function installAutomaticSlotDiscovery(namView, observer, options={}) {
   const post=fn('PostMessageW','int',['pointer','uint','uint','uint']);
   const wake=fn('RegisterWindowMessageW','uint',['pointer'])(Memory.allocUtf16String('HX NAM slot discovery'));
   const activeWindow=fn('GetActiveWindow','pointer',[]);
-  let window=ptr(0),lastStatus='',running=false,wakePosted=false;
+  // wakeAt: when the last wake was posted (0: none outstanding). HX Edit's own IR-list drag runs a
+  // message loop that drops other posted messages: a lost wake left the check waiting for good
+  // (Floor, November 18), so an unanswered wake is posted again after WAKE_RETRY.
+  const WAKE_RETRY=1000;
+  let window=ptr(0),lastStatus='',running=false,wakeAt=0;
   const coordinator=createAutomaticSlotDiscovery({now:()=>Date.now(),recallOnConnect:options.recallOnConnect!==false,
     status:value=>{const text=JSON.stringify(value);if(text!==lastStatus){lastStatus=text;namView.setDiscoveryStatus(value.state,value.checked);send({type:'automaticSlotStatus',...value});}},
     prepare:value=>send({type:'automaticSlotPrepare',...value}),
@@ -184,7 +188,7 @@ function installAutomaticSlotDiscovery(namView, observer, options={}) {
       const hwnd=args[0].readPointer();
       if(window.isNull() && !hwnd.isNull() && hwnd.equals(activeWindow()))window=hwnd;
       this.run=!window.isNull() && hwnd.equals(window) && args[0].add(4).readU32()===wake;
-      if(this.run)wakePosted=false;
+      if(this.run)wakeAt=0;
     },
     onLeave(){
       if(!this.run || running)return;
@@ -205,9 +209,9 @@ function installAutomaticSlotDiscovery(namView, observer, options={}) {
     }
   });
   const timer=setInterval(()=>{
-    if(!window.isNull() && !wakePosted &&
+    if(!window.isNull() && (wakeAt===0 || Date.now()-wakeAt>=WAKE_RETRY) &&
         (coordinator.needsWake() || namView.needsInventoryPresentation?.()))
-      wakePosted=post(window,wake,0,0)!==0;
+      wakeAt=post(window,wake,0,0)!==0?Date.now():0;
   },250);
   function prepared(){recv('automaticSlotPrepared',message=>{coordinator.prepared(message.payload);prepared();});}
   function result(){recv('automaticSlotResult',message=>{coordinator.result(message.payload);result();});}

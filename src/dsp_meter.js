@@ -14,6 +14,8 @@ const dspMeterGuards = Object.freeze({
 // FINDINGS, "Per-DSP budget"), so blocks may use 75 of a DSP's 100: the Floor's own DSP meter
 // shows "used/75". The reported load includes the 15 base.
 const DSP_BASE = 15, DSP_BUDGET = 75;
+// The latest views ({load, used, budget, level} or null per DSP), for checking room before adding a block.
+let dspLoadsNow = [null, null];
 
 function dspMeterView(load) {
   if (typeof load !== 'number' || !Number.isFinite(load) || load < 0) return null;
@@ -61,6 +63,7 @@ function installDspMeter(options = {}) {
       loads = [-1, -1];
     }
     const views = loads.map(dspMeterView);
+    dspLoadsNow = views;
     const key = JSON.stringify(views);
     if (key === last) return;
     last = key;

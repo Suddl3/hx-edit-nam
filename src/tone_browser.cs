@@ -40,6 +40,103 @@ sealed class ToneBrowser : Form
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int w, int h, uint flags);
 
+    // Drag a capture from the library page onto HX Edit's signal chain. The page says which capture
+    // ("dragStart:" + {id, name, icon}); this window follows the pointer with the capture's picture
+    // until the button is released, then sends "drop:<id>:<x>:<y>" in HX Edit's client coordinates
+    // when that is outside this window. The editor script checks the point is on the chain.
+    [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT point);
+    [DllImport("user32.dll")] static extern bool ScreenToClient(IntPtr hwnd, ref POINT point);
+    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int key);
+    [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+    struct POINT { public int X, Y; }
+    struct RECT { public int Left, Top, Right, Bottom; }
+    readonly Timer dragTimer = new Timer { Interval = 30 };
+    string dragId;
+    DragPicture dragPicture;
+
+    sealed class DragPicture : Form {
+        const int Picture = 64, LabelWidth = 220, LabelHeight = 22;
+        static readonly Color Key = Color.FromArgb(1, 2, 3);
+        readonly string name;
+        readonly Image icon;
+        public DragPicture(string name, Image icon) {
+            this.name = name; this.icon = icon; FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false;
+            StartPosition = FormStartPosition.Manual; TopMost = true; BackColor = Key; TransparencyKey = Key;
+            ForeColor = Color.Gainsboro; Font = new Font("Segoe UI", 8.25f, FontStyle.Bold); AutoScaleMode = AutoScaleMode.None;
+            Opacity = 0.95; Size = new Size(LabelWidth, Picture + 4 + LabelHeight); DoubleBuffered = true;
+        }
+        protected override bool ShowWithoutActivation { get { return true; } }
+        protected override CreateParams CreateParams { get {
+            var settings = base.CreateParams; settings.ExStyle |= 0x08000000 | 0x80 | 0x20; return settings; } }
+        public void Track(int x, int y) {
+            Location = new Point(x - LabelWidth / 2, y - Picture / 2);   // the picture's centre is the pointer
+            if (!Visible) Show();
+        }
+        protected override void OnPaint(PaintEventArgs args) {
+            var g = args.Graphics;
+            var picture = new Rectangle((Width - Picture) / 2, 0, Picture, Picture);
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            if (icon != null) g.DrawImage(icon, picture);
+            else using (var brush = new SolidBrush(Color.FromArgb(60, 60, 60))) g.FillRectangle(brush, picture);
+            var label = new Rectangle(0, Picture + 4, Width, LabelHeight);
+            using (var brush = new SolidBrush(Color.FromArgb(32, 32, 32))) g.FillRectangle(brush, label);
+            using (var pen = new Pen(Color.FromArgb(170, 84, 158))) g.DrawRectangle(pen, label.X, label.Y, label.Width - 1, label.Height - 1);
+            TextRenderer.DrawText(g, name, Font, new Rectangle(6, label.Y + 3, Width - 12, 16), ForeColor,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis);
+        }
+        protected override void Dispose(bool disposing) { if (disposing && icon != null) icon.Dispose(); base.Dispose(disposing); }
+    }
+
+    void StartDrag(string payload) {
+        EndDrag();
+        Dictionary<string, object> value;
+        try { value = json.Deserialize<Dictionary<string, object>>(payload); } catch (ArgumentException) { return; }
+        if (value == null) return;
+        object id, name, icon;
+        value.TryGetValue("id", out id); value.TryGetValue("name", out name); value.TryGetValue("icon", out icon);
+        if (!(id is string) || !Regex.IsMatch((string)id, "^[a-f0-9]{64}$")) return;
+        if ((Control.MouseButtons & MouseButtons.Left) == 0) return;      // released before the message arrived
+        dragId = (string)id;
+        dragPicture = new DragPicture(name as string ?? "", DecodePicture(icon as string));
+        dragTimer.Start(); TrackDrag();
+    }
+    static Image DecodePicture(string uri) {
+        const string prefix = "data:image/png;base64,";
+        if (uri == null || !uri.StartsWith(prefix, StringComparison.Ordinal) || uri.Length > 2 * 1024 * 1024) return null;
+        try {
+            using (var stream = new MemoryStream(Convert.FromBase64String(uri.Substring(prefix.Length))))
+            using (var image = Image.FromStream(stream)) return new Bitmap(image);
+        } catch (Exception) { return null; }
+    }
+    void TrackDrag() {
+        if (dragId == null) { dragTimer.Stop(); return; }
+        POINT screen; GetCursorPos(out screen);
+        if ((GetAsyncKeyState(0x1B) & 0x8000) != 0) { EndDrag(); return; }   // Esc: cancelled
+        if ((Control.MouseButtons & MouseButtons.Left) == 0) {
+            var id = dragId; EndDrag();
+            if (OverThisWindow(screen)) return;                            // let go on the library itself
+            var editor = GetAncestor(parent, 2);                            // HX Edit's main window
+            if (!IsWindow(editor)) return;
+            var client = screen; ScreenToClient(editor, ref client);
+            SendAction("drop:" + id + ":" + client.X.ToString(CultureInfo.InvariantCulture) + ":" +
+                client.Y.ToString(CultureInfo.InvariantCulture));
+            return;
+        }
+        Cursor.Current = OverThisWindow(screen) ? Cursors.No : Cursors.Default;
+        dragPicture.Track(screen.X, screen.Y);
+    }
+    bool OverThisWindow(POINT screen) {
+        // Docked, this pane is one panel of HX Edit; popped out, the whole floating window.
+        var window = windowMode == WindowMode.Floating && floatingHost != null ? floatingHost.Handle : Handle;
+        RECT rect;
+        return GetWindowRect(window, out rect) && screen.X >= rect.Left && screen.X < rect.Right &&
+            screen.Y >= rect.Top && screen.Y < rect.Bottom;
+    }
+    void EndDrag() {
+        dragId = null; dragTimer.Stop(); Cursor.Current = Cursors.Default;
+        if (dragPicture != null) { dragPicture.Close(); dragPicture.Dispose(); dragPicture = null; }
+    }
+
     readonly IntPtr parent;
     readonly string profile;
     readonly TextWriter output;
@@ -225,7 +322,9 @@ sealed class ToneBrowser : Form
         browser.KeyDown += HandlePreviewEscape;
         details.KeyDown += HandlePreviewEscape;
         timer.Tick += (sender, args) => LayoutPane();
+        dragTimer.Tick += (sender, args) => TrackDrag();
         FormClosing += (sender, args) => {
+            EndDrag();
             if (closing) return;
             closing = true;
             timer.Stop();
@@ -351,6 +450,7 @@ sealed class ToneBrowser : Form
     void HandleCardAction(string action)
     {
         if (action == null) return;
+        if (action.StartsWith("dragStart:", StringComparison.Ordinal)) { StartDrag(action.Substring(10)); return; }
         if (action == "dialog:open" || action == "dialog:closed") cardDialog = action == "dialog:open";
         else if (action == EscapeMessage) RequestCancel("escape");
         else if (action == "finish") RequestCancel("close-button");

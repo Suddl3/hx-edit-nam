@@ -460,18 +460,119 @@ class NavigationNativeTests(unittest.TestCase):
             const active={targetVersion:3,tile:{block:'NAM A2 Lite'}};
             const atTarget=()=>!stale,undoIndex=()=>undo,poll=(_r,cb)=>next=cb,captureTarget=()=>{};
             const namView={modelSlot:()=>selected,setSlot:n=>{calls.push(n);selected=n;undo++;return true;},slotName:()=> 'Demo'};
+            const profile={namCategory:true},locks=[],setLockState=(_c,state,why)=>locks.push([state,why]);const checks=[],checkCaptureLater=(_c,slot)=>checks.push(slot);
             let result=null,error=null;
         ''' + function('applyPermanent') + '''
             try{applyPermanent({targetVersion:3},7,null);result=next(false);}catch(e){error=e.message;}
-            return{calls,result,error,knobs};
+            return{calls,result,error,knobs,locks,checks};
           }
           console.log(JSON.stringify([scenario(false),scenario(true)]));
         ''')
         self.assertEqual(result[0]['result'], {'usedSlot': 7})
         self.assertEqual(result[0]['calls'], [7])
         self.assertEqual(result[1]['calls'], [])
+        # A library capture put on the block locks its Model, as a NAM category pick does.
+        self.assertEqual((result[0]['locks'], result[1]['locks']), ([['locked', 'library']], []))
+        self.assertEqual((result[0]['checks'], result[1]['checks']), ([7], []))   # read back after it settles
         for state in result:
             self.assertEqual(state['knobs'], {'Input': 6, 'Bass': 4.5})
+    def test_an_ir_block_on_a_nam_slot_from_the_ir_list_becomes_a_nam_block(self):
+        # A NAM slot dragged (or double-clicked) from HX Edit's IR list gives the block an IR model.
+        result = js('''
+          function scenario(seen, pickSlot) {
+            let pick=pickSlot?{slot:pickSlot,at:Date.now()}:null,pendingCapture=null,made=[],traces=[];
+            const active=null,command=null,workflowRequest=null,toneImport=null,NULL={isNull:()=>true};
+            const controller={isNull:()=>false,add:o=>({readS32:()=>1,readPointer:()=>'editor'})};
+            const cursorController=()=>controller,block=()=>'block3',send=v=>traces.push(v.stage);
+            const targetBinding={peekModel:()=>seen};
+            const namView={irPick:()=>pick,clearIrPick:()=>{pick=null;},
+              installedCaptures:()=>[{slot:21,gear:'pedal'}]};
+            const makeNamBlock=(gear,options)=>{made.push(gear);return 'adding';};let roomCheckedFor=null;
+            const IR_MODELS=new Set(['HD2_ImpulseResponse1024','HD2_ImpulseResponse2048']);let irCheckAt=0;
+        ''' + function('convertIrPick') + '''
+            convertIrPick();
+            return {made,pending:pendingCapture&&pendingCapture.slot,picked:!!pick,traces};
+          }
+          console.log(JSON.stringify([
+            scenario({model:'HD2_ImpulseResponse1024',index:21},21),
+            scenario({model:'HD2_ImpulseResponse2048',index:5},21),
+            scenario({model:'HD2_AmpNAMLite',index:21},21),
+            scenario({model:'HD2_ImpulseResponse1024',index:21},null)]));
+        ''')
+        self.assertEqual(result[0], {'made': ['pedal'], 'pending': 21, 'picked': False, 'traces': ['adding-block']})
+        for other in result[1:]:                      # another slot, already NAM, nothing pressed
+            self.assertEqual((other['made'], other['pending']), ([], None))
+        self.assertTrue(result[1]['picked'] and result[2]['picked'])   # still waiting for its block
+
+    def test_a_nam_block_is_only_tried_where_the_dsp_has_room(self):
+        # DSP 1 at 56.5 of 75 with an IR 1024 (7) selected: a NAM block (36) would need 85.5.
+        result = js('''
+          function room(used, model, loads) {
+            const dspLoadsNow=loads===undefined?[{used,budget:75},null]:loads;
+            const profile={namLoad:36,modelLoads:{HD2_ImpulseResponse1024:7,HD2_AmpBritPlexiBrt:30}};
+            const controller={add:o=>({readS32:()=>0,readPointer:()=>'editor'})},block=()=>'block3';
+            const targetBinding={peekModel:()=>model?{model,index:17}:null};
+        ''' + function('namRoom') + '''
+            return namRoom(controller);
+          }
+          console.log(JSON.stringify([room(56.5,'HD2_ImpulseResponse1024'), room(40,'HD2_ImpulseResponse1024'),
+            room(60,'HD2_AmpBritPlexiBrt'), room(56.5,null), room(56.5,'HD2_ImpulseResponse1024',[null,null])]));
+        ''')
+        self.assertEqual(result[0], 'DSP 1 has no room for a NAM block (85.5 of 75).')
+        self.assertIsNone(result[1])                  # 40 - 7 + 36 = 69
+        self.assertIsNone(result[2])                  # an amp's 30 is freed: 66
+        self.assertIn('92.5 of 75', result[3])        # an empty cell frees nothing
+        self.assertIsNone(result[4])                  # no reading from the Floor: HX Edit decides
+
+    def test_only_nam_rows_of_the_ir_list_are_marked_in_its_own_colour_order(self):
+        # HX Edit's IR list paints its rows itself (research/ir-list-re/FINDINGS.md); the marks recolour them.
+        view = (Path(__file__).resolve().parents[1] / 'src' / 'nam_view.js').read_text(encoding='utf-8')
+        body = view[view.index('  function irListRow('):view.index('  function installIrMarks(')]
+        result = json.loads(subprocess.run(['node', '-e', '''
+          const P = n => ({n, isNull: () => n === 0, equals: o => o.n === n,
+            add: k => ({readU32: () => rows[n] && k === 0x10c ? 1 : 0, readS32: () => k === 0x100 ? rows[n] - 1 : 0,
+                        readU8: () => selected[n] || 0})});
+          const rows = {11: 17, 12: 3}, selected = {1: 0xe6, 2: 0xff};      // row pointer -> slot; list -> first byte
+          let irDots = true, irMarkSlots = new Set([17]), irColourOrder = null;
+          const IR_MARK_RGB = [176, 128, 255];
+          let shown = P(1); const irList = () => shown;
+          const getIrRow = (list, index) => P(index === 0 ? 11 : index === 1 ? 12 : 0);
+        ''' + body + '''
+          const bytes = [0, 0, 0, 255], out = {add: i => ({writeU8: v => { bytes[i] = v; }})};
+          const marked = [irListRow(P(1), 0), irListRow(P(1), 1), irListRow(P(2), 0)];
+          writeMarkColour(out, P(1));
+          irDots = false; marked.push(irListRow(P(1), 0));
+          console.log(JSON.stringify({marked, bytes}));
+        '''], capture_output=True, text=True, check=True, timeout=10).stdout)
+        self.assertEqual(result['marked'], [17, 0, 0, 0])      # its NAM slot only; not another list; not when off
+        self.assertEqual(result['bytes'], [255, 128, 176, 255])  # stored B, G, R, A like selected_text_color
+
+    def test_a_new_nam_blocks_capture_is_set_again_if_hx_edit_moves_it(self):
+        # Floor, November 18: an IR-list slot became a NAM block on slot 24, then HX Edit put it on slot 1.
+        result = js('''
+          function scenario(readings, budget) {
+            let now = 0; Date.now = () => now;
+            const controller = {add: o => ({readS32: () => 1})}, sent = [], sets = [];
+            let reads = 0;
+            const controllerReady = () => true, block = () => 'block2', cursorController = () => ({equals: () => true});
+            const namBlockSlot = () => readings[Math.min(reads++, readings.length - 1)];
+            const namView = {modelSlot: () => 1, setSlot: s => { sets.push(s); return true; }};
+            const send = v => sent.push(v.stage || v.text);
+            let captureCheck = null; const CHECK_MS = 3000, CHECK_STABLE = 700, CHECK_TRIES = 3;
+        ''' + function('checkCaptureLater') + function('runCaptureCheck') + '''
+            checkCaptureLater(controller, 24);
+            for (let i = 0; i < budget && captureCheck; i++) { now += 150; runCaptureCheck(); }
+            return {sets, sent, open: !!captureCheck};
+          }
+          console.log(JSON.stringify([scenario([1, 24], 20), scenario([1], 40), scenario([24], 20)]));
+        ''')
+        moved, stuck, kept = result
+        self.assertEqual((moved['sets'], moved['open']), ([24], False))
+        self.assertIn('kept', moved['sent'])
+        self.assertEqual(len(stuck['sets']), 3)                   # three tries, then it says so
+        self.assertIn('The NAM block did not keep capture 24. Check its Model.', stuck['sent'])
+        self.assertEqual((kept['sets'], kept['sent'], kept['open']), ([], [], False))
+
     def test_write_waits_for_active_export_and_pauses_new_discovery(self):
         result = js('''
           let active={navigation:true,bound:true,targetVersion:2,quarantined:false},workflowRequest=null;

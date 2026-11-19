@@ -43,6 +43,8 @@ class DspMeter:
         self.process = None
         self.layout = None
         self.dsp = [None, None]
+        self.notice = None
+        self.ir_dots = None       # the HX Unbound menu's "Mark NAM slots in the IR list" tick (set_ir_dots)
         self.queue = Queue()
         self.closed = Event()
         self.worker = Thread(target=self._run, daemon=True)
@@ -54,6 +56,9 @@ class DspMeter:
             self.queue.put(('layout', dict(value)))
         elif kind == 'dspLoad':
             self.queue.put(('dsp', list(value.get('dsp') or [None, None])[:2]))
+        elif kind == 'dspNotice':
+            # A short notice shown in place of the meter for a few seconds (the helper times it).
+            self.queue.put(('notice', str(value.get('text') or '')[:120]))
         elif kind == 'dspMeter':
             self.trace({'type': 'dspMeter', 'event': value.get('event'), 'error': value.get('error', '')})
         else:
@@ -69,7 +74,7 @@ class DspMeter:
         if self.on_choice and getattr(self.process, 'stdout', None) is not None:
             Thread(target=self._clicks, args=(self.process.stdout,), daemon=True).start()
 
-    CHOICES = ('level', 'look', 'library')
+    CHOICES = ('level', 'look', 'library', 'irDots')
 
     def _clicks(self, output):
         # The helper writes one line per choice from the HX Unbound menu.
@@ -90,6 +95,10 @@ class DspMeter:
         state['dsp'] = self.dsp
         if self.on_choice is not None:
             state['unbound'] = True
+        if self.notice:
+            state['notice'], self.notice = self.notice, None
+        if self.ir_dots is not None:
+            state['irDots'] = self.ir_dots
         try:
             self.process.stdin.write(json.dumps(state) + '\n')
             self.process.stdin.flush()
@@ -118,6 +127,10 @@ class DspMeter:
                         self.trace({'type': 'dspMeter', 'event': 'helper-failed', 'error': str(error)})
             elif kind == 'dsp':
                 self.dsp = value
+            elif kind == 'notice':
+                self.notice = value
+            elif kind == 'irDots':
+                self.ir_dots = value
             self._send()
         if self.process is not None:
             try:
@@ -133,6 +146,9 @@ class DspMeter:
                 return
             waited = when
             self.relayout(window)
+
+    def set_ir_dots(self, on):
+        self.queue.put(('irDots', bool(on)))
 
     def close(self):
         self.closed.set()

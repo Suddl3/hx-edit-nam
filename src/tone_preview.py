@@ -4,6 +4,7 @@ import base64
 from html import escape
 import json
 import os
+import re
 from pathlib import Path
 from queue import Empty, Full, Queue
 from string import Template
@@ -125,6 +126,7 @@ class TonePreview:
         self.close_reason = None
         self.close_intent = Event()
         self.sidebar_status = None
+        self.drop_handler = None       # (identity, x, y): the NAM tab's drop onto the chain (nam_sidebar)
         self.target_ready = Event()
         # The trace sink may do disk I/O. Never run it on a Frida callback or the
         # audition worker, and bound memory even when the sink stops responding.
@@ -1156,6 +1158,14 @@ class TonePreview:
                         audition_local(identity)
                     elif self.navigation and command in ('use', 'load') and identity in self.library.entries():
                         install_local(identity, use_only=command == 'use')
+                    elif self.navigation and command == 'drop' and identity in self.library.entries():
+                        # Dragged from this page onto HX Edit's chain: the NAM tab's drop does the rest
+                        # (the block under the pointer, made a NAM block if need be, then Use or Load).
+                        x, _, y = value.partition(':')
+                        if not self.drop_handler or not re.fullmatch(r'-?\d{1,5}', x) or not re.fullmatch(r'-?\d{1,5}', y):
+                            status('Open the NAM tab once, then drag the capture again.')
+                        else:
+                            self.drop_handler(identity, int(x), int(y))
                     elif self.navigation and command == 'useVersion' and identity in self.library.entries():
                         # Optimize: put the Pedal version (or the original again) on the selected NAM block
                         if not self.pedal_block:

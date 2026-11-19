@@ -189,7 +189,48 @@ function installTargetBinding(options = {}) {
         value.value : null;
     } catch (_) { return null; }
   }
-  return { capture, read, restore, release, peekSlot };
+  function peekModel(editor, dsp, blockName) {
+    // Any block's model symbol and Index (an IR block's slot), read from the edit buffer.
+    // Read-only, for noticing an IR block that plays a NAM capture's slot. null when unreadable.
+    try {
+      if (!editorReady(editor) || ![0, 1].includes(dsp) || !/^block\d{1,2}$/.test(blockName)) return null;
+      const state = {editor, dsp, blockName, parameter: 'Index'};
+      const model = parameter(state, '@model');
+      if (model.type !== 10 || typeof model.value !== 'string') return null;
+      let index = null;
+      try {                                    // a block with no Index (most models) still has a model
+        const value = parameter(state, 'Index');
+        if ([4, 5, 8].includes(value.type) && Number.isInteger(value.value)) index = value.value;
+      } catch (_) { index = null; }
+      return {model: model.value, index};
+    } catch (_) { return null; }
+  }
+  function setIndex(editor, dsp, blockName, slot) {
+    // A NAM block's capture slot, written as restore() writes it (one undo step), keeping the
+    // stored value's own type. Only for a supported NAM engine and a permanent slot.
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !/^block\d{1,2}$/.test(blockName) ||
+        !Number.isInteger(slot) || slot < 1 || slot > 127) fail('unsupported block or slot');
+    const state = {editor, dsp, blockName, parameter: 'Index'};
+    const model = parameter(state, '@model');
+    if (model.type !== 10 || !engines.has(model.value)) fail('not a NAM block');
+    const current = parameter(state, 'Index');
+    if (![4, 5, 8].includes(current.type)) fail('unexpected slot value');
+    let block = null, key = null;
+    const value = emptyVariant();
+    try {
+      block = string(blockName); key = string('Index');
+      value.writeU32(current.type);
+      if (current.type === 8) value.add(8).writeFloat(slot); else value.add(8).writeU32(slot);
+      const result = writeValue(editor, dsp, block, key, value, 0x80000000);
+      if (result < 0) fail(`write was rejected (${result})`);
+    } finally {
+      destroyVariant(value);
+      if (key) destroyVariant(key);
+      if (block) destroyVariant(block);
+    }
+    return true;
+  }
+  return { capture, read, restore, release, peekSlot, peekModel, setIndex };
 }
 
 if (typeof module !== 'undefined' && module.exports) {

@@ -484,15 +484,20 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
   const discoveryStringDestroy = method(0x1a0120, 'void', []);
 
   function discoverySnapshot(revision) {
-    if (!libraryReady() || irController.isNull()) return null;
-    if (discoveryLocked || exportPending || workflowBusy || audition ||
-        !namImportController.isNull() || toneImport) return null;
+    if (!libraryReady()) return gate('library-not-ready');
+    if (irController.isNull()) return gate('no-ir-controller');
+    if (discoveryLocked || exportPending || workflowBusy || audition || !namImportController.isNull() || toneImport) {
+      return gate([discoveryLocked && 'locked', exportPending && 'export-pending', workflowBusy && 'workflow-busy',
+        audition && 'audition', !namImportController.isNull() && 'import', toneImport && 'tone-import'].filter(Boolean).join(','));
+    }
     flushInventoryPresentation();
     const list = irList(), manager = irController.add(0x270).readPointer();
-    if (list.isNull() || manager.isNull() || discoveryCount(list) !== 128) return null;
-    if (manager.add(0x40).readU8() !== 0) return null;
+    if (list.isNull() || manager.isNull()) return gate('no-ir-list');
+    if (discoveryCount(list) !== 128) return gate('ir-list-rows-' + discoveryCount(list));
+    if (manager.add(0x40).readU8() !== 0) return gate('ir-manager-busy');
     const device = manager.add(0x44).readU32();
-    if (device !== 0x210001) return null;
+    if (device !== 0x210001) return gate('device-' + device.toString(16));
+    gate('');
     const occupied = [], names = [];
     let excluded = 0;
     for (let i = 0; i < 127; i++) {
@@ -507,6 +512,16 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       excluded, signature: JSON.stringify(names), slotSignatures: names, busy: false };
   }
 
+  // Which gate keeps the slot check waiting (trace only, on change): the check stalled for good
+  // after IR list drags on the Floor (November 18) with nothing in the trace to say why.
+  let snapshotGate = '';
+  function gate(reason) {
+    if (reason !== snapshotGate) {
+      snapshotGate = reason;
+      if (typeof send === 'function') send({type: 'slotVerificationEvent', stage: 'snapshot-gate', reason: reason || 'open', slot: null});
+    }
+    return null;
+  }
   function exportDiscoverySlot(request, expected, observeSubmission) {
     if (typeof observeSubmission !== 'function') return false;
     const current = discoverySnapshot(expected.revision);
@@ -557,6 +572,9 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
   const winApi = (name, type, args) => new NativeFunction(user32.getExportByName(name), type, args, 'stdcall');
   const getClientRect = winApi('GetClientRect', 'int', ['pointer', 'pointer']);
   const getAncestor = winApi('GetAncestor', 'pointer', ['pointer', 'uint']);
+  const getCursorPos = winApi('GetCursorPos', 'int', ['pointer']);
+  const screenToClient = winApi('ScreenToClient', 'int', ['pointer', 'pointer']);
+  const cursorPoint = Memory.alloc(8);
   const getWindowOwner = winApi('GetWindowThreadProcessId', 'uint', ['pointer', 'pointer']);
   const windowOwner = Memory.alloc(4);
   const setCapture = winApi('SetCapture', 'pointer', ['pointer']);
@@ -626,6 +644,76 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     return near ? { view, left } : null;
   }
 
+  // --- Drop from the NAM tab onto the signal chain -------------------------------------------
+  // The chain is drawn in two panels, one per DSP path (editor.xml sf0x / sf1x). A capture
+  // dropped inside one is put on the block under the pointer: a plain click there selects it
+  // as the user's own click would, then the NAM tab's Use/Load runs on that block. Anywhere
+  // else nothing is clicked, so a drop can never press a button such as Save.
+  const chainIds = [0x73663078, 0x73663178]; // sf0x, sf1x
+  const chainPoint = Memory.alloc(8);
+  const postMessage = winApi('PostMessageW', 'int', ['pointer', 'uint', 'pointer', 'pointer']);
+  let pendingDrop = null;
+
+  let chainCache = {at: 0, boxes: []};
+  function chainBoxes(fresh = false) {
+    // The layout pump runs after every message: look the panels up at most twice a second.
+    const now = Date.now();
+    if (!fresh && now - chainCache.at < 500) return chainCache.boxes;
+    chainCache = {at: now, boxes: findChain()};
+    return chainCache.boxes;
+  }
+
+  function findChain() {
+    const view = sidebar();
+    if (!view) return [];
+    const boxes = [];
+    for (const id of chainIds) {
+      const panel = canonical(findWidget(view.editor, id, 1));
+      if (panel.isNull() || !isVisible(panel, 1)) continue;
+      widgetOrigin(panel, chainPoint);
+      const size = box(panel);
+      if (size.w > 0 && size.h > 0) boxes.push({x: chainPoint.readS32(), y: chainPoint.add(4).readS32(), w: size.w, h: size.h});
+    }
+    return boxes;
+  }
+
+  function inChain(x, y) {
+    return chainBoxes(true).some(area => x >= area.x && x < area.x + area.w && y >= area.y && y < area.y + area.h);
+  }
+
+  function clickChain(x, y) {
+    // x, y: the main window's client coordinates (the NAM tab is a child of that window).
+    if (sidebarHost.isNull() || !Number.isInteger(x) || !Number.isInteger(y) || !inChain(x, y)) return false;
+    const at = ptr(((y & 0xffff) << 16 | (x & 0xffff)) >>> 0);
+    pendingDrop = {x, y, posted: Date.now(), clicked: 0};
+    postMessage(sidebarHost, 0x200, NULL, at);          // WM_MOUSEMOVE
+    postMessage(sidebarHost, 0x201, ptr(1), at);        // WM_LBUTTONDOWN, MK_LBUTTON
+    postMessage(sidebarHost, 0x202, NULL, at);          // WM_LBUTTONUP
+    return true;
+  }
+
+  // --- A NAM slot chosen in HX Edit's own IR list ----------------------------------------------
+  // Dragging a slot from the IR list (or double-clicking it) gives the block an IR model. For a
+  // slot that holds a NAM capture that block would play the capture's data as an impulse, so a
+  // press on such a row is remembered for a few seconds: if the selected block then plays that
+  // slot as an IR, tone_view turns it into a NAM block on the same slot (irPick / clearIrPick).
+  const irPoint = Memory.alloc(8);
+  let irPick = null;
+  function inIrList(hwnd, x, y) {
+    const list = irList();
+    if (list.isNull() || !isVisible(list, 1) || !getAncestor(hwnd, 2).equals(hwnd)) return false;
+    widgetOrigin(list, irPoint);
+    const left = irPoint.readS32(), top = irPoint.add(4).readS32(), size = box(list);
+    return x >= left && x < left + size.w && y >= top && y < top + size.h;
+  }
+  function noteIrPick() {
+    // After HX Edit handled the press: the row it selected.
+    const list = irList();
+    if (list.isNull() || !getSelectedRows(list, selectedRow, 1)) return;
+    const slot = selectedRow.readPointer().add(0x100).readS32() + 1;
+    irPick = Object.hasOwn(profiles, slot) && slot >= 1 && slot < AUDITION_SLOT ? {slot, at: Date.now()} : null;
+  }
+
   function libraryWindow() {
     const hwnd = getActiveWindow(), view = sidebar();
     if (!view || hwnd.isNull() || !getAncestor(hwnd, 2).equals(hwnd) || !getClientRect(hwnd, clientRect)) return NULL;
@@ -665,6 +753,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     const geometry = box(namPanel);
     return {visible:true, bounds:{x:sidebarPoint.readS32(), y:sidebarPoint.add(4).readS32(), w:geometry.w, h:geometry.h},
       sidebarWidth:view.side.w, resizeAvailable:true, busy:workflowBusy || discoveryLocked || exportPending,
+      chain:chainBoxes(),
       targetReady:!!hasActiveModel(), discoveryStatus, discoveryChecked, discoveryTotal,
       slotEpoch:slotLedger?.epoch() || 0};
   }
@@ -731,6 +820,9 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       const position = msg.add(12).readU32();
       const x = (position << 16) >> 16;
       const y = position >> 16;
+      if (pendingDrop && !pendingDrop.clicked && event === 0x202 && hwnd.equals(sidebarHost) &&
+          x === pendingDrop.x && y === pendingDrop.y) pendingDrop.clicked = Date.now();
+      if (event === 0x201) { try { this.irPress = inIrList(hwnd, x, y); } catch (_) { this.irPress = false; } }
       if (drag) {
         if (!hwnd.equals(drag.hwnd)) return;
         msg.add(4).writeU32(0); // WM_NULL: the editor never sees the drag
@@ -759,6 +851,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     },
     onLeave() {
       if (this.libraryInput) libraryInputDepth--;
+      if (this.irPress) { try { noteIrPick(); } catch (_) { irPick = null; } }
       if (!this.sidebarUi) return;
       if (this.cursor) setCursor(resizeCursor);
       if (this.event === 5 || this.event === 0xf || this.event === 0x202) syncSidebar(); // size, paint, button up
@@ -853,6 +946,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       if (index >= 0) selectRow(namList, 1, index, 0, 0);
     }
     redraw(namList);
+    markIrRows();      // the slot check fills this table after HX Edit has filled the IR list
   }
 
   function refreshProfiles(controller) {
@@ -887,7 +981,67 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       renderProfiles();
       if (hasActiveModel()) rebuildModelMenu(activeModel);
     }
+    markIrRows(list);
     refreshButtons();
+  }
+
+  // NAM capture slots in HX Edit's IR list (HX Unbound menu: "Mark NAM slots in the IR list"): their
+  // number and name in violet, the NAM categories' colour. The IR list's class (vtable 0x91ebb4, mode
+  // [list+0x1d4] = 1) paints its rows itself and draws no row pictures, so its text colour getter
+  // 0x401ec0 (thiscall: out colour*, index; returns out) is hooked (research/ir-list-re/FINDINGS.md).
+  // Drawing only; the same class paints the presets and favourites lists, so it checks for the IR list.
+  const irMarkGuards = { '401ec0': '558bec538b5d0c568b750857538bf9c7' };
+  const IR_MARK_RGB = [176, 128, 255];                       // violet, apart from the pink selection
+  let irDots = profile.irDots !== false, irMarkSlots = new Set(), irMarksReady = false;
+  let irColourOrder = null;                                  // [index of R, G, B] in a colour's bytes
+  function irListRow(list, index) {
+    // The NAM capture slot a painted row shows, or 0.
+    if (!irDots || irMarkSlots.size === 0 || list.isNull() || !list.equals(irList()) || index < 0) return 0;
+    const row = getIrRow(list, index);
+    if (row.isNull() || !row.add(0x10c).readU32()) return 0;
+    const slot = row.add(0x100).readS32() + 1;
+    return irMarkSlots.has(slot) ? slot : 0;
+  }
+  function colourOrder(list) {
+    // selected_text_color is 0xFFFFA6E6 in librarian.xml: its first byte says how colours are stored.
+    if (!irColourOrder) irColourOrder = list.add(0x98).readU8() === 0xe6 ? [2, 1, 0] : [0, 1, 2];
+    return irColourOrder;
+  }
+  function writeMarkColour(out, list) {
+    const order = colourOrder(list);
+    for (let channel = 0; channel < 3; channel++) out.add(order[channel]).writeU8(IR_MARK_RGB[channel]);
+  }
+  function installIrMarks() {
+    try {
+      for (const [rva, hex] of Object.entries(irMarkGuards)) {
+        const bytes = new Uint8Array(address(parseInt(rva, 16)).readByteArray(hex.length / 2));
+        if (Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('') !== hex) {
+          send({type: 'toneTrace', reason: 'ir-marks', stage: 'guard-failed', at: rva});
+          return;
+        }
+      }
+      Interceptor.attach(address(0x401ec0), {
+        onEnter(args) { this.list = this.context.ecx; this.out = args[0]; this.index = args[1].toInt32(); },
+        onLeave() {
+          try { if (irListRow(this.list, this.index)) writeMarkColour(this.out, this.list); } catch (_) { /* drawing only */ }
+        },
+      });
+      irMarksReady = true;
+    } catch (error) {
+      send({type: 'toneTrace', reason: 'ir-marks', stage: 'skipped', error: String(error.message)});
+    }
+  }
+  installIrMarks();
+  function markIrRows(list = irList()) {
+    // The slots to mark changed (or the list was shown): repaint the IR list.
+    if (!irMarksReady) return;
+    const next = new Set(irDots ? Object.keys(profiles).map(Number).filter(slot => slot >= 1 && slot < AUDITION_SLOT) : []);
+    const same = next.size === irMarkSlots.size && [...next].every(slot => irMarkSlots.has(slot));
+    irMarkSlots = next;
+    if (!list.isNull() && !same) {
+      redraw(list);
+      send({type: 'toneTrace', reason: 'ir-marks', stage: 'marked', slots: next.size, on: irDots});
+    }
   }
 
   function hasActiveModel() {
@@ -1202,6 +1356,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
         const panel = findWidget(this.library, id, 1);
         if (!panel.isNull()) setVisible(panel, Number(this.tab === index), 1);
       }
+      if (this.tab === 1) markIrRows();        // the IR tab: its dots beside the NAM capture slots
       if (this.tab !== 3) return;
       if (this.requestVerification) requestLibraryVerification();
       if (namList.isNull()) {
@@ -1713,6 +1868,27 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
   return {
     refreshProfiles,
     setSidebarSink(callback) { sidebarSink = typeof callback === 'function' ? callback : null; },
+    // Drop on the chain: clickChain posts the click (false outside the chain); dropState says
+    // whether HX Edit has handled it yet ('pending', then 'clicked' with its time) and
+    // whether a NAM block is selected now.
+    clickChain,
+    dropState() {
+      if (!pendingDrop) return {state: 'none'};
+      return {state: pendingDrop.clicked ? 'clicked' : 'pending', posted: pendingDrop.posted,
+              clicked: pendingDrop.clicked, namBlock: hasActiveModel()};
+    },
+    endDrop() { pendingDrop = null; },
+    // Whether an IR slot holds a NAM capture (what this tab lists), and a click on the chain where
+    // the pointer is now (a drop that HX Edit's own drag delivered: the pointer is still there).
+    isNamSlot(slot) { return Number.isInteger(slot) && Object.hasOwn(profiles, slot); },
+    clickChainAtCursor() {
+      if (sidebarHost.isNull() || !getCursorPos(cursorPoint) || !screenToClient(sidebarHost, cursorPoint)) return false;
+      return clickChain(cursorPoint.readS32(), cursorPoint.add(4).readS32());
+    },
+    setIrDots(on) { irDots = on === true; irMarkSlots = new Set(['force']); markIrRows(); },
+    // A NAM slot pressed in the IR list within the last ten seconds ({slot, at}), else null.
+    irPick() { return irPick && Date.now() - irPick.at < 10000 ? irPick : null; },
+    clearIrPick() { irPick = null; },
     setSidebarChildReady(value) { sidebarChildReady = value === true; sidebarChildFailed = !sidebarChildReady; },
     queueSidebarAction(callback) {
       if (typeof callback !== 'function' || sidebarActions.length >= 8) return false;

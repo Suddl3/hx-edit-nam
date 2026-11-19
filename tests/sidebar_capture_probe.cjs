@@ -18,7 +18,7 @@ function fixture() {
   let hook, capture = nil, uiThread = true, captureSucceeds = true;
   const view = { side: { w: 320 } };
   const context = vm.createContext({
-    drag: null, sidebarWidth: 320, resizeCursor: pointer(3), libraryInputDepth: 0,
+    drag: null, pendingDrop: null, sidebarHost: main, sidebarWidth: 320, resizeCursor: pointer(3), libraryInputDepth: 0,
     user32: { getExportByName: name => name },
     Interceptor: { attach(name, callbacks) { assert.equal(name, 'DispatchMessageW'); hook = callbacks; } },
     libraryReady: () => uiThread,
@@ -139,4 +139,16 @@ for (const blocked of ['failed', 'another-owner']) {
   assert.ok(!f.calls.includes('releaseCapture'));
   if (blocked === 'another-owner') assert.ok(!f.calls.includes('setCapture'));
 }
+// A drop on the chain: only the editor's own button-up at the posted point marks it handled.
+{
+  const f = fixture();
+  f.context.pendingDrop = { x: 340, y: 40, posted: 1, clicked: 0 };
+  f.dispatch(0x202, 0, other);
+  assert.equal(f.context.pendingDrop.clicked, 0, 'another window');
+  f.dispatch(0x200, 0);
+  assert.equal(f.context.pendingDrop.clicked, 0, 'a move is not the click');
+  f.dispatch(0x202, 0);
+  assert.ok(f.context.pendingDrop.clicked > 0, 'the posted button-up');
+}
+
 console.log('sidebar capture probe passed: loss, cancellation, button state, ownership and UI thread');

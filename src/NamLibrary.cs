@@ -76,6 +76,57 @@ class NamLibrary : Form
     string rowSignature;
     long noticeUntil;
     readonly LoadConfirmation loadConfirmation = new LoadConfirmation();
+    // Drag a capture onto the signal chain (the editor's sf0x / sf1x panels, sent as "chain" in the
+    // layout, in the main window's client coordinates). The drop is the editor script's to check.
+    [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT point);
+    [DllImport("user32.dll")] static extern bool ScreenToClient(IntPtr hwnd, ref POINT point);
+    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int key);
+    struct POINT { public int X, Y; }
+    readonly List<Rectangle> chain = new List<Rectangle>();
+    readonly Timer dragTimer = new Timer { Interval = 30 };
+    Dictionary<string,object> dragRow;
+    DropGhost ghost;
+
+    // The capture's gear picture under the pointer while it is dragged, as if the block were being
+    // placed, with its name and what a drop there does underneath. Click-through: the pointer still
+    // reaches the editor. The picture's surround is see-through (a colour key the picture never uses).
+    class DropGhost : Form {
+        const int Picture=64,LabelWidth=220,LabelHeight=34;
+        static readonly Color Key=Color.FromArgb(1,2,3);
+        readonly string name;
+        readonly Image icon;
+        bool over;
+        public DropGhost(string name,Image icon){
+            this.name=name;this.icon=icon;FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;
+            TopMost=true;BackColor=Key;TransparencyKey=Key;ForeColor=Color.Gainsboro;Font=new Font("Segoe UI",8.25f);
+            AutoScaleMode=AutoScaleMode.None;Opacity=0.95;Size=new Size(LabelWidth,Picture+4+LabelHeight);DoubleBuffered=true;
+        }
+        protected override bool ShowWithoutActivation { get { return true; } }
+        protected override CreateParams CreateParams { get {
+            var settings=base.CreateParams;settings.ExStyle|=0x08000000|0x80|0x20;return settings; } } // no activate, tool, click-through
+        public void Track(int x,int y,bool overChain){
+            Location=new Point(x-LabelWidth/2,y-Picture/2);   // the picture's centre is the pointer
+            if(over!=overChain||!Visible){over=overChain;Invalidate();}
+            if(!Visible)Show();
+        }
+        protected override void OnPaint(PaintEventArgs args){
+            var g=args.Graphics;
+            var picture=new Rectangle((Width-Picture)/2,0,Picture,Picture);
+            g.InterpolationMode=System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            if(icon!=null)g.DrawImage(icon,picture);
+            else using(var brush=new SolidBrush(Color.FromArgb(60,60,60)))g.FillRectangle(brush,picture);
+            var label=new Rectangle(0,Picture+4,Width,LabelHeight);
+            using(var brush=new SolidBrush(Color.FromArgb(32,32,32)))g.FillRectangle(brush,label);
+            using(var pen=new Pen(over?Color.FromArgb(170,84,158):Color.FromArgb(80,80,80)))
+                g.DrawRectangle(pen,label.X,label.Y,label.Width-1,label.Height-1);
+            using(var bold=new Font(Font,FontStyle.Bold))
+                TextRenderer.DrawText(g,name,bold,new Rectangle(6,label.Y+2,Width-12,15),ForeColor,
+                    TextFormatFlags.HorizontalCenter|TextFormatFlags.EndEllipsis);
+            TextRenderer.DrawText(g,over?"Drop to put it on this block":"Drop on a block in the chain",Font,
+                new Rectangle(6,label.Y+17,Width-12,15),over?Color.White:Color.Silver,
+                TextFormatFlags.HorizontalCenter|TextFormatFlags.EndEllipsis);
+        }
+    }
 
     // Presentation only. Never authorizes a load or changes verification evidence.
     class LoadConfirmation {
@@ -392,6 +443,24 @@ class NamLibrary : Form
         };
         load.Click+=(sender,args)=>RequestCapture(false);
         table.DoubleClick+=(sender,args)=>RequestCapture(true);
+        table.ItemDrag+=(sender,args)=>{if(args.Button==MouseButtons.Left)BeginDrag(args.Item as ListViewItem);};
+        // The list's own drag detection gave up on a row's first press (the press that selects it
+        // also relays the selection), so a drag needed a second press. Watch the press as well:
+        // past the system drag distance with the button held, the drag starts either way.
+        table.MouseDown+=(sender,args)=>{
+            if(args.Button!=MouseButtons.Left)return;
+            var hit=table.GetItemAt(args.X,args.Y);pressItem=hit==null?null:hit.Name;pressPoint=Cursor.Position;
+            if(!string.IsNullOrEmpty(pressItem))pressTimer.Start();
+        };
+        pressTimer.Tick+=(sender,args)=>{
+            if(dragRow!=null||pressItem==null||(Control.MouseButtons&MouseButtons.Left)==0){pressTimer.Stop();pressItem=null;return;}
+            var at=Cursor.Position;var size=SystemInformation.DragSize;
+            if(Math.Abs(at.X-pressPoint.X)>size.Width/2||Math.Abs(at.Y-pressPoint.Y)>size.Height/2){
+                // by its capture: the rows may have been rebuilt since the press
+                var item=table.Items[pressItem];pressTimer.Stop();pressItem=null;BeginDrag(item);
+            }
+        };
+        dragTimer.Tick+=(sender,args)=>TrackDrag();
         // Right-click a capture: favourite, guitar/bass and type (the same menu as Edit…).
         table.MouseUp+=(sender,args)=>{
             if(args.Button!=MouseButtons.Right)return;
@@ -442,6 +511,7 @@ class NamLibrary : Form
         };
         resizeTimer.Tick+=(sender,args)=>PumpResize(false);
         FormClosed+=(sender,args)=>{
+            EndDrag();dragTimer.Dispose();pressTimer.Dispose();
             timer.Dispose();
             resizeTimer.Dispose();
             gripHint.Dispose();
@@ -449,6 +519,53 @@ class NamLibrary : Form
             filterMenu.Dispose();
             if(addedParentClipping&&IsWindow(parent))SetWindowLong(parent,-16,GetWindowLong(parent,-16)&~ClipChildren);
         };
+    }
+    readonly Timer pressTimer = new Timer { Interval = 20 };
+    string pressItem;   // the pressed row's capture id
+    Point pressPoint;
+    void BeginDrag(ListViewItem item){
+        if(dragRow!=null||item==null||item.ListView!=table)return;
+        var row=item.Tag as Dictionary<string,object>;if(row==null)return;
+        item.Selected=true;item.Focused=true;
+        string reason=DropReason(row,waiting,busy,loadConfirmation.Pending);
+        if(reason.Length>0){status.Text=reason;noticeUntil=resizeClock.ElapsedMilliseconds+6000;return;}
+        dragRow=row;ghost=new DropGhost(CaptureTitle(row),GearIcon(TextOf(row,"icon")));table.Capture=true;dragTimer.Start();TrackDrag();
+    }
+    bool OverChain(int x,int y){foreach(var area in chain)if(area.Contains(x,y))return true;return false;}
+    void TrackDrag(){
+        if(dragRow==null){dragTimer.Stop();return;}
+        POINT screen;GetCursorPos(out screen);var client=screen;ScreenToClient(parent,ref client);
+        bool over=OverChain(client.X,client.Y);
+        if((GetAsyncKeyState(0x1B)&0x8000)!=0){EndDrag();status.Text="";return;}   // Esc: cancelled
+        if((Control.MouseButtons&MouseButtons.Left)==0){
+            var row=dragRow;EndDrag();
+            if(over)Drop(row,client.X,client.Y);
+            else if(!table.RectangleToScreen(table.ClientRectangle).Contains(screen.X,screen.Y)){
+                status.Text="Drop the capture on a block in the signal chain.";noticeUntil=resizeClock.ElapsedMilliseconds+6000;}
+            return;
+        }
+        Cursor.Current=over?Cursors.Default:Cursors.No;
+        ghost.Track(screen.X,screen.Y,over);
+    }
+    void EndDrag(){
+        dragRow=null;dragTimer.Stop();table.Capture=false;Cursor.Current=Cursors.Default;
+        if(ghost!=null){ghost.Close();ghost.Dispose();ghost=null;}
+    }
+    void Drop(Dictionary<string,object> row,int x,int y){
+        bool installed=TextOf(row,"deviceStatus")=="verified";
+        loadConfirmation.Clear();waiting=true;RefreshLoad();status.Text="Putting it on that block…";noticeUntil=0;
+        output.WriteLine(json.Serialize(new{type="action",action="drop",contentId=TextOf(row,"contentId"),installed=installed,x=x,y=y}));
+    }
+    // As BlockedReason, without needing a NAM block selected first: the drop picks the block.
+    public static string DropReason(Dictionary<string,object> row,bool waiting,bool busy,bool pendingConfirmation){
+        if(row==null)return "Select a capture in the list first.";
+        if(waiting)return "Still working on the previous request…";
+        if(pendingConfirmation)return "Waiting for the last loaded slot to be verified…";
+        string file=TextOf(row,"fileStatus");
+        if((file=="missing"||file=="invalid")&&TextOf(row,"deviceStatus")!="verified")return "This capture's file is not available on this PC.";
+        if(TextOf(row,"deviceStatus")=="checking")return "Checking which slots hold your captures. Try again in a moment.";
+        if(busy)return "HX Edit is finishing another change. Try again in a moment.";
+        return "";
     }
     void RequestWidth(int width){
         resizeQueue.Offer(width);PumpResize(true);
@@ -802,6 +919,14 @@ class NamLibrary : Form
         gripHint.SetToolTip(grip,resizeAvailable?"Drag to resize · Double-click to reset width":resizeUnavailable);
         grip.Invalidate();
         busy=Flag(state,"busy");targetReady=Flag(state,"targetReady");
+        chain.Clear();
+        object chainValue;
+        if(state.TryGetValue("chain",out chainValue)&&chainValue is IEnumerable)
+            foreach(var item in (IEnumerable)chainValue){
+                var area=item as Dictionary<string,object>;if(area==null)continue;
+                try{chain.Add(new Rectangle(Convert.ToInt32(area["x"]),Convert.ToInt32(area["y"]),Convert.ToInt32(area["w"]),Convert.ToInt32(area["h"])));}
+                catch(Exception){ }
+            }
         ShowDiscoveryProgress(DiscoveryProgress(TextOf(state,"discoveryStatus"),TextOf(state,"discoveryChecked"),TextOf(state,"discoveryTotal")));
         string signature=json.Serialize(state["rows"]);
         if(signature!=rowSignature){
@@ -1053,6 +1178,10 @@ class NamLibrary : Form
         if(BlockedReason(ready,false,false,false,true).Length!=0)throw new Exception("A verified copy is usable");
         if(!BlockedReason(ready,false,false,false,false).Contains("NAM block"))throw new Exception("Missing target reason");
         if(!BlockedReason(null,false,false,false,true).Contains("Select a capture"))throw new Exception("No selection reason");
+        // A drop picks its own block: no NAM block needs to be selected, everything else still applies.
+        if(DropReason(ready,false,false,false).Length!=0)throw new Exception("A drop needs no selected block");
+        if(!DropReason(rechecking,false,false,false).Contains("Checking")||DropReason(ready,true,false,false).Length==0||
+           DropReason(ready,false,true,false).Length==0||DropReason(ready,false,false,true).Length==0)throw new Exception("Drop reasons");
         if(BlockedReason(ready,false,true,false,true).Length==0||BlockedReason(ready,true,false,false,true).Length==0)throw new Exception("Busy reasons");
         var a=new ListViewItem("z"){Name="a"};var b=new ListViewItem("a"){Name="b"};
         foreach(var item in new[]{a,b}){item.SubItems.Add("Amp");item.SubItems.Add("?");item.SubItems.Add("—").Tag="";}
@@ -1233,6 +1362,9 @@ class UnboundButton : Form
     // own: while it is open, a mouse press anywhere outside it (or outside this button) closes it.
     readonly Timer outside = new Timer { Interval = 40 };
     bool over, placed;
+    ToolStripMenuItem irDots;
+    // The menu has no image margin, so the tick is part of the label (a fixed-width space when off).
+    public void SetIrDots(bool on){ if(irDots!=null)irDots.Text=(on?"\u2713":"\u2003")+"  Mark NAM slots in the IR list"; }
     public UnboundButton(IntPtr parent){
         this.parent=parent;
         FormBorderStyle=FormBorderStyle.None; ShowInTaskbar=false; StartPosition=FormStartPosition.Manual;
@@ -1248,6 +1380,13 @@ class UnboundButton : Form
             item.Click+=(sender,e)=>{try{Console.Out.WriteLine(output);Console.Out.Flush();}catch(Exception){}};
             menu.Items.Add(item);
         }
+        // Options: ticked items the editor keeps in its settings; the tick comes back in the meter's state.
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripLabel("OPTIONS"){ForeColor=Color.FromArgb(150,150,150),Font=new Font("Segoe UI",7.5f)});
+        irDots=new ToolStripMenuItem("\u2713  Mark NAM slots in the IR list"){ForeColor=Ink};
+        irDots.Click+=(sender,e)=>{try{Console.Out.WriteLine("irDots");Console.Out.Flush();}catch(Exception){}};
+        menu.Items.Add(irDots);
+        SetIrDots(true);
         outside.Tick+=(sender,e)=>{
             if(!menu.Visible){outside.Stop();return;}
             if(Control.MouseButtons!=MouseButtons.None&&!menu.Bounds.Contains(Cursor.Position)&&
@@ -1501,6 +1640,10 @@ class DspMeter : Form
     bool compact;
     bool unbound;
     UnboundButton unboundButton;
+    // A notice from the editor ("DSP 1 has no room for a NAM block"), shown in place of the meter.
+    string notice;
+    int noticeUntil;
+    public const int NoticeMs = 6000;
     public const int UnboundGap = 10;   // between the HX Unbound button and the meter
     static readonly Color Back = Color.FromArgb(29, 29, 29), Track = Color.FromArgb(58, 58, 58),
         Ink = Color.FromArgb(200, 200, 200), Dim = Color.FromArgb(130, 130, 130);
@@ -1555,6 +1698,9 @@ class DspMeter : Form
         // JavaScriptSerializer gives arrays as ArrayList (or object[]): any list will do.
         unbound=state.TryGetValue("unbound",out value)&&value is bool&&(bool)value;
         if(unbound&&unboundButton==null)unboundButton=new UnboundButton(parent);
+        if(unboundButton!=null&&state.TryGetValue("irDots",out value)&&value is bool)unboundButton.SetIrDots((bool)value);
+        if(state.TryGetValue("notice",out value)&&value is string&&((string)value).Length>0){
+            notice=(string)value;noticeUntil=Environment.TickCount+NoticeMs;}
         if(state.TryGetValue("dsp",out value)&&value is IList){var list=(IList)value;dsp=new object[]{list.Count>0?list[0]:null,list.Count>1?list[1]:null};}
         var span=state.TryGetValue("span",out value)?value as Dictionary<string,object>:null;
         if(span!=null){
@@ -1638,6 +1784,13 @@ class DspMeter : Form
     }
     protected override void OnPaint(PaintEventArgs args){
         var g=args.Graphics;g.Clear(Back);
+        if(notice!=null&&unchecked(Environment.TickCount-noticeUntil)<0){
+            using(var brush=new SolidBrush(Color.FromArgb(120,52,30)))g.FillRectangle(brush,ClientRectangle);
+            TextRenderer.DrawText(g,notice,Font,new Rectangle(6,0,ClientSize.Width-12,ClientSize.Height),Color.White,
+                TextFormatFlags.VerticalCenter|TextFormatFlags.Left|TextFormatFlags.NoPadding|TextFormatFlags.EndEllipsis);
+            return;
+        }
+        notice=null;
         int offset=0;
         int half=(ClientSize.Width-offset)/2, bar=Math.Max(40,half-96), barHeight=6;
         if(compact){

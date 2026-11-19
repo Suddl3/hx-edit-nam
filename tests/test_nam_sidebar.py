@@ -150,6 +150,52 @@ class SidebarBridgeTests(unittest.TestCase):
             finally:
                 bridge.close()
 
+    def test_a_capture_dropped_on_the_chain_goes_to_the_editor_with_where_it_landed(self):
+        # Dragged from the NAM tab onto a block: no NAM block needs to be selected first, the script
+        # clicks the block under the pointer. Installed captures are used, others loaded.
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder, 'Deluxe.nam')
+            source.write_text('{}', encoding='utf-8')
+            library = Library(Path(folder, 'library'))
+            identity = library.add(source)
+            sent, posted = [], []
+            class Script:
+                def post(self, value): posted.append(value)
+            bridge = NamSidebar(Script(), library, Event(), action_handler=lambda *a: self.fail('drop is posted directly'),
+                                process_factory=lambda *a, **k: self.fail('no helper in this test'))
+            try:
+                bridge.send = lambda message: sent.append(message) or True
+                bridge._handle_action({'type': 'action', 'action': 'drop', 'contentId': identity, 'x': '5', 'y': 9})
+                self.assertEqual(posted, [])
+                self.assertIn('no longer', sent[-1]['error'])
+                bridge._handle_action({'type': 'action', 'action': 'drop', 'contentId': identity, 'x': 640, 'y': 212,
+                                       'installed': True})
+                payload = posted[-1]['payload']
+                self.assertEqual((len(posted), posted[-1]['type']), (1, 'namSidebarAction'))
+                self.assertEqual({k: payload[k] for k in ('action', 'id', 'x', 'y', 'mode')},
+                                 {'action': 'drop', 'id': identity, 'x': 640, 'y': 212, 'mode': 'use'})
+                self.assertEqual(payload['gear'], str(library.entries()[identity].get('gear') or ''))
+                self.assertTrue(bridge.operation_busy)
+                bridge._handle_action({'type': 'action', 'action': 'drop', 'contentId': identity, 'x': 1, 'y': 1})
+                self.assertIn('still running', sent[-1]['error'])
+                bridge.operation_busy = False
+                bridge._handle_action({'type': 'action', 'action': 'drop', 'contentId': identity, 'x': 1, 'y': 1})
+                self.assertEqual(posted[-1]['payload']['mode'], 'load')
+                # From the library window: the same drop, queued for the bridge's own thread.
+                queued, worker_queue = [], bridge.queue
+                class Recorder:                                     # the worker sees nothing to do
+                    def put(self, value): queued.append(value)
+                    def get(self, timeout=None): return worker_queue.get(timeout=timeout)
+                bridge.queue = Recorder()
+                bridge.drop(identity, 30, 40)
+                bridge.drop('f' * 64, 1, 2)                         # not in the library: nothing
+                bridge.queue = worker_queue
+                drops = [event['value'] for event in queued if event.get('type') == 'action']
+                self.assertEqual([(d['contentId'], d['x'], d['y'], d['installed']) for d in drops],
+                                 [(identity, 30, 40, False)])
+            finally:
+                bridge.close()
+
     def test_unrecognized_messages_do_not_start_helper(self):
         with tempfile.TemporaryDirectory() as folder:
             detached = Event()

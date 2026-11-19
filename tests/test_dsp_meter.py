@@ -121,6 +121,13 @@ class DspMeterHostTests(unittest.TestCase):
                                                       'dsp': [{'used': 27}, None]})
             meter.receive({'type': 'dspLoad', 'dsp': [{'used': 30}, {'used': 36}]})
             self.wait_for(lambda: processes[0].lines[-1]['dsp'][1] == {'used': 36})
+            # A notice ("DSP 1 has no room for a NAM block") goes to the helper once; it times it.
+            meter.receive({'type': 'dspNotice', 'text': 'DSP 1 has no room for a NAM block (85.5 of 75).'})
+            self.wait_for(lambda: processes[0].lines[-1].get('notice'))
+            self.assertEqual(processes[0].lines[-1]['notice'], 'DSP 1 has no room for a NAM block (85.5 of 75).')
+            meter.receive({'type': 'dspLoad', 'dsp': [{'used': 31}, {'used': 36}]})
+            self.wait_for(lambda: processes[0].lines[-1]['dsp'][0] == {'used': 31})
+            self.assertNotIn('notice', processes[0].lines[-1])
             self.assertFalse(meter.receive({'type': 'somethingElse'}))
         finally:
             meter.close()

@@ -466,6 +466,16 @@ def ir_parameters(resources):
     return catalog
 
 
+def model_loads(resources):
+    """{model symbol: DSP load} from this copy's HelixModelDefs.bin, as HX Edit sums them; {} if unreadable."""
+    try:
+        definitions = msgpack.unpackb(Path(resources, 'HelixModelDefs.bin').read_bytes())
+        return {str(model['symbolicID\0']).rstrip('\0'): float(model['load\0']) for model in definitions
+                if isinstance(model, dict) and isinstance(model.get('load\0'), (int, float)) and model.get('symbolicID\0')}
+    except (OSError, ValueError, TypeError, KeyError, msgpack.exceptions.ExtraData):
+        return {}
+
+
 def load_settings():
     try:
         settings = json.loads(SETTINGS.read_text(encoding='utf-8'))

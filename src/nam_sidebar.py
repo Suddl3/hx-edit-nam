@@ -127,6 +127,14 @@ class NamSidebar:
         if isinstance(value, dict) and not self.closed.is_set():
             self.queue.put({'type': 'status', 'value': dict(value)})
 
+    def drop(self, identity, x, y):
+        """A capture dragged from the library window onto HX Edit at (x, y): handled as a drop from
+        this list, on the bridge's own thread (Use when it is on the Floor, else Load)."""
+        row = next((row for row in sidebar_rows(self.library) if row.get('contentId') == identity), None)
+        if row is not None and not self.closed.is_set():
+            self.queue.put({'type': 'action', 'value': {'type': 'action', 'action': 'drop', 'contentId': identity,
+                                                          'x': x, 'y': y, 'installed': row.get('deviceStatus') == 'verified'}})
+
     def send(self, message):
         if self.process is None or self.process.poll() is not None:
             return False
@@ -214,13 +222,31 @@ class NamSidebar:
             except (OSError, ValueError, KeyError) as error:
                 self.send({'type': 'classificationResult', 'error': str(error)})
             return
-        if action not in ('load', 'select'):
+        if action not in ('load', 'select', 'drop'):
             return
         # The helper shows "Checking selected NAM block…" until it gets a result, so every
         # request is answered. A silent return left the button waiting with no explanation.
         if self.operation_busy:
             self._trace(action, 'rejected-busy')
             self.send({'type': 'result', 'error': 'The previous library action is still running. Try again in a moment.'})
+            return
+        if action == 'drop':
+            # Dragged from the list onto HX Edit: the block under the pointer becomes the target, so
+            # no NAM block has to be selected first (the script clicks it, then checks it is one).
+            x, y = message.get('x'), message.get('y')
+            if identity not in self.library.entries() or type(x) is not int or type(y) is not int:
+                self._trace(action, 'rejected-unknown-capture')
+                self.send({'type': 'result', 'error': 'This capture is no longer in the library.'})
+                return
+            self.library.update_view({'selected': identity})
+            self.operation_busy = True
+            self.operation_started = monotonic()
+            self.script.post({'type': 'namSidebarAction', 'payload': {
+                'action': 'drop', 'id': identity, 'x': x, 'y': y,
+                'mode': 'use' if message.get('installed') is True else 'load',
+                # which NAM category an empty cell or other block opens when it becomes a NAM block
+                'gear': str(self.library.entries()[identity].get('gear') or '')}})
+            self._trace(action, 'sent')
             return
         if identity not in self.library.entries() or not self.layout.get('targetReady') or self.action_handler is None:
             self._trace(action, 'rejected-no-target' if identity in self.library.entries() else 'rejected-unknown-capture')

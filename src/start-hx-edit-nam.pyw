@@ -125,6 +125,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
     from floor_reference import FLOOR_REFERENCE_OPTIONS
     from floor_capture import validate_floor_capture_files
     import floor_firmware
+    import nam_catalog
 
     # The Floor firmware this copy's catalog was built for (floor_firmware.py): the NAM Pedal block and pedal files.
     floor_pedal = floor_reference and floor_firmware.recorded(exe.parent / 'res').pedal
@@ -170,6 +171,11 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                            favoriteSlots=memory.favorites(), favoriteLooks=memory.looks())
             # The NAM block category exists in this copy's catalog (nam_catalog.patch_nam_category).
             options.update(namCategory=(exe.parent / 'res' / 'icons_category' / 'FX_HX_Category_NAM_Amp.png').is_file())
+            # A NAM block's DSP load as this copy's catalog declares it (for the room check before adding one).
+            options.update(namLoad=floor_firmware.recorded(exe.parent / 'res').nam_load,
+                           modelLoads=nam_catalog.model_loads(exe.parent / 'res'))
+            # HX Unbound menu: "Mark NAM slots in the IR list" (on unless turned off).
+            options.update(irDots=nam_catalog.load_settings().get('irNamDots') is not False)
             # Read-only research probes: only in a copy prepared with this marker file.
             options.update(namProbe=(exe.parent / 'res' / 'nam-probe.flag').is_file())
             before = '\n'.join((ROOT / name).read_text(encoding='utf-8') for name in
@@ -208,6 +214,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     script.post({'type': 'namSidebarAction', 'payload': {'action': action, 'id': identity}})
             sidebar = NamSidebar(script, library, detached, action_handler=sidebar_action, trace=trace)
             preview.sidebar_status = sidebar.status
+            preview.drop_handler = sidebar.drop       # the library window's drag onto the chain
             from dsp_meter import DspMeter
             # The HX Unbound menu button (beside the TONE3000 button): Level presets (in builds that have
             # them), the Floor look and the NAM library.
@@ -218,7 +225,16 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     sidebar_action('look', '')
                 elif name == 'library':
                     sidebar_action('expand', '')
+                elif name == 'irDots':
+                    on = not ir_dots[0]
+                    ir_dots[0] = on
+                    nam_catalog.save_setting('irNamDots', on)
+                    meter.set_ir_dots(on)
+                    if not detached.is_set():
+                        script.post({'type': 'irDots', 'payload': {'on': on}})
+            ir_dots = [options.get('irDots') is not False]
             meter = DspMeter(trace=trace, on_choice=unbound_choice)
+            meter.set_ir_dots(ir_dots[0])
 
         def on_message(event, _data):
             if event['type'] == 'error':

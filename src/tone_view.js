@@ -686,6 +686,55 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   const captureRows = new Map();   // row label -> {slot, header}
   const captureLabels = new Map(); // row label -> its native string, kept alive for HX Edit
   let pendingCapture = null;
+  // A capture just put on a block that HX Edit was still building: HX Edit can then reset the new
+  // block's Model to slot 1 (an IR dragged from the IR list became a NAM block on slot 24, then
+  // played slot 1, a plain IR, and the Floor went silent: November 18). For a few seconds the
+  // block's slot is read back from the edit buffer and set again if it moved.
+  let captureCheck = null;
+  const CHECK_MS = 3000, CHECK_STABLE = 700, CHECK_TRIES = 3;
+  function checkCaptureLater(controller, slot) {
+    try {
+      if (!controllerReady(controller) || !Number.isInteger(slot)) return;
+      captureCheck = {controller, slot, dsp: controller.add(0x80).readS32(), block: block(controller),
+        until: Date.now() + CHECK_MS, stableSince: 0, tries: 0, at: 0};
+    } catch (_) { captureCheck = null; }
+  }
+  function runCaptureCheck() {
+    // UI thread, from the message hook.
+    const check = captureCheck, now = Date.now();
+    if (!check || now < check.at) return;
+    check.at = now + 100;
+    try {
+      const controller = check.controller;
+      if (!controllerReady(controller) || controller.add(0x80).readS32() !== check.dsp || block(controller) !== check.block) {
+        captureCheck = null; return;                         // another block now: nothing to check
+      }
+      const slot = namBlockSlot(controller);
+      if (slot === check.slot) {
+        if (!check.stableSince) check.stableSince = now;
+        if (now - check.stableSince >= CHECK_STABLE) {
+          captureCheck = null;
+          if (check.tries) send({type: 'toneTrace', reason: 'capture-check', stage: 'kept', slot, tries: check.tries});
+        }
+        return;
+      }
+      check.stableSince = 0;
+      if (now > check.until || check.tries >= CHECK_TRIES) {
+        captureCheck = null;
+        send({type: 'toneTrace', reason: 'capture-check', stage: 'lost', slot: check.slot, now: slot});
+        send({type: 'dspNotice', text: `The NAM block did not keep capture ${check.slot}. Check its Model.`});
+        return;
+      }
+      if (Number.isInteger(slot) && Number.isInteger(namView.modelSlot()) && cursorController().equals(controller)) {
+        check.tries++;
+        const accepted = namView.setSlot(check.slot);
+        send({type: 'toneTrace', reason: 'capture-check', stage: accepted ? 'set-again' : 'refused', slot: check.slot, was: slot});
+      }
+    } catch (error) {
+      captureCheck = null;
+      send({type: 'toneTrace', reason: 'capture-check', stage: 'skipped', error: String(error.message)});
+    }
+  }
 
   function captureGroup(gear) {
     // nam_catalog.NAM_CATEGORY_GROUPS: 1 Amp, 2 Amp + cab, 3 Cab, 4 Pedal, 5 Other.
@@ -940,6 +989,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       if (Date.now() > pending.until) {
         pendingCapture = null;
         send({type: 'toneTrace', reason: 'nam-category', stage: 'block-not-confirmed', slot: pending.slot});
+        send({type: 'dspNotice', text: 'HX Edit did not add the NAM block. Nothing else was changed.'});
         return;
       }
       if (namView.libraryReady && !namView.libraryReady()) return;
@@ -952,11 +1002,371 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       try { accepted = namView.setSlot(pending.slot); }
       finally { if (session) session.applying = false; }
       send({type: 'toneTrace', reason: 'nam-category', stage: accepted ? 'capture-set' : 'capture-refused', slot: pending.slot});
-      if (accepted) setLockState(selectedController, 'locked', 'capture-row');
+      if (accepted) { setLockState(selectedController, 'locked', 'capture-row'); checkCaptureLater(selectedController, pending.slot); }
     } catch (error) {
       pendingCapture = null;
       send({type: 'toneTrace', reason: 'nam-category', stage: 'skipped', error: String(error.message)});
     }
+  }
+
+  // --- A capture dropped on an empty cell or another kind of block --------------------------
+  // The cell becomes a NAM A2 Lite block, as choosing the capture's NAM category and then its
+  // block row by hand would (one Undo step); the caller then puts the capture on it as Use does.
+  // Returns 'nam' when the selected block already is one, 'adding' when the block row was chosen,
+  // else what stopped it. UI thread (the NAM tab's queued actions run in the message hook).
+  function makeNamBlock(gear, options = {}) {
+    if (!profile.namCategory) return 'Drop the capture on a NAM block (NAM categories are off in this build).';
+    if (active?.transfer || active?.pendingTransfer || command || workflowRequest || toneImport || pendingCapture)
+      return 'HX Edit is finishing another change. Drop the capture again in a moment.';
+    try {
+      const controller = listOwner();
+      if (controller.isNull() || categoryList.isNull()) return 'HX Edit did not open the model list for that spot. Select it, then drop again.';
+      if (Number.isInteger(namBlockSlot(controller))) return 'nam';
+      // HX Edit refuses a block its DSP cannot fit ("Failed to load model. (Out of memory
+      // condition.)", Floor, November 18): say so, by the DSP meter, and change nothing.
+      const full = options.roomChecked ? null : namRoom(controller);   // a replace drop counted it already
+      if (full) {
+        send({type: 'dspNotice', text: full});
+        send({type: 'toneTrace', reason: 'nam-drop', stage: 'no-room'});
+        return full;
+      }
+      const target = NAM_CATEGORY_NAMES[captureGroup(gear) - 1];
+      const index = rowIndex(categoryList, text => text === target);
+      if (index < 0) return 'A NAM block cannot go there.';
+      clearSelection(categoryList, 0, 0);
+      selectRow(categoryList, 1, index, 0, 1);
+      modelEvent(controller, selectionEvent, categoryList, NULL, NULL);
+      markCurrentRow(categoryList, index);
+      const list = controller.add(0x58).readPointer();
+      const header = list.isNull() ? -1 : rowIndex(list, text => text.trimEnd() === tiles[0].block);
+      if (header < 0) return `HX Edit's model list has no ${tiles[0].block} row for that spot.`;
+      clearSelection(list, 0, 0);
+      selectRow(list, 1, header, 0, 0);
+      send({type: 'toneTrace', reason: 'nam-drop', stage: 'adding-block', group: captureGroup(gear)});
+      modelEvent(controller, selectionEvent, list, NULL, NULL);
+      return 'adding';
+    } catch (error) {
+      send({type: 'toneTrace', reason: 'nam-drop', stage: 'skipped', error: String(error.message)});
+      return 'Could not put a NAM block there. Select the spot, then drop again.';
+    }
+  }
+  // A NAM slot taken from HX Edit's own IR list (dragged onto the chain or double-clicked) gives
+  // the block an IR model, which would play the capture's data as an impulse. When the selected
+  // block plays the slot just pressed in the IR list as an IR, it becomes a NAM block on that slot
+  // (NAM category, block row, then the slot and the lock, as a capture row does).
+  const IR_MODELS = new Set(['HD2_ImpulseResponse1024', 'HD2_ImpulseResponse2048']);
+  let irCheckAt = 0;
+  function convertIrPick() {
+    const pick = namView.irPick?.();
+    if (!pick || !targetBinding?.peekModel) return;
+    const now = Date.now();
+    if (now < irCheckAt) return;
+    irCheckAt = now + 100;
+    if (active?.transfer || active?.pendingTransfer || command || workflowRequest || toneImport || pendingCapture) return;
+    try {
+      const controller = cursorController();
+      if (controller.isNull()) return;
+      const dsp = controller.add(0x80).readS32();
+      const seen = targetBinding.peekModel(controller.add(0x34).readPointer(), dsp, block(controller));
+      if (!seen || !IR_MODELS.has(seen.model) || seen.index !== pick.slot) return;
+      namView.clearIrPick();
+      const capture = namView.installedCaptures().find(entry => entry.slot === pick.slot);
+      const checked = roomCheckedFor && roomCheckedFor.slot === pick.slot && now < roomCheckedFor.until;
+      roomCheckedFor = null;
+      const made = makeNamBlock(capture ? capture.gear : '', {roomChecked: !!checked});
+      send({type: 'toneTrace', reason: 'ir-list-nam', stage: made === 'adding' ? 'adding-block' : 'not-added', slot: pick.slot});
+      if (made === 'adding') pendingCapture = {slot: pick.slot, dsp, until: now + 3000};
+    } catch (error) {
+      namView.clearIrPick();
+      send({type: 'toneTrace', reason: 'ir-list-nam', stage: 'skipped', error: String(error.message)});
+    }
+  }
+  function namRoom(controller) {
+    // null when the block's DSP can take a NAM block in place of the selected one (or when there is
+    // no reading: HX Edit decides), else why not. Loads as the DSP meter has them (dsp_meter.js),
+    // what the replaced model frees from this copy's catalog (options.modelLoads).
+    const loads = typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow;
+    const dsp = controller.add(0x80).readS32();
+    const view = loads && loads[dsp];
+    if (!view || typeof view.used !== 'number' || typeof view.budget !== 'number') return null;
+    let freed = 0;
+    try {
+      const seen = targetBinding?.peekModel?.(controller.add(0x34).readPointer(), dsp, block(controller));
+      freed = seen && profile.modelLoads ? Number(profile.modelLoads[seen.model]) || 0 : 0;
+    } catch (_) { freed = 0; }
+    const after = Math.round((view.used - freed + (Number(profile.namLoad) || 36)) * 10) / 10;
+    return after <= view.budget ? null : `DSP ${dsp + 1} has no room for a NAM block (${after} of ${view.budget}).`;
+  }
+  // --- Dropping an IR-list slot on the chain: over a block replaces it ------------------------
+  // HX Edit's own drag from the IR list ('lbir', the slot's row) only ever inserts: the chain gives
+  // an occupied cell a "before" and an "after" zone and slides the blocks aside. installDropReplace
+  // adds a centre "replace" zone inside HX Edit's own zone machinery (research/ir-list-re/
+  // FINDINGS-drag.md); the per-DSP drop delegate D (controller + 0x34) holds editor [D+8], view
+  // [D+0xc], dsp [D+0x10], path model [D+0x14], preview clone [D+0x18], zones at D+0x1c and the
+  // chosen zone at D+0x34 (mode at D+0x48, row D+0x4c, col D+0x50).
+  const dropGuards = {
+    '413d70': '558bec6aff68????????64a100000000', '412560': '558bec6aff68????????64a100000000',
+    '413a90': '558bec6aff68????????64a100000000', '513620': '558bec6aff68????????64a100000000',
+    '500320': '558bec6aff68????????64a100000000', '264e70': '558bec568b750883fe0273428b013d05',
+    '265e50': '83390075128b410c85c074088b401080', '3777f0': '558bec8b0185c074128b4d080f1f4000',
+    '40e730': '558bec83ec6053578b7d148bd9895de8', '265df0': '558bec53578bf98b073d05002100741e',
+    '40c6b0': '558bec568bf1578b560885d20f849600', '40eff0': '558bec8b417c3d050021007507b80900',
+    '40adc0': '558bec8a4508568bf16a008886970000', '3b5cc0': '558bec6aff68????????64a100000000',
+  };
+  const LBIR = 0x6c626972, SFOL = 0x73666f4c;           // drag types: an IR-list slot, a block being moved
+  let roomCheckedFor = null;         // {slot, until}: a drop that already counted the DSP room
+  function guardsMatch(guards) {
+    // '??' skips a byte: the SEH prologues push an absolute handler address, which relocation changes.
+    return Object.entries(guards).every(([rva, hex]) => {
+      const bytes = new Uint8Array(base.add(parseInt(rva, 16)).readByteArray(hex.length / 2));
+      return Array.from(bytes, b => b.toString(16).padStart(2, '0')).every((byte, i) => {
+        const want = hex.substr(i * 2, 2);
+        return want === '??' || want === byte;
+      });
+    });
+  }
+  // After a replace drop of a NAM slot on another kind of block: that block is clicked (as a click
+  // on it would select it), then made a NAM block and given the slot, as a NAM category pick does.
+  // One model change and one slot change in HX Edit's history, so Undo brings the old block back.
+  let irReplace = null;              // {slot, gear, until}
+  function runIrReplace() {
+    // UI thread, from the message hook.
+    const job = irReplace, now = Date.now();
+    try {
+      const click = namView.dropState();
+      if (now > job.until || click.state === 'none') {
+        irReplace = null; namView.endDrop();
+        send({type: 'dspNotice', text: 'HX Edit did not select that block. Drop the slot again.'});
+        return;
+      }
+      if (click.state !== 'clicked' || now - click.clicked < 250) return;
+      irReplace = null; namView.endDrop();
+      const made = makeNamBlock(job.gear);
+      send({type: 'toneTrace', reason: 'drop-replace', stage: 'nam-' + (made === 'adding' || made === 'nam' ? made : 'refused'), slot: job.slot});
+      const controller = cursorController();
+      if (made === 'adding' && !controller.isNull()) pendingCapture = {slot: job.slot, dsp: controller.add(0x80).readS32(), until: now + 3000};
+      else if (made === 'nam' && namView.setSlot(job.slot)) {
+        setLockState(controller, 'locked', 'drop');
+        checkCaptureLater(controller, job.slot);
+      } else if (made !== 'adding' && made !== 'nam') send({type: 'dspNotice', text: made});
+    } catch (error) {
+      irReplace = null;
+      send({type: 'toneTrace', reason: 'drop-replace', stage: 'nam-skipped', error: String(error.message)});
+    }
+  }
+
+  function installDropReplace() {
+    // HX Edit's own hover stays in charge (research/ir-list-re/FINDINGS-drag.md, part 2). For a drag
+    // from the IR list ('lbir'):
+    //  - the zone builder 0x40e730 gets a centre zone on each occupied cell (mode 0 = REPLACE), between
+    //    narrower before/after edges, where HX Edit's dry run allows a replace;
+    //  - choosing that zone opens no gap (0x265df0 does nothing for it), and the block is dimmed
+    //    (0x40adc0) to show it will be replaced;
+    //  - a change of zone waits a moment (the pointer HX Edit sees is held on the current zone), so
+    //    blocks do not slide on every brush past a block;
+    //  - on drop, HX Edit's own paste is told to replace (flag nibble 0): its Undo restores the block.
+    //    A NAM capture's slot on a NAM block only sets its slot; on another kind of block, that block
+    //    is selected and made a NAM block (runIrReplace).
+    if (!profile.navigation || !targetBinding?.setIndex) return;
+    if (!guardsMatch(dropGuards)) { send({type: 'toneTrace', reason: 'drop-replace', stage: 'guard-failed'}); return; }
+    const find = new NativeFunction(base.add(0x3777f0), 'pointer', ['pointer', 'uint'], 'thiscall');
+    const cellAt = new NativeFunction(base.add(0x264e70), 'pointer', ['pointer', 'int', 'int'], 'thiscall');
+    const cellEmpty = new NativeFunction(base.add(0x265e50), 'uint8', ['pointer'], 'thiscall');
+    const canPaste = new NativeFunction(base.add(0x500320), 'int', ['pointer', 'int', 'int', 'pointer', 'uint'], 'thiscall');
+    const pushZone = new NativeFunction(base.add(0x40c6b0), 'void', ['pointer', 'pointer'], 'thiscall');
+    const itemAt = new NativeFunction(base.add(0x40eff0), 'pointer', ['pointer', 'int', 'int'], 'thiscall');
+    const dimItem = new NativeFunction(base.add(0x40adc0), 'void', ['pointer', 'int', 'int'], 'thiscall');
+    const openGap = new NativeFunction(base.add(0x265df0), 'uint8', ['pointer', 'int', 'int', 'int'], 'thiscall');
+    // Blocks glide GLIDE_MS (HX Edit's own 175 ms, shortened while an IR-list drag hovers the chain);
+    // a zone change waits just past it, so one glide finishes before the next starts.
+    const REPLACE = 0, EDGE = 0.22, GLIDE_MS = 110, DWELL_REPLACE = 140, DWELL_INSERT = 120;
+    const record = Memory.alloc(0x20), target = Memory.alloc(16);
+    const held = new Map();            // D -> {point, has, pending: {zone, since}}
+    let overD = NULL, dimmed = null, dropReplace = false;
+
+    function blockName(object) {
+      // A path object's id (+8): HX Edit's String {vtable, rep}; rep: length +4, characters* +0x10.
+      const rep = object.add(0xc).readPointer();
+      if (rep.isNull()) return '';
+      const length = rep.add(4).readU32(), chars = rep.add(0x10).readPointer();
+      return length > 0 && length < 64 && !chars.isNull() ? chars.readUtf8String(length) : '';
+    }
+    function irDrag(dd) {
+      // An IR-list slot, not a block being moved ('sfoL').
+      return !dd.isNull() && find(dd, SFOL).isNull() && !find(dd, LBIR).isNull();
+    }
+    function zoneList(vector) {
+      const data = vector.add(8).readPointer(), begin = vector.add(0x10).readS32(), end = vector.add(0x14).readS32();
+      const list = [];
+      for (let i = begin; i < end && i - begin < 64; i++) {
+        const at = data.add(i * 0x20);
+        list.push({at, l: at.readS32(), t: at.add(4).readS32(), r: at.add(8).readS32(), b: at.add(12).readS32(),
+                   obj: at.add(0x10).readPointer(), mode: at.add(0x14).readS32(), row: at.add(0x18).readS32(), col: at.add(0x1c).readS32()});
+      }
+      return list;
+    }
+    function hit(D, x, y) {
+      // As DragOver's own test: the first zone in order that is not off and holds the point.
+      return zoneList(D.add(0x1c)).find(z => z.mode !== -1 && x >= z.l - 1 && x < z.r + 1 && y >= z.t - 1 && y < z.b + 1) || null;
+    }
+    function chosen(D) {
+      return {obj: D.add(0x44).readPointer(), mode: D.add(0x48).readS32(), row: D.add(0x4c).readS32(), col: D.add(0x50).readS32()};
+    }
+    const sameZone = (a, b) => !!a && !!b && a.obj.equals(b.obj) && a.mode === b.mode && a.row === b.row && a.col === b.col;
+    function undim() {
+      if (!dimmed) return;
+      try { dimItem(dimmed, 0, 1); } catch (_) { /* drawing only */ }
+      dimmed = null;
+    }
+
+    Interceptor.attach(base.add(0x413d70), {
+      onEnter(args) {
+        this.ir = false;
+        try {
+          if (!irDrag(args[4])) return;
+          const D = this.context.ecx;
+          this.ir = true; this.D = D; this.info = args[6]; overD = D;
+          let state = held.get(D.toString());
+          if (!state) { state = {point: Memory.alloc(8), has: false, pending: null}; held.set(D.toString(), state); }
+          if ((args[1].toInt32() & 0xff) !== 0 || D.add(0x18).readPointer().isNull()) { state.has = false; state.pending = null; return; }
+          const local = args[2], x = local.readS32(), y = local.add(4).readS32(), now = Date.now();
+          const zone = hit(D, x, y), current = chosen(D);
+          if (zone && sameZone(zone, current)) {
+            state.point.writeS32(x); state.point.add(4).writeS32(y); state.has = true; state.pending = null;
+            return;
+          }
+          if (!zone || !state.has) { state.pending = null; return; }
+          if (!state.pending || !sameZone(state.pending.zone, zone)) state.pending = {zone, since: now};
+          const wait = zone.mode === REPLACE ? DWELL_REPLACE : DWELL_INSERT;
+          if (now - state.pending.since < wait && sameZone(hit(D, state.point.readS32(), state.point.add(4).readS32()), current)) {
+            args[2] = state.point;           // HX Edit still sees the pointer on the current zone
+          } else state.pending = null;
+        } catch (error) {
+          this.ir = false;
+          send({type: 'toneTrace', reason: 'drop-replace', stage: 'over-skipped', error: String(error.message)});
+        }
+      },
+      onLeave() {
+        if (!this.ir) return;
+        overD = NULL;
+        try {
+          const D = this.D, effect = this.info.readU8();
+          if (D.add(0x48).readS32() === REPLACE && (effect === 1 || effect === 2) && !D.add(0x18).readPointer().isNull()) {
+            const item = itemAt(D.add(0xc).readPointer(), D.add(0x4c).readS32(), D.add(0x50).readS32());
+            if (!item.isNull() && !item.equals(dimmed)) { undim(); dimItem(item, 1, 1); dimmed = item; }
+          } else undim();
+        } catch (_) { dimmed = null; }
+      },
+    });
+
+    Interceptor.attach(base.add(0x40e730), {
+      onEnter(args) { this.on = !overD.isNull(); this.vector = args[3]; },
+      onLeave() {
+        if (!this.on) return;
+        try {
+          const D = overD, editor = D.add(8).readPointer(), dsp = D.add(0x10).readS32(), clone = D.add(0x18).readPointer();
+          const byCell = new Map();
+          for (const zone of zoneList(this.vector)) {
+            const key = `${zone.row}:${zone.col}`;
+            byCell.set(key, [...(byCell.get(key) || []), zone]);
+          }
+          const centres = [];
+          for (const zones of byCell.values()) {
+            if (zones.length !== 2) continue;
+            const [left, right] = zones[0].l <= zones[1].l ? zones : [zones[1], zones[0]];
+            if (![2, -1].includes(left.mode) || ![3, -1].includes(right.mode)) continue;
+            const object = clone.isNull() ? NULL : cellAt(clone, left.row, left.col);
+            if (object.isNull() || object.readU32() !== 0 || cellEmpty(object)) continue;
+            target.writeU32(5); target.add(4).writeU32(0); target.add(8).writeU32((left.row << 16) | left.col); target.add(12).writeU32(0);
+            if (canPaste(editor, 2, dsp, target, 0) < 0) continue;
+            const half = Math.min(left.r - left.l, right.r - right.l), middle = left.r, edge = Math.round(half * 2 * EDGE);
+            let from = middle - half + edge, to = middle + half - edge;
+            if (left.mode === -1 && right.mode === -1) { from = left.l; to = right.r; }   // no insert here: all replace
+            else { left.at.add(8).writeS32(from); right.at.writeS32(to); }
+            centres.push({from, to, t: left.t, b: left.b, obj: left.obj, row: left.row, col: left.col});
+          }
+          for (const zone of centres) {           // after the edits: a push may move the records
+            record.writeS32(zone.from); record.add(4).writeS32(zone.t); record.add(8).writeS32(zone.to); record.add(12).writeS32(zone.b);
+            record.add(0x10).writePointer(zone.obj); record.add(0x14).writeS32(REPLACE);
+            record.add(0x18).writeS32(zone.row); record.add(0x1c).writeS32(zone.col);
+            pushZone(this.vector, record);
+          }
+        } catch (error) {
+          send({type: 'toneTrace', reason: 'drop-replace', stage: 'zones-skipped', error: String(error.message)});
+        }
+      },
+    });
+
+    Interceptor.replace(base.add(0x265df0), new NativeCallback(function (model, row, col, before) {
+      // The replace zone: no gap (HX Edit then lays the blocks out where they are).
+      try {
+        if (!overD.isNull() && model.equals(overD.add(0x18).readPointer()) && overD.add(0x48).readS32() === REPLACE) return 1;
+      } catch (_) { /* fall through to HX Edit */ }
+      return openGap(model, row, col, before);
+    }, 'uint8', ['pointer', 'int', 'int', 'int'], 'thiscall'));
+
+    Interceptor.attach(base.add(0x413a90), { onEnter() { undim(); } });
+    // The block glide 0x3b5cc0(item; RECT*, ms, easing, flag): shorter during these drags only.
+    Interceptor.attach(base.add(0x3b5cc0), {
+      onEnter(args) { if (!overD.isNull() && args[1].toInt32() === 0xaf) args[1] = ptr(GLIDE_MS); },
+    });
+
+    Interceptor.attach(base.add(0x412560), {
+      onEnter(args) {
+        undim();
+        this.flagged = false;
+        try {
+          const D = this.context.ecx, entry = args[2], info = args[3];
+          if (entry.isNull() || entry.readU32() !== LBIR || D.add(0x48).readS32() !== REPLACE) return;
+          const effect = info.readU8();
+          if (effect !== 1 && effect !== 2) return;
+          const slot = entry.add(4).readPointer().readU32() + 1;
+          const editor = D.add(8).readPointer(), dsp = D.add(0x10).readS32();
+          const object = cellAt(D.add(0x14).readPointer(), D.add(0x4c).readS32(), D.add(0x50).readS32());
+          const name = object.isNull() ? '' : blockName(object);
+          const seen = name ? targetBinding.peekModel(editor, dsp, name) : null;
+          if (namView.isNamSlot(slot)) {
+            info.writeU8(0);                     // HX Edit's own drop only tidies up
+            namView.clearIrPick?.();
+            if (seen && seen.model === 'HD2_AmpNAMLite') {
+              targetBinding.setIndex(editor, dsp, name, slot);   // one "set parameter" step
+              send({type: 'toneTrace', reason: 'drop-replace', stage: 'capture-set', slot, block: name});
+              return;
+            }
+            const capture = namView.installedCaptures().find(item => item.slot === slot);
+            setTimeout(() => namView.queueSidebarAction(() => {
+              if (namView.clickChainAtCursor()) irReplace = {slot, gear: capture ? capture.gear : '', until: Date.now() + 2500};
+              else send({type: 'dspNotice', text: 'Drop the slot on a block in the chain.'});
+            }), 80);
+            send({type: 'toneTrace', reason: 'drop-replace', stage: 'select-block', slot, block: name});
+            return;
+          }
+          dropReplace = true; this.flagged = true;  // a plain IR: HX Edit's own paste, as a replace
+          send({type: 'toneTrace', reason: 'drop-replace', stage: 'replace', slot, block: name});
+        } catch (error) {
+          send({type: 'toneTrace', reason: 'drop-replace', stage: 'drop-skipped', error: String(error.message)});
+        }
+      },
+      onLeave() { if (this.flagged) dropReplace = false; },
+    });
+
+    Interceptor.attach(base.add(0x513620), {
+      onEnter(args) {
+        // HX Edit's paste (pasteboard, dsp, target, flags): the low nibble 0 replaces the block.
+        if (dropReplace) args[3] = ptr((args[3].toUInt32() & ~0xf) >>> 0);
+      },
+    });
+    send({type: 'toneTrace', reason: 'drop-replace', stage: 'installed'});
+  }
+  try { installDropReplace(); } catch (error) { send({type: 'toneTrace', reason: 'drop-replace', stage: 'skipped', error: String(error.message)}); }
+
+  function selectedIsNam() {
+    // The block now selected is a NAM block and HX Edit shows its Model control.
+    try {
+      const controller = listOwner();
+      const owner = controller.isNull() ? cursorController() : controller;
+      return !owner.isNull() && Number.isInteger(namBlockSlot(owner)) && Number.isInteger(namView.modelSlot());
+    } catch (_) { return false; }
   }
 
   // --- Keeping the open capture list current ------------------------------------------------
@@ -2772,6 +3182,10 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       active.selectionUndo = undoIndex();
       captureTarget();
       active.onPreviewSlot = false; // it has a permanent slot now, so it can be previewed on
+      // A capture chosen from the library (Use, double-click, a drop) is locked like one picked
+      // from the NAM category, even on a block that was added as a plain NAM A2 Lite.
+      if (profile.namCategory) setLockState(active.controller, 'locked', 'library');
+      checkCaptureLater(active.controller, slot);
       return transfer ? {loadedSlot:slot} : {usedSlot:slot};
     }, 3500);
   }
@@ -2916,8 +3330,11 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     onEnter(args) {
       if (leftover) recoverLeftover();
       if (pendingCapture) finishPendingCapture();
+      if (captureCheck) runCaptureCheck();
       if (profile.namCategory) {
         if (pendingPlain) { try { finishPendingPlain(); } catch (_) { pendingPlain = null; } }
+        if (!pendingCapture) convertIrPick();
+        if (irReplace && !pendingCapture) runIrReplace();
         namView.applyModelLock?.();
         refreshCaptureList();
         watchNamIcons(args[0].readPointer());
@@ -3025,5 +3442,5 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     });
   }
   listen();
-  return { openBrowser };
+  return { openBrowser, makeNamBlock, selectedIsNam };
 }

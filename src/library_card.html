@@ -69,6 +69,9 @@
   #pickerNote { margin: 6px 0 0; color: #aaa; font-size: 12px; min-height: 1em; }
   #pickerNote.error { color: #f2bc57; }
   tbody tr { cursor: pointer; }
+  /* Rows and tiles are dragged onto HX Edit's chain: no text selection, no browser image drag. */
+  tbody tr, .tile { user-select: none; -webkit-user-select: none; }
+  tbody tr img, .tile img { -webkit-user-drag: none; }
   tbody tr:hover { background: #262626; }
   tbody tr[aria-selected="true"] { background: #4a2425; }
   td select { padding: 1px 4px; }
@@ -463,6 +466,25 @@
   function slotText(row) {
     return [...new Set([...(row.irSlots || []), ...(row.pendingSlots || [])])].sort((a, b) => a - b).join(', ');
   }
+  // Drag a row or tile onto HX Edit's signal chain: past a few pixels with the button down, the
+  // window's host takes over (it shows the capture's picture at the pointer and sends the drop).
+  function draggable(element, row) {
+    element.addEventListener('dragstart', event => event.preventDefault());   // no browser drag image
+    element.addEventListener('pointerdown', down => {
+      if (down.button !== 0 || busy || down.target.closest('select, button, input')) return;
+      down.preventDefault();                       // a press that may become a drag selects no text
+      const move = event => {
+        if (!(event.buttons & 1)) return stop();
+        if (Math.hypot(event.clientX - down.clientX, event.clientY - down.clientY) < 6) return;
+        stop();
+        getSelection()?.removeAllRanges();
+        selected = row.id; render(); publishView();
+        host?.postMessage('dragStart:' + JSON.stringify({ id: row.id, name: row.name, icon: icons[row.icon] || '' }));
+      };
+      const stop = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', stop); };
+      addEventListener('pointermove', move); addEventListener('pointerup', stop);
+    });
+  }
   // Grid view: one tile per capture (picture, name, slot), the same selection and double-click.
   function renderTiles(shown) {
     tiles.replaceChildren(...shown.map(row => {
@@ -483,6 +505,7 @@
       tile.append(picture, label, meta);
       tile.onclick = () => { selected = row.id; render(); publishView(); };
       tile.ondblclick = () => { selected = row.id; publishView(); pick(); };
+      draggable(tile, row);
       return tile;
     }));
   }
@@ -546,6 +569,7 @@
       tr.insertCell().textContent = row.added;
       tr.onclick = () => { selected = row.id; render(); publishView(); };
       tr.ondblclick = () => { selected = row.id; publishView(); pick(); };
+      draggable(tr, row);
       return tr;
     }));
     table.hidden = gridShown();
