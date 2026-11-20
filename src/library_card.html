@@ -698,7 +698,8 @@
     const pedalSuits = capture.gear === 'pedal';
     const full = share(namLoad).replace(' DSP', '');
     q('#choosePedalText').textContent = 'About 30 seconds. ' + share(pedalLoad).replace(' DSP', '') + ' of a DSP instead of ' +
-      full + '. Very close for boosts and overdrives, not for fuzz. Plays once the Floor has the pedal firmware.';
+      full + '. Very close for boosts and overdrives, not for fuzz. ' +
+      (pedalBlock ? 'Plays in the NAM Pedal block on your Floor.' : 'Plays once the Floor has the pedal firmware.');
     q('#chooseLightText').textContent = 'About 10 minutes. Works for any capture, fuzz and amps too. Saves nothing on the ' +
       'Floor until a firmware update; then about ' + Math.round(namLoad * 29 / 36) + '% of a DSP instead of ' + full + '.';
     q('#chooseTitle').textContent = 'Make a lighter version of “' + capture.name + '”. The original is kept.';
