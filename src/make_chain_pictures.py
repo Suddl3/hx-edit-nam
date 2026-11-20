@@ -8,7 +8,7 @@ The colour of a stock picture comes from HX Edit's model catalog (the category t
 it); the few pictures no model in the catalog uses are matched by their render's category (icons.json).
 
 Written to helix_model_icons/chain/<stock file name> and nam_capture_icons/chain/<id>.png, and the same with a grey
-ring for bypassed blocks in chain_off/, which nam_catalog.patch_chain_art copies into a prepared HX Edit as CHAIN_*.png
+dimmed ring and picture for bypassed blocks in chain_off/, which nam_catalog.patch_chain_art copies into a prepared HX Edit as CHAIN_*.png
 and CHAIN_OFF_*.png. Each picture sits on a soft dark tile and dark gear is brightened a little. Run again after the renders change:
 
     python make_chain_pictures.py [path to HX Edit's res/HX_ModelCatalog.json]     (needs Pillow; the editor does not)
@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent
 CATALOG = Path(r'C:\Program Files (x86)\Line6\HX Edit\res\HX_ModelCatalog.json')
 SIZE, FIT, RING, RADIUS = 38, 28, 2, 7     # the chain icon's size; the gear's longest side; the ring
 NAM_PURPLE = 0xB070E0                      # nam_catalog.NAM_CATEGORY_COLOR
-BYPASSED = 0x6E6E6E                        # the ring of a bypassed block (chain_off/): grey, the picture unchanged
+RING_OFF, GEAR_OFF = 0.42, 0.72            # a bypassed block (chain_off/): its ring and picture dimmed, as on the Floor
 TILE = (44, 44, 50, 235)                   # behind the gear, so dark amps and pedals stand off the black chain
 # A render's own category (icons.json) -> the colour of HX Edit's category of that name.
 RENDER_COLOURS = {'amp': 0xDD1111, 'preamp': 0xDD1111, 'cab': 0xDD1111, 'distortion': 0xF5901E,
@@ -82,18 +82,26 @@ def lifted(image):
     return image
 
 
-def chain_picture(source, target, colour):
+def dimmed(colour, factor):
+    return tuple(round(((colour >> shift) & 255) * factor) for shift in (16, 8, 0))
+
+
+def chain_picture(source, target, colour, off=False):
     image = Image.open(source).convert('RGBA')
     box = image.getchannel('A').point(lambda alpha: 255 if alpha > 8 else 0).getbbox()
     if box:
         image = image.crop(box)
     image = lifted(image)
+    if off:                                # dimmer still; HX Edit dims a bypassed block's picture as well
+        alpha = image.getchannel('A')
+        image = ImageEnhance.Brightness(image.convert('RGB')).enhance(GEAR_OFF).convert('RGBA')
+        image.putalpha(alpha)
     scale = FIT / max(image.size)
     size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
     image = image.resize(size, Image.LANCZOS)
     # Drawn at 4x and reduced, so the ring's corners are smooth.
     big = Image.new('RGBA', (SIZE * 4, SIZE * 4), (0, 0, 0, 0))
-    rgb = ((colour >> 16) & 255, (colour >> 8) & 255, colour & 255, 255)
+    rgb = dimmed(colour, RING_OFF if off else 1.0) + (255,)
     ImageDraw.Draw(big).rounded_rectangle((2, 2, SIZE * 4 - 3, SIZE * 4 - 3), radius=RADIUS * 4, fill=TILE, outline=rgb,
                                           width=RING * 4)
     out = big.resize((SIZE, SIZE), Image.LANCZOS)
@@ -110,11 +118,11 @@ def main(argv):
         folder.mkdir(exist_ok=True)
     for source in sorted((models / 'hxedit').glob('*.png')):
         chain_picture(source, models / 'chain' / source.name, colour_of(source.name, catalog, renders))
-        chain_picture(source, models / 'chain_off' / source.name, BYPASSED)
+        chain_picture(source, models / 'chain_off' / source.name, colour_of(source.name, catalog, renders), off=True)
         made += 2
     for source in sorted(captures.glob('*.png')):
         chain_picture(source, captures / 'chain' / source.name, NAM_PURPLE)
-        chain_picture(source, captures / 'chain_off' / source.name, BYPASSED)
+        chain_picture(source, captures / 'chain_off' / source.name, NAM_PURPLE, off=True)
         made += 2
     print(f'{made} chain pictures')
 
