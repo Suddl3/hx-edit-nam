@@ -114,6 +114,10 @@ class NamSidebar:
 
     def receive(self, value):
         kind = value.get('type')
+        if kind == 'dropHint':
+            # The NAM tab's drag box says what a drop there would do.
+            self.send({'type': 'dropHint', 'hint': value.get('hint')})
+            return True
         if kind not in ('namSidebarLayout', 'namSidebarResizeResult', 'namSidebarResult'):
             return False
         self.queue.put(value)

@@ -128,6 +128,19 @@ class DspMeterHostTests(unittest.TestCase):
             meter.receive({'type': 'dspLoad', 'dsp': [{'used': 31}, {'used': 36}]})
             self.wait_for(lambda: processes[0].lines[-1]['dsp'][0] == {'used': 31})
             self.assertNotIn('notice', processes[0].lines[-1])
+            # A model dragged from the block picker: its box while it is shown, then one line to hide it.
+            meter.icons = Path(self.id().replace('.', '_'))       # no such folder: no picture, still the box
+            meter.receive({'type': 'dropHint', 'hint': 'replace'})          # no box shown: ignored
+            meter.receive({'type': 'pickerGhost', 'name': 'Bucket Brigade', 'image': 'DELAY_BB.png'})
+            self.wait_for(lambda: processes[0].lines[-1].get('ghost'))
+            self.assertEqual(processes[0].lines[-1]['ghost'], {'name': 'Bucket Brigade', 'icon': '', 'hint': 'none'})
+            meter.receive({'type': 'dropHint', 'hint': 'replace'})
+            self.wait_for(lambda: (processes[0].lines[-1].get('ghost') or {}).get('hint') == 'replace')
+            meter.receive({'type': 'pickerGhost', 'hide': True})
+            self.wait_for(lambda: 'ghost' in processes[0].lines[-1] and processes[0].lines[-1]['ghost'] is None)
+            meter.receive({'type': 'dspLoad', 'dsp': [{'used': 32}, {'used': 36}]})
+            self.wait_for(lambda: processes[0].lines[-1]['dsp'][0] == {'used': 32})
+            self.assertNotIn('ghost', processes[0].lines[-1])
             self.assertFalse(meter.receive({'type': 'somethingElse'}))
         finally:
             meter.close()
@@ -172,7 +185,7 @@ class DspMeterHostTests(unittest.TestCase):
         finally:
             meter.close()
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
-        self.assertIn("meter = DspMeter(trace=trace, on_choice=unbound_choice)", launcher)
+        self.assertIn("meter = DspMeter(trace=trace, on_choice=unbound_choice, icons=exe.parent / 'res' / 'icons_models')", launcher)
         self.assertIn("value.action === 'level'", (ROOT / 'nam_sidebar.js').read_text(encoding='utf-8'))
 
     def test_launcher_and_build_include_the_meter(self):

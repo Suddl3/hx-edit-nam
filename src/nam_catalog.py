@@ -476,6 +476,30 @@ def model_loads(resources):
         return {}
 
 
+# @type of a block, as HX Edit's 0x54fac0 derives it from the model definition's category (single
+# blocks; Amp+Cab and dual cabs are 3 and 4). Others: 7 with a @trails parameter, else 0.
+BLOCK_TYPES = {1: 1, 13: 1, 2: 2, 19: 2, 16: 5, 15: 6}
+
+
+def model_types(resources):
+    """{model symbol: @type} for a one-block favorite of each model (dragging from the block picker)."""
+    try:
+        definitions = msgpack.unpackb(Path(resources, 'HelixModelDefs.bin').read_bytes())
+    except (OSError, ValueError, msgpack.exceptions.ExtraData):
+        return {}
+    types = {}
+    for model in definitions:
+        if not isinstance(model, dict) or not model.get('symbolicID\0'):
+            continue
+        category = model.get('category\0')
+        if not isinstance(category, int) or category == 0:
+            continue
+        trails = any(isinstance(p, dict) and str(p.get('symbolicID\0', '')).rstrip('\0') == '@trails'
+                     for p in model.get('params\0') or [])
+        types[str(model['symbolicID\0']).rstrip('\0')] = BLOCK_TYPES.get(category, 7 if trails else 0)
+    return types
+
+
 def load_settings():
     try:
         settings = json.loads(SETTINGS.read_text(encoding='utf-8'))

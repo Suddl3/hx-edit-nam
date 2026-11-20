@@ -512,7 +512,7 @@ class NavigationNativeTests(unittest.TestCase):
             const profile={namLoad:36,modelLoads:{HD2_ImpulseResponse1024:7,HD2_AmpBritPlexiBrt:30}};
             const controller={add:o=>({readS32:()=>0,readPointer:()=>'editor'})},block=()=>'block3';
             const targetBinding={peekModel:()=>model?{model,index:17}:null};
-        ''' + function('namRoom') + '''
+        ''' + function('namRoom') + function('namRoomOn') + '''
             return namRoom(controller);
           }
           console.log(JSON.stringify([room(56.5,'HD2_ImpulseResponse1024'), room(40,'HD2_ImpulseResponse1024'),

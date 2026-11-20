@@ -172,6 +172,7 @@ const SIDE_ALL=99,SIDE_GUITAR=1,SIDE_BASS=2,rememberedSide=()=>SIDE_ALL,onSide=(
 let selectedController=controller;
 const controllerReady=c=>!!c&&!c.isNull(), block=()=>'block0';
 const targetBinding={peekSlot:()=>blockSlot};
+let pendingSelect=null,pickerPress=null;   // no picker click waiting (installPickerDrag)
 """ + rows + refresh + r"""
 // HX Edit built NAM Other before the startup slot check: no captures yet.
 categories.selected=4; modelEvent(controller,1,categories);

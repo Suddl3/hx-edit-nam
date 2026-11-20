@@ -90,12 +90,23 @@ class NamLibrary : Form
     // The capture's gear picture under the pointer while it is dragged, as if the block were being
     // placed, with its name and what a drop there does underneath. Click-through: the pointer still
     // reaches the editor. The picture's surround is see-through (a colour key the picture never uses).
-    class DropGhost : Form {
+    internal class DropGhost : Form {
         const int Picture=64,LabelWidth=220,LabelHeight=34;
         static readonly Color Key=Color.FromArgb(1,2,3);
         readonly string name;
         readonly Image icon;
         bool over;
+        // What a drop here would do, when the editor says (place / replace / insert / none).
+        string hint="";
+        public void SetHint(string value){ value=value??""; if(value!=hint){hint=value;Invalidate();} }
+        public bool HasHint { get { return hint.Length>0; } }
+        public bool HintOver { get { return hint=="place"||hint=="replace"||hint=="insert"; } }
+        public static string HintText(string hint,bool over){
+            if(hint=="replace")return "Drop to replace this block";
+            if(hint=="insert")return "Drop to insert it here";
+            if(hint=="place")return "Drop to put it here";
+            return over&&hint.Length==0?"Drop to put it on this block":"Drop on a block in the chain";
+        }
         public DropGhost(string name,Image icon){
             this.name=name;this.icon=icon;FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;
             TopMost=true;BackColor=Key;TransparencyKey=Key;ForeColor=Color.Gainsboro;Font=new Font("Segoe UI",8.25f);
@@ -122,7 +133,7 @@ class NamLibrary : Form
             using(var bold=new Font(Font,FontStyle.Bold))
                 TextRenderer.DrawText(g,name,bold,new Rectangle(6,label.Y+2,Width-12,15),ForeColor,
                     TextFormatFlags.HorizontalCenter|TextFormatFlags.EndEllipsis);
-            TextRenderer.DrawText(g,over?"Drop to put it on this block":"Drop on a block in the chain",Font,
+            TextRenderer.DrawText(g,HintText(hint,over),Font,
                 new Rectangle(6,label.Y+17,Width-12,15),over?Color.White:Color.Silver,
                 TextFormatFlags.HorizontalCenter|TextFormatFlags.EndEllipsis);
         }
@@ -212,7 +223,7 @@ class NamLibrary : Form
     // hiding pending/verified slot colors. Own the cells as well as the header.
     const int IconSize=28,RowHeight=32;
     static readonly Dictionary<string,Image> gearIcons=new Dictionary<string,Image>(StringComparer.OrdinalIgnoreCase);
-    static Image GearIcon(string path){
+    internal static Image GearIcon(string path){
         // Only the app's own icon folder's PNGs; a missing or unreadable file draws no icon.
         if(string.IsNullOrEmpty(path)||!path.EndsWith(".png",StringComparison.OrdinalIgnoreCase))return null;
         Image image;
@@ -546,6 +557,7 @@ class NamLibrary : Form
                 status.Text="Drop the capture on a block in the signal chain.";noticeUntil=resizeClock.ElapsedMilliseconds+6000;}
             return;
         }
+        if(ghost.HasHint)over=ghost.HintOver;
         Cursor.Current=over?Cursors.Default:Cursors.No;
         ghost.Track(screen.X,screen.Y,over);
     }
@@ -868,6 +880,7 @@ class NamLibrary : Form
     void Apply(Dictionary<string,object> message){
         string type=TextOf(message,"type");
         if(type=="close"){Close();return;}
+        if(type=="dropHint"){if(ghost!=null)ghost.SetHint(TextOf(message,"hint"));return;}
         if(type=="workflowStatus"){
             waiting=Flag(message,"busy");status.Text=TextOf(message,"text");
             noticeUntil=waiting?0:resizeClock.ElapsedMilliseconds+6000;RefreshLoad();return;
@@ -1184,6 +1197,10 @@ class NamLibrary : Form
         if(DropReason(ready,false,false,false).Length!=0)throw new Exception("A drop needs no selected block");
         if(!DropReason(rechecking,false,false,false).Contains("Checking")||DropReason(ready,true,false,false).Length==0||
            DropReason(ready,false,true,false).Length==0||DropReason(ready,false,false,true).Length==0)throw new Exception("Drop reasons");
+        // The drag box says what a drop would do once the editor tells it; before that, over the chain or not.
+        if(DropGhost.HintText("replace",true)!="Drop to replace this block"||DropGhost.HintText("insert",true)!="Drop to insert it here"||
+           DropGhost.HintText("place",false)!="Drop to put it here"||DropGhost.HintText("none",true)!="Drop on a block in the chain"||
+           DropGhost.HintText("",true)!="Drop to put it on this block")throw new Exception("Drop box wording");
         if(BlockedReason(ready,false,true,false,true).Length==0||BlockedReason(ready,true,false,false,true).Length==0)throw new Exception("Busy reasons");
         var a=new ListViewItem("z"){Name="a"};var b=new ListViewItem("a"){Name="b"};
         foreach(var item in new[]{a,b}){item.SubItems.Add("Amp");item.SubItems.Add("?");item.SubItems.Add("—").Tag="";}
@@ -1642,6 +1659,12 @@ class DspMeter : Form
     bool compact;
     bool unbound;
     UnboundButton unboundButton;
+    // A model dragged from HX Edit's block picker: its picture and name beside the pointer (the NAM
+    // tab's box), until the editor says the drag ended.
+    NamLibrary.DropGhost ghost;
+    string ghostKey = "";
+    bool ghostOver;
+    readonly Timer ghostTimer = new Timer { Interval = 30 };
     // A notice from the editor ("DSP 1 has no room for a NAM block"), shown in place of the meter.
     string notice;
     int noticeUntil;
@@ -1661,6 +1684,7 @@ class DspMeter : Form
         int style=GetWindowLong(parent,GWL_STYLE);
         if(style!=0&&(style&WS_CLIPCHILDREN)==0)SetWindowLong(parent,GWL_STYLE,style|WS_CLIPCHILDREN);
         var reader=new System.Threading.Thread(Read){IsBackground=true};reader.Start();
+        ghostTimer.Tick+=(sender,e)=>TrackGhost();
         UnboundLook.Apply(parent);   // HX Edit Unbound's icon and title on HX Edit's window
         int ticks=0;
         var watch=new Timer{Interval=250};
@@ -1701,6 +1725,7 @@ class DspMeter : Form
         unbound=state.TryGetValue("unbound",out value)&&value is bool&&(bool)value;
         if(unbound&&unboundButton==null)unboundButton=new UnboundButton(parent);
         if(unboundButton!=null&&state.TryGetValue("irDots",out value)&&value is bool)unboundButton.SetIrDots((bool)value);
+        if(state.ContainsKey("ghost"))ApplyGhost(state["ghost"] as Dictionary<string,object>);
         if(state.TryGetValue("notice",out value)&&value is string&&((string)value).Length>0){
             notice=(string)value;noticeUntil=Environment.TickCount+NoticeMs;}
         if(state.TryGetValue("dsp",out value)&&value is IList){var list=(IList)value;dsp=new object[]{list.Count>0?list[0]:null,list.Count>1?list[1]:null};}
@@ -1719,6 +1744,23 @@ class DspMeter : Form
         Place();
         tip.SetToolTip(this,Describe(dsp));
         Invalidate();
+    }
+    void ApplyGhost(Dictionary<string,object> value){
+        if(value==null){ ghostTimer.Stop(); if(ghost!=null){ghost.Close();ghost.Dispose();ghost=null;} ghostKey=""; return; }
+        object name,icon,hint;
+        value.TryGetValue("name",out name);value.TryGetValue("icon",out icon);value.TryGetValue("hint",out hint);
+        string key=(name as string??"")+"|"+(icon as string??"");
+        if(ghost==null||key!=ghostKey){
+            if(ghost!=null){ghost.Close();ghost.Dispose();}
+            ghost=new NamLibrary.DropGhost(name as string??"",NamLibrary.GearIcon(icon as string??""));ghostKey=key;
+        }
+        ghost.SetHint(hint as string??"none");ghostOver=ghost.HintOver;
+        if(!ghostTimer.Enabled)ghostTimer.Start();
+        TrackGhost();
+    }
+    void TrackGhost(){
+        if(ghost==null){ghostTimer.Stop();return;}
+        var at=Cursor.Position;ghost.Track(at.X,at.Y,ghostOver);
     }
     int ParentWidth(){ ClientRect rect; return GetClientRect(parent,out rect)?rect.Right-rect.Left:-1; }
     // Where the meter goes in the span for the parent's current width, or empty when it does not fit.

@@ -951,9 +951,9 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   }
 
   function chooseCapture(controller, list, entry) {
-    // A capture row was clicked. Never forwarded to HX Edit as a model choice.
-    clearSelection(list, 0, 0);
+    // A capture row was chosen. Never forwarded to HX Edit as a model choice.
     if (active?.transfer || active?.pendingTransfer || command || workflowRequest || toneImport) {
+      clearSelection(list, 0, 0);     // not chosen: refreshCaptureList puts the playing capture's row back
       send({type: 'toneTrace', reason: 'nam-category', stage: 'ignored-busy', slot: entry.slot});
       return;
     }
@@ -969,6 +969,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         send({type: 'toneTrace', reason: 'nam-category', stage: accepted ? 'capture-set' : 'capture-refused', slot: entry.slot});
         // Clicking the capture the block already plays changes nothing, the lock included.
         if (accepted && entry.slot !== before) setLockState(controller, 'locked', 'capture-row');
+        // The chosen row stays selected (a tile: its row in the column); a refused one is deselected.
+        if (accepted) highlightCapture(list, entry.slot); else clearSelection(list, 0, 0);
         return;
       }
       // Not a NAM block yet: choose the block row as a click would, then finish in the hook.
@@ -1085,15 +1087,20 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     // null when the block's DSP can take a NAM block in place of the selected one (or when there is
     // no reading: HX Edit decides), else why not. Loads as the DSP meter has them (dsp_meter.js),
     // what the replaced model frees from this copy's catalog (options.modelLoads).
-    const loads = typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow;
     const dsp = controller.add(0x80).readS32();
-    const view = loads && loads[dsp];
-    if (!view || typeof view.used !== 'number' || typeof view.budget !== 'number') return null;
-    let freed = 0;
+    let replaced = null;
     try {
       const seen = targetBinding?.peekModel?.(controller.add(0x34).readPointer(), dsp, block(controller));
-      freed = seen && profile.modelLoads ? Number(profile.modelLoads[seen.model]) || 0 : 0;
-    } catch (_) { freed = 0; }
+      replaced = seen ? seen.model : null;
+    } catch (_) { replaced = null; }
+    return namRoomOn(dsp, replaced);
+  }
+  function namRoomOn(dsp, replaced) {
+    // As namRoom, for a NAM block on DSP dsp in place of model replaced (null: an empty cell).
+    const loads = typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow;
+    const view = loads && loads[dsp];
+    if (!view || typeof view.used !== 'number' || typeof view.budget !== 'number') return null;
+    const freed = replaced && profile.modelLoads ? Number(profile.modelLoads[replaced]) || 0 : 0;
     const after = Math.round((view.used - freed + (Number(profile.namLoad) || 36)) * 10) / 10;
     return after <= view.budget ? null : `DSP ${dsp + 1} has no room for a NAM block (${after} of ${view.budget}).`;
   }
@@ -1128,6 +1135,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // After a replace drop of a NAM slot on another kind of block: that block is clicked (as a click
   // on it would select it), then made a NAM block and given the slot, as a NAM category pick does.
   // One model change and one slot change in HX Edit's history, so Undo brings the old block back.
+  let runNamFollow = null;          // installDropReplace's follow-up, run from the picker's message hook
   let irReplace = null;              // {slot, gear, until}
   function runIrReplace() {
     // UI thread, from the message hook.
@@ -1192,8 +1200,10 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       return length > 0 && length < 64 && !chars.isNull() ? chars.readUtf8String(length) : '';
     }
     function irDrag(dd) {
-      // An IR-list slot, not a block being moved ('sfoL').
-      return !dd.isNull() && find(dd, SFOL).isNull() && !find(dd, LBIR).isNull();
+      // An IR-list slot, or a model dragged from the picker (a favorite this editor wrote); not a
+      // block being moved ('sfoL').
+      if (dd.isNull() || !find(dd, SFOL).isNull()) return false;
+      return !find(dd, LBIR).isNull() || (!!chainDrag?.file && dd.equals(chainDrag.dd) && !find(dd, XGFI).isNull());
     }
     function zoneList(vector) {
       const data = vector.add(8).readPointer(), begin = vector.add(0x10).readS32(), end = vector.add(0x14).readS32();
@@ -1251,6 +1261,12 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         overD = NULL;
         try {
           const D = this.D, effect = this.info.readU8();
+          if (effect !== 1 && effect !== 2) dropHint = 'none';
+          else if (D.add(0x48).readS32() === REPLACE) dropHint = 'replace';
+          else {
+            const object = cellAt(D.add(0x14).readPointer(), D.add(0x4c).readS32(), D.add(0x50).readS32());
+            dropHint = object.isNull() || object.readU32() !== 0 || cellEmpty(object) ? 'place' : 'insert';
+          }
           if (D.add(0x48).readS32() === REPLACE && (effect === 1 || effect === 2) && !D.add(0x18).readPointer().isNull()) {
             const item = itemAt(D.add(0xc).readPointer(), D.add(0x4c).readS32(), D.add(0x50).readS32());
             if (!item.isNull() && !item.equals(dimmed)) { undim(); dimItem(item, 1, 1); dimmed = item; }
@@ -1311,15 +1327,124 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       onEnter(args) { if (!overD.isNull() && args[1].toInt32() === 0xaf) args[1] = ptr(GLIDE_MS); },
     });
 
+    function pickerCaptureDrop(D, entry, info) {
+      // A capture row dragged from the block picker ('lbir', its slot): onto an empty cell or over a
+      // block, the NAM block is made or changed in place, as the picker changes models (setModel /
+      // addModel, then its capture with setIndex) - not HX Edit's IR paste and a conversion after it,
+      // which took seconds. Between blocks it stays HX Edit's insert. true: handled here.
+      const slot = entry.add(4).readPointer().readU32() + 1;
+      if (!namView.isNamSlot(slot)) return false;
+      const editor = D.add(8).readPointer(), dsp = D.add(0x10).readS32();
+      const model = D.add(0x14).readPointer(), row = D.add(0x4c).readS32(), col = D.add(0x50).readS32();
+      const object = cellAt(model, row, col);
+      const empty = object.isNull() || object.readU32() !== 0 || cellEmpty(object);
+      if (!empty && D.add(0x48).readS32() !== REPLACE) return false;
+      const name = empty ? '' : blockName(object);
+      const seen = name ? targetBinding.peekModel(editor, dsp, name) : null;
+      info.writeU8(0);                         // HX Edit's own drop only tidies up
+      namView.clearIrPick?.();
+      if (seen && seen.model === 'HD2_AmpNAMLite') {
+        const shown = cursorController();
+        if (!shown.isNull() && controllerReady(shown) && shown.add(0x80).readS32() === dsp && block(shown) === name &&
+            Number.isInteger(namView.modelSlot())) {
+          // The block on screen: through its Model control, so the control shows it (one undo step).
+          namView.queueSidebarAction(() => { try { namView.setSlot(slot); } catch (_) { /* refused */ } });
+        } else targetBinding.setIndex(editor, dsp, name, slot);
+        pickerNamFollow = {slot, dsp, editor, block: name, indexSet: true, until: Date.now() + 3000};
+        send({type: 'toneTrace', reason: 'drop-replace', stage: 'capture-set', slot, block: name, ms: Date.now()});
+        return true;
+      }
+      const room = namRoomOn(dsp, seen ? seen.model : null);
+      if (room) {
+        send({type: 'dspNotice', text: room});
+        send({type: 'toneTrace', reason: 'drop-replace', stage: 'no-room', slot});
+        return true;
+      }
+      let target = name;
+      if (empty) {
+        targetBinding.addModel(editor, dsp, row, col, 'HD2_AmpNAMLite');
+        // HX Edit puts the new block in the chain a moment later: until then the cell reads empty
+        // (and any other name would be another block). runNamFollow finds it by its cell.
+        target = '';
+      } else targetBinding.setModel(editor, dsp, name, 'HD2_AmpNAMLite');
+      // Its capture at once where the block is known: a NAM block left on slot 1 (a plain IR) silences the Floor.
+      if (target) targetBinding.setIndex(editor, dsp, target, slot);
+      pickerNamFollow = {slot, dsp, editor, model, row, col, block: target, indexSet: !!target, until: Date.now() + 3000};
+      send({type: 'toneTrace', reason: 'drop-replace', stage: empty ? 'nam-added' : 'nam-set', slot, block: target, ms: Date.now()});
+      return true;
+    }
+    runNamFollow = function () {
+      // UI thread, from the message hook, after a picker drop made or set a NAM block: its capture
+      // (on the block found at the drop's cell, never "the selected one"), then, once HX Edit has
+      // selected it, the lock, the Model control and the capture check.
+      const follow = pickerNamFollow, now = Date.now();
+      if (!follow || now < (follow.next || 0)) return;
+      follow.next = now + 50;
+      try {
+        if (now > follow.until) {
+          pickerNamFollow = null;
+          if (!follow.indexSet) {
+            send({type: 'toneTrace', reason: 'drop-replace', stage: 'nam-follow-lost', slot: follow.slot});
+            send({type: 'dspNotice', text: `The new NAM block may not be on capture ${follow.slot}. Check its Model.`});
+          }
+          return;
+        }
+        if (!follow.block) {
+          const made = cellAt(follow.model, follow.row, follow.col);
+          if (made.isNull() || made.readU32() !== 0 || cellEmpty(made)) return;
+          const name = blockName(made);
+          const seen = name ? targetBinding.peekModel(follow.editor, follow.dsp, name) : null;
+          if (!seen || seen.model !== 'HD2_AmpNAMLite') return;
+          follow.block = name;
+        }
+        if (!follow.indexSet) {
+          targetBinding.setIndex(follow.editor, follow.dsp, follow.block, follow.slot);
+          follow.indexSet = true;
+          send({type: 'toneTrace', reason: 'drop-replace', stage: 'nam-index-set', slot: follow.slot, block: follow.block, ms: now});
+        }
+        const shown = cursorController();
+        if (shown.isNull() || !controllerReady(shown) || shown.add(0x80).readS32() !== follow.dsp ||
+            block(shown) !== follow.block || !Number.isInteger(namView.modelSlot())) return;   // not selected yet
+        pickerNamFollow = null;
+        if (namView.modelSlot() !== follow.slot) namView.setSlot(follow.slot);
+        setLockState(shown, 'locked', 'capture-row');
+        checkCaptureLater(shown, follow.slot);
+        send({type: 'toneTrace', reason: 'drop-replace', stage: 'nam-follow', slot: follow.slot, block: follow.block, ms: now});
+      } catch (error) {
+        pickerNamFollow = null;
+        send({type: 'toneTrace', reason: 'drop-replace', stage: 'nam-follow-failed', error: String(error.message)});
+      }
+    };
     Interceptor.attach(base.add(0x412560), {
       onEnter(args) {
         undim();
         this.flagged = false;
         try {
           const D = this.context.ecx, entry = args[2], info = args[3];
-          if (entry.isNull() || entry.readU32() !== LBIR || D.add(0x48).readS32() !== REPLACE) return;
+          if (entry.isNull()) return;
           const effect = info.readU8();
           if (effect !== 1 && effect !== 2) return;
+          if (entry.readU32() === XGFI && droppingDrag?.symbol) {
+            // A model from the picker, onto a block or an empty cell: as the picker itself changes a
+            // block's model or adds one (quick: HX Edit fills the defaults), not by pasting the
+            // favorite, which writes every setting. Between blocks it is HX Edit's own insert.
+            const editor = D.add(8).readPointer(), dsp = D.add(0x10).readS32();
+            const row = D.add(0x4c).readS32(), col = D.add(0x50).readS32();
+            const object = cellAt(D.add(0x14).readPointer(), row, col);
+            const empty = object.isNull() || object.readU32() !== 0 || cellEmpty(object);
+            if (D.add(0x48).readS32() === REPLACE && !empty) {
+              info.writeU8(0);
+              targetBinding.setModel(editor, dsp, blockName(object), droppingDrag.symbol);
+              send({type: 'toneTrace', reason: 'drop-replace', stage: 'model-set', ms: Date.now()});
+            } else if (empty) {
+              info.writeU8(0);
+              targetBinding.addModel(editor, dsp, row, col, droppingDrag.symbol);
+              send({type: 'toneTrace', reason: 'drop-replace', stage: 'model-added', ms: Date.now()});
+            }
+            return;
+          }
+          if (entry.readU32() === LBIR && droppingDrag?.fromPicker && pickerCaptureDrop(D, entry, info)) return;
+          if (D.add(0x48).readS32() !== REPLACE || entry.readU32() !== LBIR) return;
           const slot = entry.add(4).readPointer().readU32() + 1;
           const editor = D.add(8).readPointer(), dsp = D.add(0x10).readS32();
           const object = cellAt(D.add(0x14).readPointer(), D.add(0x4c).readS32(), D.add(0x50).readS32());
@@ -1375,6 +1500,9 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   };
   let chainDrag = null;              // {timer, window, dd, point, info, slot}
   let chainDragTaken = null;         // {identity, at}: this drag's release is HX Edit's, not the panel's drop
+  let pickerNamFollow = null;       // {slot, dsp, block, until}: a capture a picker drop made or set, for its follow-up
+  let droppingDrag = null;           // the chain drag being dropped (chainDrag is already cleared then)
+  let dropHint = 'none';             // what a drop here would do: place | replace | insert | none (DragOver)
   const chainDragApi = (() => {
     try {
       if (!profile.navigation || !guardsMatch(chainDragGuards)) return null;
@@ -1402,9 +1530,16 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     try {
       const at = namView.cursorInWindow();
       if (at) { drag.point.writeS32(at.x); drag.point.add(4).writeS32(at.y); }
+      if (drag.failed) {
+        send({type: 'dspNotice', text: 'HX Edit could not load that model to drag it.'});
+        endChainDrag(false);
+        return;
+      }
       const escape = (native.keyState(0x1b) & 0x8000) !== 0, down = (native.keyState(0x01) & 0x8000) !== 0;
       if (down && !escape && Date.now() < drag.until) {
         if (at) { drag.info.writeU64(0); native.over(drag.window, 0, drag.point, 0, drag.dd, 3, drag.info); drag.hovered = true; }
+        const hint = at && [1, 2].includes(drag.info.readU8()) ? dropHint : 'none';
+        if (hint !== drag.hint) { drag.hint = hint; send({type: 'dropHint', hint}); }
         return;
       }
       endChainDrag(!escape && drag.hovered);
@@ -1417,6 +1552,10 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     const drag = chainDrag, native = chainDragApi;
     if (!drag) return;
     chainDrag = null;
+    droppingDrag = drag;               // the drop hook still needs to know what is dropped
+    if (drag.ghost) send({type: 'pickerGhost', hide: true});
+    const selectDropped = drag.fromPicker;
+    if (drag.hint !== 'none') send({type: 'dropHint', hint: 'none'});
     try { native.killTimer(NULL, drag.timer); } catch (_) { /* gone with the window */ }
     try {
       const effect = drag.info.readU8();
@@ -1424,7 +1563,16 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         const entry = native.find(drag.dd, drag.info.add(4).readU32());
         if (!entry.isNull()) native.drop(drag.window, 0, drag.point, entry, drag.info);
         else native.leave(drag.window, 0, drag.dd);
-        send({type: 'toneTrace', reason: 'chain-drag', stage: 'dropped', slot: drag.slot, effect});
+        send({type: 'toneTrace', reason: 'chain-drag', stage: 'dropped', slot: drag.slot, effect, ms: Date.now()});
+        // From the picker: the dropped block is selected, as a click on it would (after HX Edit has it).
+        if (selectDropped && !irReplace) {
+          setTimeout(() => namView.queueSidebarAction(() => { namView.clickChainAtCursor(); }), 120);
+          // That click focuses the chain; the picker list gets the focus back (its outline, the arrow keys).
+          setTimeout(() => namView.queueSidebarAction(() => {
+            keepFocus = {list: null, grid: !!drag.fromGrid, until: Date.now() + 600};
+            holdFocus();
+          }), 400);
+        }
       } else {
         native.leave(drag.window, 0, drag.dd);
         if (!dropIt) namView.clearIrPick?.();
@@ -1434,28 +1582,42 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     } catch (error) {
       send({type: 'toneTrace', reason: 'chain-drag', stage: 'end-failed', error: String(error.message)});
     } finally {
+      droppingDrag = null;
       try { native.clear(drag.dd); } catch (_) { /* freed with the drag */ }
     }
   }
-  function startChainDrag(identity) {
-    // UI thread (a queued sidebar action). false: not possible here (the caller drops the old way).
+  function startChainDrag(what) {
+    // UI thread, the button down. what: a library capture's identity (a string), {slot} (a NAM
+    // capture slot) or {file} (a one-block favorite). false: not possible here (the caller then
+    // drops the old way, if it has one).
     if (!chainDragApi || chainDrag || !profile.namCategory) return false;
-    const slot = namView.verifiedCaptureSlot(identity);
-    if (!Number.isInteger(slot) || slot < 1 || slot >= AUDITION_SLOT || !namView.isNamSlot(slot)) return false;
+    const identity = typeof what === 'string' ? what : null;
+    const slot = identity ? namView.verifiedCaptureSlot(identity) : what && what.slot;
+    const file = !identity && what && typeof what.file === 'string' ? what.file : null;
+    if (!file && (!Number.isInteger(slot) || slot < 1 || slot >= AUDITION_SLOT || !namView.isNamSlot(slot))) return false;
     const panel = namView.chainPanel?.();
     if (!panel || panel.isNull()) return false;
     const window = chainDragApi.windowOf(panel);
     if (window.isNull() || (chainDragApi.keyState(0x01) & 0x8000) === 0) return false;
-    const dd = Memory.alloc(4), row = Memory.alloc(4);
-    dd.writePointer(NULL); row.writeU32(slot - 1);
-    chainDragApi.add(dd, LBIR, row, 4, 0, 0);
+    const dd = Memory.alloc(4);
+    dd.writePointer(NULL);
+    let data;
+    if (file) {
+      // HX Edit's favorite item: the path as UTF-8 with its NUL, flag 1, file type 7 (L6ModelFavorite).
+      data = Memory.allocUtf8String(file);
+      chainDragApi.add(dd, XGFI, data, data.readUtf8String().length + 1, 1, 7);
+    } else {
+      data = Memory.alloc(4); data.writeU32(slot - 1);
+      chainDragApi.add(dd, LBIR, data, 4, 0, 0);
+      namView.setIrPick(slot);
+    }
     const timer = chainDragApi.setTimer(NULL, 0, 15, chainDragTick);
     if (!timer) { chainDragApi.clear(dd); return false; }
-    namView.setIrPick(slot);
-    chainDrag = {timer, window, dd, row, slot, point: Memory.alloc(8), info: Memory.alloc(8), hovered: false,
+    chainDrag = {timer, window, dd, data, slot: file ? null : slot, file, symbol: file ? what.symbol : null,
+                 point: Memory.alloc(8), info: Memory.alloc(8), hovered: false, failed: false, hint: 'none',
                  until: Date.now() + 60000};
-    chainDragTaken = {identity, at: Date.now()};
-    send({type: 'toneTrace', reason: 'chain-drag', stage: 'started', slot});
+    if (identity) chainDragTaken = {identity, at: Date.now()};
+    send({type: 'toneTrace', reason: 'chain-drag', stage: 'started', slot: file ? null : slot, model: file ? what.symbol : null, ms: Date.now()});
     return true;
   }
   function chainDragTook(identity) {
@@ -1464,6 +1626,493 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     chainDragTaken = null;
     return !!taken && taken.identity === identity && Date.now() - taken.at < 120000;
   }
+
+  // --- Press and hold in the block picker: drag that model onto the chain ----------------------
+  // The picker changes the selected block's model the moment a row (or grid tile) is pressed: it
+  // sends 'sbl!' / 'srg!' from its mouse-down (0x402e70 list, 0x37aba0 grid). That event is held
+  // here while the button is down. Released without moving: it is replayed, so a click is a click.
+  // Moved past the drag distance: the picker's old selection is put back and the row's model is
+  // dragged onto the chain through HX Edit's own drop handling (startChainDrag): a NAM capture row
+  // as its slot, any other model as a one-block favorite file (research/ir-list-re/FINDINGS-drag.md,
+  // part 3). The main window holds the mouse from the press, so moves and the release reach it.
+  const pickerGuards = {
+    '402e70': '558bec83ec0c5357ff75108b7d088bd9', '37aba0': '558bec5156576a006a006a108bf9e82d',
+    '380b50': '558bec83ec14538bd9568b7508578b03', '37a460': '558bec83ec105356578bf933f683cbff',
+    '503b60': '558bec6aff68????????64a100000000', '37fc20': '558bec81eccc010000a1????????33c5',
+    '3bc160': '558bec568bf18b4654f6405801744157', '38ad60': '8b4178c3cccccccccccccccccccccccc',
+  };
+  // Keyboard focus: a window's focused widget is [window+0x78] (0x38ad60); 0x3bc160(widget; focus, why)
+  // gives it focus, as a press does (0x38b3d7). A capture applied in a NAM category moves the focus to
+  // the block's Model control, which left the arrow keys dead in the list: it is handed back.
+  const focusedIn = new NativeFunction(base.add(0x38ad60), 'pointer', ['pointer'], 'thiscall');
+  const giveFocus = new NativeFunction(base.add(0x3bc160), 'void', ['pointer', 'int', 'int'], 'thiscall');
+  let keepFocus = null;               // {list, until}: after an apply from a list that had the focus
+  function listHasFocus(list) {
+    try { const window = chainDragApi.windowOf(list); return !window.isNull() && focusedIn(window).equals(list); }
+    catch (_) { return false; }
+  }
+  function holdFocus() {
+    const keep = keepFocus;
+    if (!keep) return;
+    if (Date.now() > keep.until) { keepFocus = null; return; }
+    try {
+      let list = keep.list;
+      if (!list) {                     // after a drop: the picker of the block now selected
+        const controller = cursorController();
+        list = controller.isNull() ? NULL : controller.add(keep.grid ? 0x60 : 0x58).readPointer();
+      }
+      if (!list.isNull() && !listHasFocus(list)) giveFocus(list, 1, 1);
+    } catch (_) { keepFocus = null; }
+  }
+  const XGFI = 0x58474649, DRAG_DISTANCE = 4;
+  let pickerPress = null;            // {list, grid, index, label, model, previous, start, inside, held, dragging}
+  let pickerReplaying = false, lastDown = null;
+  // A single click only selects a row; a double-click applies it (the owner's choice, November 19).
+  // pendingSelect: the click's held event, until a double-click applies it. While it waits, the row of
+  // what the block really plays is drawn in yellow (installPickerDrag's painter hook).
+  let pendingSelect = null;
+  // Keyboard: arrows only select (keyNav: a WM_KEYDOWN being dispatched); Enter applies the waiting row.
+  let keyNav = false, enterQueued = null, enterTimer = 0, pickerPresses = 0;
+  let pressSeen = null, releaseSeen = false;   // a press / release, handled when the next message comes
+  const pickerEnterTick = chainDragApi && new NativeCallback(() => {
+    // UI thread, from the message loop (WM_TIMER), outside any hook.
+    const target = enterQueued;
+    enterQueued = null;
+    try { chainDragApi.killTimer(NULL, enterTimer); } catch (_) { /* already gone */ }
+    if (!target || target !== pendingSelect) return;
+    send({type: 'toneTrace', reason: 'picker-drag', stage: 'enter'});
+    applyPickerRow(target);
+  }, 'void', ['pointer', 'uint', 'uint', 'uint'], 'stdcall');
+  const ACTIVE_RGB = [255, 205, 60];
+  let pickerPlaying = {at: 0, key: '', symbol: null, slot: null};
+  function playingNow(controller) {
+    // What the picker's block plays (its model, and a NAM block's capture slot), read from the edit
+    // buffer at most every 250 ms while the picker paints.
+    const now = Date.now(), key = lockKey(controller);
+    if (key === pickerPlaying.key && now - pickerPlaying.at < 250) return pickerPlaying;
+    let symbol = null, slot = null;
+    try {
+      const seen = targetBinding?.peekModel?.(controller.add(0x34).readPointer(), controller.add(0x80).readS32(), block(controller));
+      symbol = seen ? seen.model : null;
+      slot = symbol === 'HD2_AmpNAMLite' ? namBlockSlot(controller) : null;
+    } catch (_) { symbol = null; }
+    pickerPlaying = {at: now, key, symbol, slot};
+    return pickerPlaying;
+  }
+  const SECOND_CLICK_MS = 900;        // a slower second click on the waiting row still applies it
+  const doubleEvent = 0x216c6264;     // 'dbl!': the list's double-click (0x3814c0, vtbl+0x148); data = the row under the pointer
+  const gridDoubleEvent = 0x21677264; // 'drg!': grid view's double-click (0x37ab70, its vtbl+0x148); data = the tile
+  function rowIsPlaying(controller, row, label, marking) {
+    // marking: for the yellow row (a NAM block's capture row, not its NAM A2 Lite row). Otherwise: the
+    // row already is the block's model, so choosing it again must change nothing.
+    const now = playingNow(controller);
+    const capture = captureRows.get(label);
+    if (capture) return now.slot !== null && capture.slot === now.slot;
+    if (marking && now.slot !== null && label.trimEnd() !== label) return false;
+    const model = row.add(0x10c).readPointer();
+    if (model.compare(ptr(0x10000)) < 0) return false;
+    if (model.equals(controller.add(0xa4).readPointer())) return true;   // the record HX Edit itself selects by (0x3804f0)
+    return !!now.symbol && modelSymbol(model) === now.symbol;
+  }
+  function heldPickerEvent(controller, event, sender, data) {
+    // From onModelEvent: true when this press-time event is held for now.
+    if (pickerReplaying) return false;
+    if (event === doubleEvent || event === gridDoubleEvent) {
+      // HX Edit's own double-click carries the row (tile) under the pointer and does not depend on the
+      // selection: that row is applied, whatever moved the selection since the first click.
+      const grid = event === gridDoubleEvent;
+      if (!sender.equals(controller.add(grid ? 0x60 : 0x58).readPointer())) return false;
+      const label = !data || data.isNull() ? null : data.readUtf8String();
+      let pending = pendingSelect && pendingSelect.list.equals(sender) ? pendingSelect : null;
+      if (pending && pending.label !== label) pending = null;            // another row is under the pointer now
+      send({type: 'toneTrace', reason: 'picker-drag', stage: 'double-click', grid, waiting: !!pending});
+      if (label === null) return false;
+      // No click waiting: the row was already selected. Only a row that is not the block's model is applied.
+      if (!pending && rowIsPlaying(controller, data, label, false)) return false;
+      applyPickerRow({controller, list: sender, grid, label, key: lockKey(controller)});
+      return false;                    // HX Edit has no handling of its own for these two events (0x217120)
+    }
+    const press = pickerPress;
+    if (press && press.inside && sender.equals(press.list) && (event === selectionEvent || event === gridSelectEvent)) {
+      press.held = {controller, event, sender};
+      send({type: 'toneTrace', reason: 'picker-drag', stage: 'held'});
+      // The click waits from its press: HX Edit's own mouse handling does not always let its release
+      // reach DispatchMessageW, so waiting from the release missed most clicks (and their yellow row).
+      startWaiting(controller, press.list, press.grid, press.label, press);
+      return true;
+    }
+    const picked = event === selectionEvent || event === gridSelectEvent;
+    if (keyNav && picked && sender.equals(controller.add(event === gridSelectEvent ? 0x60 : 0x58).readPointer())) {
+      // An arrow key moved the selection: like a single click it only selects; Enter (or a double-click) applies.
+      const grid = event === gridSelectEvent, row = grid ? gridSelected(sender) : selectedRow(sender);
+      if (!row.isNull()) {
+        startWaiting(controller, sender, grid, row.readUtf8String(), null);
+        send({type: 'toneTrace', reason: 'picker-drag', stage: 'key-held', grid});
+        return true;
+      }
+    }
+    // Any other choice in this picker (a category, a side, another row) ends a waiting click.
+    if (pendingSelect && !choosingSide && controller.equals(pendingSelect.controller) && (picked || event === subcategoryChanged)) {
+      let same = false;
+      try {
+        const row = !picked ? NULL : event === gridSelectEvent ? gridSelected(sender) : selectedRow(sender);
+        same = sender.equals(pendingSelect.list) && !row.isNull() && row.readUtf8String() === pendingSelect.label;
+      } catch (_) { same = false; }
+      if (!same) pendingSelect = null;
+    }
+    return false;
+  }
+  function startWaiting(controller, list, grid, label, press) {
+    // A row chosen but not applied: it stays selected, the block's own row turns yellow (installPickerDrag).
+    reportYellow(pendingSelect);
+    pendingSelect = {controller, list, grid, label, key: lockKey(controller), at: Date.now(), press};
+    if (grid) return;
+    try { aimYellow(pendingSelect); } catch (_) { /* presentation only */ }
+    try { redrawList(list); } catch (_) { /* presentation only */ }
+  }
+  function applyPickerRow(target) {
+    // UI thread. The row becomes the block's model as a stock click on it would: it is made the
+    // selected row first, because HX Edit (0x217120 -> 0x380780) and onModelEvent both apply the
+    // list's selected row, not the row of the event.
+    reportYellow(pendingSelect);
+    pendingSelect = null;
+    if (pickerPress) pickerPress.held = null;   // its release (if seen) must not wait on the applied row
+    const skipped =why => send({type: 'toneTrace', reason: 'picker-drag', stage: 'apply-skipped', why});
+    try {
+      const {controller, list, grid, label} = target;
+      if (!controllerReady(controller) || !controller.add(grid ? 0x60 : 0x58).readPointer().equals(list) ||
+          lockKey(controller) !== target.key) return skipped('context');
+      if (grid) {                      // HX Edit reads the grid's clicked tile (0x37a010)
+        const tile = gridSelected(list);
+        if (tile.isNull() || tile.readUtf8String() !== label) return skipped('tile');
+      } else {
+        const index = rowIndex(list, text => text === label);
+        if (index < 0) return skipped('row-gone');
+        const selected = selectedRow(list);
+        if (selected.isNull() || selected.readUtf8String() !== label) { clearSelection(list, 0, 0); selectRow(list, 1, index, 0, 0); }
+      }
+      const focused = listHasFocus(list);
+      pickerReplaying = true;
+      onModelEvent(controller, grid ? gridSelectEvent : selectionEvent, list, NULL, NULL);
+      send({type: 'toneTrace', reason: 'picker-drag', stage: 'applied', row: label.trim(), focused});
+      // The arrow keys keep working in the list after an apply (a capture moves the focus, at once or a
+      // moment later): for 1.5 s, unless a press elsewhere takes it.
+      if (focused) { keepFocus = {list, until: Date.now() + 1500}; holdFocus(); }
+    } catch (error) {
+      send({type: 'toneTrace', reason: 'picker-drag', stage: 'apply-failed', error: String(error.message)});
+    } finally {
+      pickerReplaying = false;
+      // The block's previous row was drawn yellow while the click waited: repaint it plain.
+      try { if (!target.grid) redrawList(target.list); } catch (_) { /* presentation only */ }
+    }
+  }
+  function aimYellow(pending) {
+    // UI thread, outside painting: which row of the waiting click's list the block plays, found once
+    // every 250 ms. The painter then only compares labels. One 'yellow-target' line per waiting click.
+    if (!pending || pending.grid || Date.now() - (pending.aimedAt || 0) < 250) return;
+    pending.aimedAt = Date.now();
+    let found = null, rows = 0, error = null;
+    try {
+      for (const row of listRows(pending.list)) {
+        rows++;
+        if (row.isNull()) continue;
+        const label = row.readUtf8String();
+        if (rowIsPlaying(pending.controller, row, label, true)) { found = label; break; }
+      }
+    } catch (e) { error = String(e.message); }
+    pending.playingLabel = found;
+    if (pending.aimReported && pending.aimReported === (found || '-')) return;
+    pending.aimReported = found || '-';
+    let now = null, record = null;
+    try { now = playingNow(pending.controller); } catch (_) { now = null; }
+    try { const a4 = pending.controller.add(0xa4).readPointer(); record = a4.compare(ptr(0x10000)) > 0 ? modelSymbol(a4) : null; } catch (_) { record = null; }
+    let sample = null;
+    if (!found) try { sample = listRows(pending.list).slice(0, 3).map(row => [row.readUtf8String(), modelSymbol(row.add(0x10c).readPointer())]); } catch (_) { sample = null; }
+    send({type: 'toneTrace', reason: 'picker-drag', stage: 'yellow-target', row: found && found.trim(), rows, error,
+          symbol: now && now.symbol, slot: now && now.slot, record, sample});
+  }
+  // The picker's standing yellow row: what the block plays, in the model column on show, whether or
+  // not it is the selected row. Found every 250 ms from the message hook; a change repaints the list.
+  let shownYellow = {list: NULL, label: null, at: 0};
+  function aimShown() {
+    const now = Date.now();
+    if (now - shownYellow.at < 250) return;
+    shownYellow.at = now;
+    let list = NULL, label = null;
+    try {
+      const controller = cursorController();
+      if (!controller.isNull()) {
+        list = controller.add(0x58).readPointer();
+        if (!list.isNull()) for (const row of listRows(list)) {
+          if (row.isNull()) continue;
+          const text = row.readUtf8String();
+          if (rowIsPlaying(controller, row, text, true)) { label = text; break; }
+        }
+      }
+    } catch (_) { label = null; }
+    try { followPlaying(list, label); } catch (error) { if (followReports-- > 0) send({type: 'toneTrace', reason: 'picker-drag', stage: 'follow-failed', error: String(error.message)}); }
+    if (label === shownYellow.label && list.equals(shownYellow.list)) return;
+    const before = shownYellow.list;
+    shownYellow.list = list; shownYellow.label = label;
+    try { if (!list.isNull()) redrawList(list); if (!before.isNull() && !before.equals(list)) redrawList(before); } catch (_) { /* presentation only */ }
+  }
+  let followReports = 40, followBlocked = null;
+  function followPlaying(list, label) {
+    // With no choice waiting (a single click, an arrow key), no press or drag under way, the list's
+    // selection is the row the block plays: after a drop, a block change, Undo, or a waiting row
+    // let go by a press elsewhere. Selection only (no event): nothing is applied.
+    if (list.isNull() || !label) return;
+    const why = pendingSelect ? 'waiting' : chainDrag ? 'drag' : choosingSide ? 'side' : pickerReplaying ? 'replaying' : null;
+    if (why) { if (why !== followBlocked) { followBlocked = why; if (followReports-- > 0) send({type: 'toneTrace', reason: 'picker-drag', stage: 'follow-blocked', why}); } return; }
+    followBlocked = null;
+    // A press still held (its release is not always seen, so pickerPress alone can be stale).
+    if (pickerPress && chainDragApi && (chainDragApi.keyState(0x01) & 0x8000) !== 0) return;
+    const selected = selectedRow(list);
+    if (!selected.isNull() && selected.readUtf8String() === label) return;
+    const index = rowIndex(list, text => text === label);
+    if (index < 0) return;
+    clearSelection(list, 0, 0);
+    selectRow(list, 1, index, 0, 0);
+    redrawList(list);
+    if (followReports-- > 0) send({type: 'toneTrace', reason: 'picker-drag', stage: 'selection-followed', row: label.trim(),
+                                   was: selected.isNull() ? null : selected.readUtf8String().trim()});
+  }
+  function reportYellow(pending) {
+    // One line per waiting click that never showed its yellow row: what the painter saw.
+    if (!pending || pending.grid || pending.yellow || pending.reported) return;
+    pending.reported = true;
+    let now = null;
+    try { now = playingNow(pending.controller); } catch (_) { now = null; }
+    send({type: 'toneTrace', reason: 'picker-drag', stage: 'yellow-missed', painted: pending.painted || 0,
+          waited: Date.now() - pending.at, symbol: now && now.symbol, slot: now && now.slot, error: pending.paintError || null});
+  }
+  function modelSymbol(model) {
+    // A catalog model's symbol: String at +0x24 {vtable, rep}; rep: length +4, characters* +0x10.
+    const rep = model.add(0x28).readPointer();
+    if (rep.isNull()) return '';
+    const length = rep.add(4).readU32(), chars = rep.add(0x10).readPointer();
+    return length > 0 && length < 96 && !chars.isNull() ? chars.readUtf8String(length) : '';
+  }
+  function dragFavorite(symbol) {
+    // A one-block favorite for HX Edit's own drop: @model and @type, every other setting at its default.
+    const type = profile.modelTypes ? profile.modelTypes[symbol] : undefined;
+    if (!profile.dragFavorite || !Number.isInteger(type) || type < 0) return null;
+    const favorite = {schema: 'L6ModelFavorite', version: 1, data: {device: 0x210001, device_version: 0x03800000,
+      meta: {name: symbol}, favorite: {slot0: {'@model': symbol, '@type': type}}}};
+    const file = new File(profile.dragFavorite, 'wb');
+    file.write(JSON.stringify(favorite));
+    file.close();
+    return profile.dragFavorite;
+  }
+  function startPickerDrag(press) {
+    // UI thread, the button still down: the picker keeps the block's model as it was.
+    press.dragging = true;
+    const held = press.held;
+    press.held = null;
+    if (pendingSelect && pendingSelect.press === press) pendingSelect = null;   // a drag, not a click
+    try {
+      if (!press.grid && held) {
+        clearSelection(press.list, 0, 0);
+        if (press.previous >= 0) selectRow(press.list, 1, press.previous, 0, 0);
+        redrawList(press.list);
+      }
+    } catch (_) { /* presentation only */ }
+    const capture = captureRows.get(press.label);
+    let started = false;
+    if (capture) started = startChainDrag({slot: capture.slot});
+    else {
+      const symbol = press.model.isNull() ? '' : modelSymbol(press.model);
+      const path = symbol ? dragFavorite(symbol) : null;
+      started = !!path && startChainDrag({file: path, symbol});
+      if (!path) send({type: 'toneTrace', reason: 'picker-drag', stage: 'no-favorite', symbol});
+    }
+    send({type: 'toneTrace', reason: 'picker-drag', stage: started ? 'started' : 'not-started', capture: !!capture});
+    if (!started || !chainDrag) return;
+    // The model's picture and name beside the pointer, as the NAM tab shows its captures: drawn by
+    // the DSP meter's helper (a window of its own), from HX Edit's res/icons_models.
+    let image = null;
+    try {
+      const rep = press.model.isNull() ? NULL : press.model.add(0x1c).readPointer();   // its picture's file name
+      image = rep.isNull() ? null : rep.add(0x10).readPointer().readCString();
+    } catch (_) { image = null; }
+    const icon = capture ? namView.installedCaptures().find(item => item.slot === capture.slot)?.icon : null;
+    chainDrag.ghost = true; chainDrag.fromPicker = true; chainDrag.fromGrid = !!press.grid;
+    send({type: 'pickerGhost', name: press.label.trim(), image: icon ? `NAMCAP_${icon}.png` : image});
+  }
+  (function installPickerDrag() {
+    try {
+      if (!profile.navigation || !chainDragApi || !guardsMatch(pickerGuards)) return;
+      const listHit = new NativeFunction(base.add(0x380b50), 'int', ['pointer', 'pointer', 'pointer', 'pointer'], 'thiscall');
+      const gridHit = new NativeFunction(base.add(0x37a460), 'int', ['pointer', 'pointer', 'pointer'], 'thiscall');
+      const index = Memory.alloc(4), part = Memory.alloc(4);
+      const seenDown = [false, false];
+      function pressed(list, grid, point) {
+        index.writeS32(-1); part.writeS32(0);
+        if (grid) gridHit(list, point, index); else listHit(list, point, index, part);
+        const at = index.readS32();
+        if (at < 0 || at >= rowCount(list)) return null;
+        const row = getIrRow(list, at);
+        if (row.isNull()) return null;
+        let previous = -1;
+        if (!grid) {
+          const selected = selectedRow(list);
+          if (!selected.isNull()) previous = rowIndex(list, (_text, item) => item.equals(selected));
+        }
+        return {list, grid, index: at, label: row.readUtf8String(), model: row.add(0x10c).readPointer(), previous,
+                start: lastDown, inside: true, held: null, dragging: false};
+      }
+      const onPress = grid => ({
+        onEnter(args) {
+          try {
+            const list = this.context.ecx;
+            if (!seenDown[grid ? 1 : 0]) {
+              seenDown[grid ? 1 : 0] = true;
+              send({type: 'toneTrace', reason: 'picker-drag', stage: 'mouse-down-seen', grid});
+            }
+            // The model column (+0x58) or grid (+0x60) of the block picker on show, not the category
+            // list, Favorites or the librarian's lists (the same list classes).
+            const owner = [cursorController(), selectedController].find(controller => controllerReady(controller) &&
+              controller.add(grid ? 0x60 : 0x58).readPointer().equals(list));
+            // button is an int; mods is one byte pushed as four (the upper bytes are left over).
+            const button = args[1].toInt32(), mods = args[2].toInt32() & 0xff;
+            if (owner) pickerPresses++;
+            if (!owner || button !== 0 || mods !== 0 || !lastDown) {
+              if (owner) send({type: 'toneTrace', reason: 'picker-drag', stage: 'press-ignored', button, mods, down: !!lastDown});
+              return;
+            }
+            pickerPress = pressed(list, grid, args[0]);
+            send({type: 'toneTrace', reason: 'picker-drag', stage: 'press', grid, row: pickerPress ? pickerPress.index : -1,
+                  mode: grid ? null : list.add(0x1d8).readS32()});
+          } catch (error) {
+            pickerPress = null;
+            send({type: 'toneTrace', reason: 'picker-drag', stage: 'press-failed', error: String(error.message)});
+          }
+        },
+        onLeave() { if (pickerPress) pickerPress.inside = false; },
+      });
+      Interceptor.attach(base.add(0x402e70), onPress(false));
+      Interceptor.attach(base.add(0x37aba0), onPress(true));
+      // A favorite HX Edit could not load leaves the previous drag's content: that drag stops.
+      Interceptor.attach(base.add(0x503b60), {
+        onLeave(result) { if (chainDrag && chainDrag.file && result.toInt32() < 0) chainDrag.failed = true; },
+      });
+      Interceptor.attach(user32.getExportByName('DispatchMessageW'), {
+        onEnter(args) {
+          const event = args[0].add(4).readU32();
+          // Work after the previous message (this hook's onLeave state does not reliably reach onLeave).
+          if (keyNav && event !== 0x100) keyNav = false;
+          if (pressSeen && event !== 0x201 && event !== 0x203) {
+            const seen = pressSeen;
+            pressSeen = null;
+            if (seen.presses === pickerPresses && pendingSelect) {
+              // A press anywhere but the picker's rows: the waiting row is let go (so Enter elsewhere never applies it).
+              const list = pendingSelect.grid ? null : pendingSelect.list;
+              pendingSelect = null;
+              try { if (list) redrawList(list); } catch (_) { /* presentation only */ }
+              send({type: 'toneTrace', reason: 'picker-drag', stage: 'let-go'});
+            }
+          }
+          if (releaseSeen) { releaseSeen = false; pickerReleased(); }
+          if (pickerNamFollow && runNamFollow) runNamFollow();
+          if (keepFocus && event !== 0x201 && event !== 0x203) holdFocus();
+          if (event !== 0x201 && event !== 0x203) { try { aimShown(); } catch (_) { /* presentation only */ } }
+          if (event === 0x100) {                        // WM_KEYDOWN
+            const key = args[0].add(8).readU32();
+            if (key >= 0x21 && key <= 0x28) keyNav = true;   // PgUp/PgDn/End/Home/arrows: until the next message
+            else if (key === 0x0d && pendingSelect && !enterQueued) {
+              // Enter applies the waiting row, as a double-click does; from a timer, outside this hook.
+              enterQueued = pendingSelect;
+              try { enterTimer = chainDragApi.setTimer(NULL, 0, 0, pickerEnterTick); } catch (_) { enterQueued = null; }
+              if (!enterTimer) enterQueued = null;
+            }
+            return;
+          }
+          if (event === 0x201 || event === 0x203) {   // a press, or the second press of a double-click
+            const position = args[0].add(12).readU32();
+            lastDown = {x: (position << 16) >> 16, y: position >> 16, at: Date.now()};
+            if (event === 0x201) { pressSeen = {presses: pickerPresses}; keepFocus = null; }
+            return;
+          }
+          const waiting = pendingSelect;
+          if (waiting && !waiting.grid) {
+            const before = waiting.playingLabel;
+            try { aimYellow(waiting); } catch (_) { /* presentation only */ }
+            if (waiting.playingLabel !== before) { waiting.yellow = false; waiting.redraws = 0; }
+          }
+          if (waiting && !waiting.grid && !waiting.yellow && (waiting.redraws || 0) < 3 &&
+              Date.now() - (waiting.redrawAt || waiting.at) > 150) {
+            waiting.redraws = (waiting.redraws || 0) + 1; waiting.redrawAt = Date.now();
+            try { redrawList(waiting.list); } catch (_) { /* presentation only */ }
+          }
+          const press = pickerPress;
+          if (!press || press.dragging) return;
+          if (event === 0x200 && (args[0].add(8).readU32() & 1) && press.start) {
+            const position = args[0].add(12).readU32(), x = (position << 16) >> 16, y = position >> 16;
+            if (Math.abs(x - press.start.x) > DRAG_DISTANCE || Math.abs(y - press.start.y) > DRAG_DISTANCE) {
+              try { startPickerDrag(press); } catch (error) {
+                send({type: 'toneTrace', reason: 'picker-drag', stage: 'failed', error: String(error.message)});
+              }
+            }
+          } else if (event === 0x202) releaseSeen = true;
+        },
+      });
+      function pickerReleased() {
+        {
+          const press = pickerPress;
+          pickerPress = null;
+          if (!press || press.dragging) return;
+          try {
+            if (!press.held) {
+              // The row was already selected: no event. HX Edit's own double-click comes as 'dbl!' /
+              // 'drg!' (no press at all). A second, slower click on the row that still waits applies it too.
+              const pending = pendingSelect;
+              if (pending && pending.list.equals(press.list) && pending.label === press.label &&
+                  Date.now() - pending.at <= SECOND_CLICK_MS) {
+                send({type: 'toneTrace', reason: 'picker-drag', stage: 'second-click', after: Date.now() - pending.at});
+                applyPickerRow(pending);
+              }
+              return;
+            }
+            // A single click: the row stays selected, the block unchanged until a double-click. It already
+            // waits from its press (heldPickerEvent); a release seen here only repaints.
+            if (pendingSelect && pendingSelect.press === press) { if (!press.grid) redrawList(press.list); return; }
+            startWaiting(press.held.controller, press.list, press.grid, press.label, press);
+          } catch (_) { pendingSelect = null; }
+        }
+      }
+      // The block picker's rows are painted by the generic list painter 0x37fc20(list; gfx, RECT*, row,
+      // index), which reads the list's text colour straight from [list+0x90]. While it paints the row the
+      // block plays (another row being selected but not applied), that colour is yellow, then put back.
+      Interceptor.attach(base.add(0x37fc20), {
+        onEnter(args) {
+          this.restore = null;
+          const pending = pendingSelect, list = this.context.ecx;
+          // The row the block plays: a waiting click's own aim (found at once), else the picker's
+          // standing one (shownYellow), selected or not.
+          const waiting = pending && !pending.grid && list.equals(pending.list) ? pending : null;
+          const target = (waiting && waiting.playingLabel) || (list.equals(shownYellow.list) ? shownYellow.label : null);
+          if (!waiting && !target) return;
+          try {
+            const row = args[2];
+            if (row.isNull()) return;
+            if (waiting) waiting.painted = (waiting.painted || 0) + 1;
+            const label = row.readUtf8String();
+            if (!target || label !== target) return;
+            if (waiting && !waiting.yellow) { waiting.yellow = true; send({type: 'toneTrace', reason: 'picker-drag', stage: 'yellow', nam: captureRows.has(label), painted: waiting.painted}); }
+            // Text colour: [list+0x98] for a selected row, [list+0x90] otherwise (0x37fe09); R, G, B, A.
+            this.at = list.add(row.add(0x110).readU8() ? 0x98 : 0x90);
+            this.restore = this.at.readU32();
+            this.at.writeU8(ACTIVE_RGB[0]); this.at.add(1).writeU8(ACTIVE_RGB[1]); this.at.add(2).writeU8(ACTIVE_RGB[2]);
+          } catch (error) { this.restore = null; if (waiting) waiting.paintError = String(error.message); }
+        },
+        onLeave() { if (this.restore !== null) this.at.writeU32(this.restore); },
+      });
+      send({type: 'toneTrace', reason: 'picker-drag', stage: 'installed'});
+    } catch (error) {
+      send({type: 'toneTrace', reason: 'picker-drag', stage: 'skipped', error: String(error.message)});
+    }
+  })();
+
 
 
   function selectedIsNam() {
@@ -1549,8 +2198,10 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       // showed NAM Other) also brings up the block's own category. Kept current while a stock
       // category is shown, so opening a NAM category by hand is never overridden.
       const slot = namBlockSlot(controller);
-      const blockKey = `${lockKey(controller)}|${slot}`;
+      const lock = lockKey(controller);
+      const blockKey = `${lock}|${slot}`;
       const blockChanged = shownBlock !== null && blockKey !== shownBlock;
+      const sameBlock = shownBlock !== null && shownBlock.startsWith(`${lock}|`);   // only its capture changed
       shownBlock = blockKey;
       const shownRow = selectedRow(categoryList);
       const shown = shownRow.isNull() ? '' : shownRow.readUtf8String();
@@ -1566,7 +2217,11 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       if (signature === '' && !(namView.slotCheckDone?.()) && now >= checkAskedAt) {
         checkAskedAt = now + 2000; namView.requestSlotCheck?.();
       }
-      if (signature !== builtSignature || blockChanged) {
+      // The same block on another capture whose row is already in this list (a row applied from it,
+      // Use in the NAM tab, an undo): nothing to rebuild. A rebuild makes HX Edit select the block's
+      // model row, NAM A2 Lite, and asks the Floor for a slot check each time.
+      const inList = Number.isInteger(slot) && rowIndex(list, text => captureRows.get(text)?.slot === slot) >= 0;
+      if (signature !== builtSignature || (blockChanged && !(sameBlock && inList))) {
         const capture = Number.isInteger(slot) ? namView.installedCaptures().find(entry => entry.slot === slot) : null;
         const target = capture ? NAM_CATEGORY_NAMES[captureGroup(capture.gear) - 1] : shown;
         // Guitar or Bass in NAM Amp / NAM Amp + cab: the block's capture decides; with none, the side
@@ -1593,7 +2248,20 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         builtSignature = signature;
         if (listReports-- > 0) send({type: 'toneTrace', reason: 'nam-category', stage: 'list-refreshed', from: shown, to: target});
       }
-      if (Number.isInteger(slot) && slot === namView.modelSlot()) highlightCapture(list, slot);
+      // A click waiting for its double-click keeps its row selected, also across a rebuild (HX Edit
+      // selects the block's model row then); its row gone: the click is dropped. Otherwise the
+      // playing capture's row is the selected one.
+      if (pendingSelect && lockKey(pendingSelect.controller) !== pendingSelect.key) pendingSelect = null;
+      const pending = pendingSelect && !pendingSelect.grid && pendingSelect.list.equals(list) ? pendingSelect : null;
+      if (pickerPress) return;                                   // button down: the press owns the selection
+      if (pending) {
+        const index = rowIndex(list, text => text === pending.label);
+        const selected = selectedRow(list);
+        if (index < 0) pendingSelect = null;
+        else if (selected.isNull() || selected.readUtf8String() !== pending.label) {
+          clearSelection(list, 0, 0); selectRow(list, 1, index, 0, 0); redrawList(list);
+        }
+      } else if (Number.isInteger(slot) && slot === namView.modelSlot()) highlightCapture(list, slot);
     } catch (error) {
       if (listReports-- > 0) send({type: 'toneTrace', reason: 'nam-category', stage: 'list-refresh-skipped', error: String(error.message)});
     }
@@ -2133,6 +2801,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   });
 
   function onModelEvent(controller, event, sender, data, flags) {
+    // A press in the picker may become a drag: its selection waits for the release (installPickerDrag).
+    try { if (heldPickerEvent(controller, event, sender, data)) return; } catch (_) { /* as before */ }
     if (profile.navigation) {
       let plain = false;
       if (profile.namCategory && (event === selectionEvent || event === gridSelectEvent) && !sender.isNull()) {

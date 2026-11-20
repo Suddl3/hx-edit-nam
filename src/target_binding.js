@@ -230,7 +230,47 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
-  return { capture, read, restore, release, peekSlot, peekModel, setIndex };
+  // What the block picker itself does when a model row is chosen (0x21a470): a block's model
+  // changes through the editor's parameter write (vtbl+0x7c = 0x5178c0, "@model"); an empty cell
+  // gets a block through vtbl+0xa8 = 0x4ff300(dsp, &Variant(symbol), &Variant{5, (row<<16)|col},
+  // flags). One undo step each, and HX Edit fills the defaults itself: far quicker than pasting a
+  // favorite. Symbols only of HX Edit's models.
+  const symbolPattern = /^[A-Za-z0-9_]{3,64}$/;
+  function setModel(editor, dsp, blockName, symbol) {
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !/^block\d{1,2}$/.test(blockName) || !symbolPattern.test(symbol)) {
+      fail('unsupported block or model');
+    }
+    let block = null, key = null, value = null;
+    try {
+      block = string(blockName); key = string('@model'); value = string(symbol);
+      const result = writeValue(editor, dsp, block, key, value, 0x80000000);
+      if (result < 0) fail(`model change was rejected (${result})`);
+    } finally {
+      if (value) destroyVariant(value);
+      if (key) destroyVariant(key);
+      if (block) destroyVariant(block);
+    }
+    return true;
+  }
+  function addModel(editor, dsp, row, col, symbol) {
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || ![0, 1].includes(row) || !Number.isInteger(col) ||
+        col < 0 || col > 15 || !symbolPattern.test(symbol)) fail('unsupported cell or model');
+    const entry = editor.readPointer().add(0xa8).readPointer();
+    if (!entry.equals(base.add(0x4ff300))) fail('unexpected editor add-block entry');
+    const add = new NativeFunction(entry, 'int', ['pointer', 'int', 'pointer', 'pointer', 'uint'], 'thiscall');
+    let value = null;
+    const cell = emptyVariant();
+    try {
+      value = string(symbol);
+      cell.writeU32(5); cell.add(8).writeU32(((row << 16) | col) >>> 0);
+      const result = add(editor, dsp, value, cell, 0x80000000);
+      if (result < 0) fail(`adding the block was rejected (${result})`);
+    } finally {
+      if (value) destroyVariant(value);
+    }
+    return true;
+  }
+  return { capture, read, restore, release, peekSlot, peekModel, setIndex, setModel, addModel };
 }
 
 if (typeof module !== 'undefined' && module.exports) {

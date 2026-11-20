@@ -6,6 +6,7 @@ The helper only draws: it has no device access, and closing its input ends it.
 """
 import ctypes
 import json
+from pathlib import Path
 from queue import Empty, Queue
 import subprocess
 from threading import Event, Thread
@@ -34,7 +35,7 @@ class DspMeter:
     shown only when given."""
 
     def __init__(self, *, exe=None, process_factory=subprocess.Popen, trace=None, on_choice=None,
-                 relayout=post_layout_wake, relayout_after=RELAYOUT_AFTER):
+                 relayout=post_layout_wake, relayout_after=RELAYOUT_AFTER, icons=None):
         self.exe = exe
         self.relayout, self.relayout_after = relayout, relayout_after
         self.process_factory = process_factory
@@ -45,6 +46,9 @@ class DspMeter:
         self.dsp = [None, None]
         self.notice = None
         self.ir_dots = None       # the HX Unbound menu's "Mark NAM slots in the IR list" tick (set_ir_dots)
+        self.ghost = None         # {name, icon, over} while a model from the block picker is dragged
+        self.ghost_shown = False
+        self.icons = Path(icons) if icons else None   # HX Edit's res/icons_models
         self.queue = Queue()
         self.closed = Event()
         self.worker = Thread(target=self._run, daemon=True)
@@ -56,6 +60,12 @@ class DspMeter:
             self.queue.put(('layout', dict(value)))
         elif kind == 'dspLoad':
             self.queue.put(('dsp', list(value.get('dsp') or [None, None])[:2]))
+        elif kind == 'pickerGhost':
+            # A model dragged from HX Edit's block picker: its picture and name beside the pointer.
+            self.queue.put(('ghost', dict(value)))
+        elif kind == 'dropHint':
+            # What a drop where the pointer is would do (place / replace / insert / none).
+            self.queue.put(('ghost', {'hint': value.get('hint')}))
         elif kind == 'dspNotice':
             # A short notice shown in place of the meter for a few seconds (the helper times it).
             self.queue.put(('notice', str(value.get('text') or '')[:120]))
@@ -99,6 +109,9 @@ class DspMeter:
             state['notice'], self.notice = self.notice, None
         if self.ir_dots is not None:
             state['irDots'] = self.ir_dots
+        if self.ghost is not None or self.ghost_shown:
+            state['ghost'] = self.ghost             # shown, or one line to hide it
+            self.ghost_shown = self.ghost is not None
         try:
             self.process.stdin.write(json.dumps(state) + '\n')
             self.process.stdin.flush()
@@ -131,6 +144,8 @@ class DspMeter:
                 self.notice = value
             elif kind == 'irDots':
                 self.ir_dots = value
+            elif kind == 'ghost':
+                self.ghost = self._ghost(value)
             self._send()
         if self.process is not None:
             try:
@@ -146,6 +161,23 @@ class DspMeter:
                 return
             waited = when
             self.relayout(window)
+
+    def _ghost(self, value):
+        if value.get('hide'):
+            return None
+        ghost = dict(self.ghost or {})
+        if 'name' in value:
+            ghost['name'] = str(value.get('name') or '')[:80]
+            image = str(value.get('image') or '')
+            # Only a picture file of HX Edit's own folder, by its bare name.
+            path = self.icons / image if self.icons and image and Path(image).name == image and image.endswith('.png') else None
+            ghost['icon'] = str(path) if path and path.is_file() else ''
+        if 'hint' in value:
+            if not self.ghost and 'name' not in value:
+                return None                  # a hint for a drag this helper does not show
+            ghost['hint'] = value.get('hint') if value.get('hint') in ('place', 'replace', 'insert') else 'none'
+        ghost.setdefault('hint', 'none')
+        return ghost
 
     def set_ir_dots(self, on):
         self.queue.put(('irDots', bool(on)))

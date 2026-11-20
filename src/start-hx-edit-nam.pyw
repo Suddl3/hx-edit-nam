@@ -113,6 +113,14 @@ def choose_and_train(payload, workspace):
     return [swap.get(f, f) for f in files]
 
 
+def drag_favorite_path():
+    """The file a model dragged from the block picker is written to (tone_view dragFavorite)."""
+    import tempfile
+    folder = Path(tempfile.gettempdir()) / 'HX Edit Unbound'
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / 'picker-drag.fav'
+
+
 def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_reference=False,
                tone_window='embedded', navigation=False, client_id='', library=None):
     from functools import partial
@@ -173,7 +181,10 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             options.update(namCategory=(exe.parent / 'res' / 'icons_category' / 'FX_HX_Category_NAM_Amp.png').is_file())
             # A NAM block's DSP load as this copy's catalog declares it (for the room check before adding one).
             options.update(namLoad=floor_firmware.recorded(exe.parent / 'res').nam_load,
-                           modelLoads=nam_catalog.model_loads(exe.parent / 'res'))
+                           modelLoads=nam_catalog.model_loads(exe.parent / 'res'),
+                           # Dragging a model from the block picker: its @type, and where its one-block favorite goes.
+                           modelTypes=nam_catalog.model_types(exe.parent / 'res'),
+                           dragFavorite=str(drag_favorite_path()))
             # HX Unbound menu: "Mark NAM slots in the IR list" (on unless turned off).
             options.update(irDots=nam_catalog.load_settings().get('irNamDots') is not False)
             # Read-only research probes: only in a copy prepared with this marker file.
@@ -234,7 +245,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     if not detached.is_set():
                         script.post({'type': 'irDots', 'payload': {'on': on}})
             ir_dots = [options.get('irDots') is not False]
-            meter = DspMeter(trace=trace, on_choice=unbound_choice)
+            meter = DspMeter(trace=trace, on_choice=unbound_choice, icons=exe.parent / 'res' / 'icons_models')
             meter.set_ir_dots(ir_dots[0])
 
         def on_message(event, _data):
