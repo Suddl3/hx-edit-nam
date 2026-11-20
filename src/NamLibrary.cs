@@ -1402,6 +1402,8 @@ class UnboundButton : Form
     public void SetChainArt(bool on){ if(chainArt!=null)chainArt.Text=(on?"\u2713":"\u2003")+"  3D pictures in the signal chain"; }
     ToolStripMenuItem chainLarge;
     public void SetChainLarge(bool on){ if(chainLarge!=null)chainLarge.Text=(on?"\u2713":"\u2003")+"  Large pictures in the signal chain"; }
+    ToolStripMenuItem chainNames;
+    public void SetChainNames(bool on){ if(chainNames!=null)chainNames.Text=(on?"✓":" ")+"  Block names under large pictures"; }
     public UnboundButton(IntPtr parent){
         this.parent=parent;
         FormBorderStyle=FormBorderStyle.None; ShowInTaskbar=false; StartPosition=FormStartPosition.Manual;
@@ -1430,6 +1432,9 @@ class UnboundButton : Form
         chainLarge=new ToolStripMenuItem("\u2003  Large pictures in the signal chain"){ForeColor=Ink};
         chainLarge.Click+=(sender,e)=>{try{Console.Out.WriteLine("chainLarge");Console.Out.Flush();}catch(Exception){}};
         menu.Items.Add(chainLarge);
+        chainNames=new ToolStripMenuItem("✓  Block names under large pictures"){ForeColor=Ink};
+        chainNames.Click+=(sender,e)=>{try{Console.Out.WriteLine("chainNames");Console.Out.Flush();}catch(Exception){}};
+        menu.Items.Add(chainNames);
         outside.Tick+=(sender,e)=>{
             if(!menu.Visible){outside.Stop();return;}
             if(Control.MouseButtons!=MouseButtons.None&&!menu.Bounds.Contains(Cursor.Position)&&
@@ -1751,6 +1756,7 @@ class DspMeter : Form
         if(unboundButton!=null&&state.TryGetValue("irDots",out value)&&value is bool)unboundButton.SetIrDots((bool)value);
         if(unboundButton!=null&&state.TryGetValue("chainArt",out value)&&value is bool)unboundButton.SetChainArt((bool)value);
         if(unboundButton!=null&&state.TryGetValue("chainLarge",out value)&&value is bool)unboundButton.SetChainLarge((bool)value);
+        if(unboundButton!=null&&state.TryGetValue("chainNames",out value)&&value is bool)unboundButton.SetChainNames((bool)value);
         if(state.ContainsKey("ghost"))ApplyGhost(state["ghost"] as Dictionary<string,object>);
         if(state.TryGetValue("notice",out value)&&value is string&&((string)value).Length>0){
             notice=(string)value;noticeUntil=Environment.TickCount+NoticeMs;}

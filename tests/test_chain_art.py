@@ -26,7 +26,7 @@ class ChainPictureTests(unittest.TestCase):
                              sorted(path.name for path in nam_catalog.CHAIN_SETS[nam_catalog.CHAIN_LARGE_SETS.index((on, off, _))][0].glob('*.png')))
             self.assertEqual(sorted(path.name for path in off.glob('*.png')), sorted(path.name for path in on.glob('*.png')))
             for path in [*on.glob('*.png'), *off.glob('*.png')]:
-                self.assertEqual(png_size(path), (54, 54), path.name)
+                self.assertEqual(png_size(path), (85, 70), path.name)
         for on, off, _ in nam_catalog.CHAIN_SETS:            # every picture also with the bypassed ring
             self.assertEqual(sorted(path.name for path in off.glob('*.png')), sorted(path.name for path in on.glob('*.png')))
             for path in [*on.glob('*.png'), *off.glob('*.png')]:
@@ -56,11 +56,13 @@ class ChainOptionTests(unittest.TestCase):
     def test_the_menu_option_and_the_hook_are_wired(self):
         self.assertIn('chainArt', DspMeter.CHOICES)
         self.assertIn('chainLarge', DspMeter.CHOICES)
+        self.assertIn('chainNames', DspMeter.CHOICES)
         tone = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
         for marker in ("onEnter() { if (chainArt || chainColours.size || chainSized.size) chainLook(this.context.ecx); }",
                        "function chainSet(file)", 'buttonSites.some(site => site.equals(this.site))',
                        'let chainArt = profile.chainArt === true;', "`CHAIN_NAMCAP_${capture.icon}.png`", "'CHAIN_' + picture",
-                       'chainRedraw(entry.item);', 'setChainArt: on =>', "object.add(0x1c).readU8() !== 0",
+                       'chainRedraw(entry.item);', 'setChainArt: on =>', 'const LARGE_BOX = {w: 68, h: 56}', 'const LABEL_DROP = 2;', 'shrinkBlock(item, own);', 'base.add(0x924324).add(0x38).readPointer()', 'Interceptor.replace(base.add(0x40a780)', 'selectedFrame(item, graphics);',
+                       'chainSized.set(key, widgetSize(icon));', 'resizePicture(icon, own.w, own.h);', "object.add(0x1c).readU8() !== 0",
                        "file.replace(/^CHAIN_/, 'CHAIN_OFF_')", 'const LABEL_OFF = 0.55;'):
             self.assertIn(marker, tone)
         self.assertIn("recv('chainArt'", (ROOT / 'nam_sidebar.js').read_text(encoding='utf-8'))

@@ -7,7 +7,10 @@ keeps the colour at a glance once the glyph is replaced. NAM captures get the NA
 The colour of a stock picture comes from HX Edit's model catalog (the category that lists the model that shows
 it); the few pictures no model in the catalog uses are matched by their render's category (icons.json).
 
-The large set (chain_large/, chain_large_off/: 54 px, no ring) is for "Large pictures in the signal chain".
+The large set (chain_large/, chain_large_off/: 85 x 70, the whole height of a chain block and wider) is for "Large
+pictures in the signal chain": no tile and no ring. A block that is on has a soft glow in its category's colour
+behind the gear; a bypassed one has none, so on and off read at a glance. HX Edit draws the block's label over the
+picture's bottom edge, so the picture is shaded there.
 
 Written to helix_model_icons/chain/<stock file name> and nam_capture_icons/chain/<id>.png, and the same with a grey
 dimmed ring and picture for bypassed blocks in chain_off/, which nam_catalog.patch_chain_art copies into a prepared HX Edit as CHAIN_*.png
@@ -19,12 +22,17 @@ import json
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageEnhance, ImageStat
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageStat
 
 ROOT = Path(__file__).resolve().parent
 CATALOG = Path(r'C:\Program Files (x86)\Line6\HX Edit\res\HX_ModelCatalog.json')
 SIZE, FIT, RING, RADIUS = 38, 28, 2, 7     # the chain icon's size; the gear's longest side; the ring
-LARGE, LARGE_FIT = 54, 48                  # "Large pictures in the signal chain": larger, no ring (chain_large/)
+# "Large pictures in the signal chain" (chain_large/): the picture box tone_view gives a block (LARGE_BOX there,
+# 68 x 56 in HX Edit's units) at the 1.25 the stock pictures are drawn at; the gear's largest size inside it.
+LARGE, LARGE_FIT = (85, 70), (74, 58)
+GLOW_SPREAD, GLOW_BLUR, GLOW_GAIN = 1, 8, 1.0   # the glow: barely grown, widely blurred: a haze, not an outline
+LIFT = 2                                   # px the gear sits above the middle, clear of the label
+LABEL_BAND, LABEL_SHADE = 16, 0.3          # the bottom rows HX Edit writes the label over; how dark they end
 NAM_PURPLE = 0xB070E0                      # nam_catalog.NAM_CATEGORY_COLOR
 RING_OFF, GEAR_OFF = 0.8, 0.8               # a bypassed block (chain_off/), dimmed as on the Floor; HX Edit
                                            # also draws it at 0.66 opacity: about 0.5 of the colour in all
@@ -90,7 +98,7 @@ def dimmed(colour, factor):
     return tuple(round(((colour >> shift) & 255) * factor) for shift in (16, 8, 0))
 
 
-def chain_picture(source, target, colour, off=False, size=SIZE, fit=FIT, ring=True):
+def gear_image(source, off):
     image = Image.open(source).convert('RGBA')
     box = image.getchannel('A').point(lambda alpha: 255 if alpha > 8 else 0).getbbox()
     if box:
@@ -100,16 +108,50 @@ def chain_picture(source, target, colour, off=False, size=SIZE, fit=FIT, ring=Tr
         alpha = image.getchannel('A')
         image = ImageEnhance.Brightness(image.convert('RGB')).enhance(GEAR_OFF).convert('RGBA')
         image.putalpha(alpha)
-    scale = fit / max(image.size)
+    return image
+
+
+def chain_picture(source, target, colour, off=False):
+    image = gear_image(source, off)
+    scale = FIT / max(image.size)
     gear = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
     image = image.resize(gear, Image.LANCZOS)
     # Drawn at 4x and reduced, so the ring's corners are smooth.
-    big = Image.new('RGBA', (size * 4, size * 4), (0, 0, 0, 0))
+    big = Image.new('RGBA', (SIZE * 4, SIZE * 4), (0, 0, 0, 0))
     rgb = dimmed(colour, RING_OFF if off else 1.0) + (255,)
-    ImageDraw.Draw(big).rounded_rectangle((2, 2, size * 4 - 3, size * 4 - 3), radius=round(RADIUS * size / SIZE) * 4, fill=TILE,
-                                          outline=rgb if ring else None, width=RING * 4)
-    out = big.resize((size, size), Image.LANCZOS)
-    out.alpha_composite(image, ((size - gear[0]) // 2, (size - gear[1]) // 2))
+    ImageDraw.Draw(big).rounded_rectangle((2, 2, SIZE * 4 - 3, SIZE * 4 - 3), radius=RADIUS * 4, fill=TILE, outline=rgb, width=RING * 4)
+    out = big.resize((SIZE, SIZE), Image.LANCZOS)
+    out.alpha_composite(image, ((SIZE - gear[0]) // 2, (SIZE - gear[1]) // 2))
+    out.save(target, optimize=True)
+
+
+def large_picture(source, target, colour, off=False):
+    """The gear alone, centred (the chain's cable runs through the picture's middle); on: a glow in the colour."""
+    image = gear_image(source, off)
+    scale = min(LARGE_FIT[0] / image.width, LARGE_FIT[1] / image.height)
+    gear = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+    image = image.resize(gear, Image.LANCZOS)
+    width, height = LARGE
+    place = ((width - gear[0]) // 2, max(0, (height - gear[1]) // 2 - LIFT))
+    out = Image.new('RGBA', LARGE, (0, 0, 0, 0))
+    if not off:
+        shape = Image.new('L', LARGE, 0)
+        shape.paste(image.getchannel('A'), place)
+        glow = shape.filter(ImageFilter.MaxFilter(2 * GLOW_SPREAD + 1)).filter(ImageFilter.GaussianBlur(GLOW_BLUR))
+        glow = glow.point(lambda alpha: min(255, round(alpha * GLOW_GAIN)))
+        # Nothing at the picture's edges, so the glow never ends in a straight line.
+        edge = Image.new('L', LARGE, 0)
+        ImageDraw.Draw(edge).rectangle((3, 3, width - 4, height - 4), fill=255)
+        glow = ImageChops.multiply(glow, edge.filter(ImageFilter.GaussianBlur(3)))
+        out = Image.merge('RGBA', (*Image.new('RGB', LARGE, dimmed(colour, 1.0)).split(), glow))
+    out.alpha_composite(image, place)
+    # The label's rows: darker towards the bottom, so the label reads on the gear and on the glow.
+    shade = Image.new('L', LARGE, 255)
+    for row in range(LABEL_BAND):
+        level = 1 - (1 - LABEL_SHADE) * min(1.0, (row + 1) / (LABEL_BAND * 0.6))
+        ImageDraw.Draw(shade).line((0, height - LABEL_BAND + row, width, height - LABEL_BAND + row), fill=round(255 * level))
+    red, green, blue, alpha = out.split()
+    out = Image.merge('RGBA', (*(ImageChops.multiply(band, shade) for band in (red, green, blue)), alpha))
     out.save(target, optimize=True)
 
 
@@ -118,7 +160,7 @@ def main(argv):
     renders = json.loads((ROOT / 'helix_model_icons' / 'icons.json').read_text(encoding='utf-8'))['icons']
     made = 0
     models, captures = ROOT / 'helix_model_icons', ROOT / 'nam_capture_icons'
-    sets = (('chain', {}), ('chain_large', {'size': LARGE, 'fit': LARGE_FIT, 'ring': False}))
+    sets = (('chain', chain_picture), ('chain_large', large_picture))
     for folder, _ in sets:
         for root in (models, captures):
             (root / folder).mkdir(exist_ok=True)
@@ -126,9 +168,9 @@ def main(argv):
     jobs = [(source, models, colour_of(source.name, catalog, renders)) for source in sorted((models / 'hxedit').glob('*.png'))]
     jobs += [(source, captures, NAM_PURPLE) for source in sorted(captures.glob('*.png'))]
     for source, root, colour in jobs:
-        for folder, look in sets:
-            chain_picture(source, root / folder / source.name, colour, **look)
-            chain_picture(source, root / f'{folder}_off' / source.name, colour, off=True, **look)
+        for folder, make in sets:
+            make(source, root / folder / source.name, colour)
+            make(source, root / f'{folder}_off' / source.name, colour, off=True)
             made += 2
     print(f'{made} chain pictures')
 

@@ -2579,40 +2579,85 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // the state changes (a bypass toggled), so the picture and the dimmed label are put there, before it applies.
   const applyLook = new NativeFunction(base.add(0x40b790), 'void', ['pointer', 'int'], 'thiscall');
   const LABEL_OFF = 0.55;                // a bypassed block's label colour, with the option on
-  // "Large pictures in the signal chain" (HX Unbound menu). Larger pictures (CHAINL_, 54 px, no ring) in today's
-  // rows, which the block's height limits: HX Edit's picture widget keeps a fixed size (31
-  // at 100%), centred in the block (0x3bc920 across, 0x3bc980 down: percent, mode 1 = centre). With the option, its
-  // width and height become shares of the block (layout 0x3b5e00: +0x90 / +0x94 percent, else its own size) and its
-  // centre moves up: a 40 box with a small gap at the top, clear of the label. The bypass and delete buttons, which
-  // HX Edit puts just above the picture's corners (0x40c0e7, 0x40c192, from the rect 0x40ac90 gives), go beside it.
-  let chainLarge = profile.chainLarge === true;
-  const centreDown = method(0x3bc980, 'void', ['int', 'int', 'int']);
-  const relayout = method(0x3b5e00, 'void', []);
+  // "Large pictures in the signal chain" (HX Unbound menu). Larger pictures (CHAINL_, 85 x 70: the gear alone with
+  // a glow in the category's colour when the block is on, none when bypassed). HX Edit's picture widget keeps its
+  // own size (31 x 31) centred in the block (anchors 50 / 50, layout 0x3b5e00), and the chain's cable runs through
+  // the block's middle. A block clips what it holds, so a picture cannot reach past it, and the rows leave no room
+  // to move the label (a row is the block plus 4). So with the option the picture widget takes the block's whole
+  // height and LARGE_BOX's width, still centred: the cable runs through the gear's middle, and HX Edit draws the
+  // label (the later child) over the picture's bottom edge, which the pictures are shaded for. Only the widget's
+  // own size changes (its bounds, vtable +0x38), so HX Edit's own layout keeps it centred, and putting the size
+  // back is all it takes to undo. The bypass and delete buttons, which HX Edit puts just above the picture's top
+  // corners (0x40c0e7, 0x40c192, from the rect 0x40ac90 gives), go beside its top corners.
+  let chainLarge = profile.chainLarge === true, chainNames = profile.chainNames !== false;
+  const relayout = method(0x3b5e00, 'void', ['int']);
   const widgetBounds = method(0x3b8a60, 'pointer', []);
-  const LARGE_SIDE = 40, LARGE_GAP = 3, BYPASS_BUTTON = 6, DELETE_BUTTON = 19, BUTTON_HEIGHT = 12;
-  const chainSized = new Map();          // item -> the picture widget's own size shares, while it is large
+  const LARGE_BOX = {w: 68, h: 56}, BUTTON_GAP = 2;    // make_chain_pictures.py LARGE is this box at 1.25
+  const chainSized = new Map();          // item -> the picture widget's own size, while it is large
+  const boundsRect = Memory.alloc(16);
   function chainSet(file) {
     // CHAIN_x / CHAIN_OFF_x -> the picture of the chosen size
     return chainLarge ? 'CHAINL_' + file.slice('CHAIN_'.length) : file;
   }
+  function widgetSize(widget) {
+    const bounds = widgetBounds(widget);
+    return {w: bounds.add(8).readS32() - bounds.readS32(), h: bounds.add(12).readS32() - bounds.add(4).readS32()};
+  }
+  function resizePicture(icon, w, h) {
+    // The widget's own size, then HX Edit's layout, which centres it in the block again.
+    const now = widgetBounds(icon), left = now.readS32(), top = now.add(4).readS32();
+    if (now.add(8).readS32() - left === w && now.add(12).readS32() - top === h) return;
+    boundsRect.writeS32(left); boundsRect.add(4).writeS32(top);
+    boundsRect.add(8).writeS32(left + w); boundsRect.add(12).writeS32(top + h);
+    const setBounds = new NativeFunction(icon.readPointer().add(0x38).readPointer(), 'void', ['pointer', 'pointer', 'int'], 'thiscall');
+    setBounds(icon, boundsRect, 0);
+    relayout(icon, 0);
+  }
+  // The label is pinned to the block's bottom (11 high) and a path clips what reaches past its rows, so the label
+  // can only go lower with the block: a large block takes LABEL_DROP more above and below (a row is the block plus
+  // 4, so it stays in its row and centred on the cable). HX Edit's own layout puts the block back; the next look
+  // grows it again, and turning the option off puts back the top and bottom it had.
+  const LABEL_DROP = 2;
+  let ownBounds = false;                 // our own setRect: HX Edit's layout hook below lets it through
+  function setRect(widget, left, top, right, bottom) {
+    boundsRect.writeS32(left); boundsRect.add(4).writeS32(top);
+    boundsRect.add(8).writeS32(right); boundsRect.add(12).writeS32(bottom);
+    const setBounds = new NativeFunction(widget.readPointer().add(0x38).readPointer(), 'void', ['pointer', 'pointer', 'int'], 'thiscall');
+    ownBounds = true;
+    try { setBounds(widget, boundsRect, 0); } finally { ownBounds = false; }
+    relayout(widget, 0);
+  }
+  function growBlock(item, entry) {
+    const now = widgetBounds(item), left = now.readS32(), top = now.add(4).readS32(), right = now.add(8).readS32(), bottom = now.add(12).readS32();
+    if (entry.grown && entry.grown.top === top && entry.grown.bottom === bottom) return;
+    entry.block = {top, bottom};
+    entry.grown = {top: top - LABEL_DROP, bottom: bottom + LABEL_DROP};
+    setRect(item, left, entry.grown.top, right, entry.grown.bottom);
+  }
+  function shrinkBlock(item, entry) {
+    if (!entry.grown) return;
+    const now = widgetBounds(item), top = now.add(4).readS32(), bottom = now.add(12).readS32();
+    if (top === entry.grown.top && bottom === entry.grown.bottom) setRect(item, now.readS32(), entry.block.top, now.add(8).readS32(), entry.block.bottom);
+    entry.grown = null;
+  }
   function sizePicture(item, icon, large) {
-    const impl = icon.add(0x54).readPointer(), key = item.toString();
+    const key = item.toString();
     if (large) {
-      const block = widgetBounds(item);
-      const width = block.add(8).readS32() - block.readS32(), height = block.add(12).readS32() - block.add(4).readS32();
-      if (width <= 0 || height <= 0) return;
-      if (!chainSized.has(key)) chainSized.set(key, {w: impl.add(0x90).readS32(), h: impl.add(0x94).readS32()});
-      const side = Math.min(LARGE_SIDE, height - 16);
-      impl.add(0x90).writeS32(Math.round(side * 100 / width));
-      impl.add(0x94).writeS32(Math.round(side * 100 / height));
-      centreDown(icon, Math.round((LARGE_GAP + side / 2) * 100 / height), 1, 0);
-      relayout(icon);
+      if (!chainSized.has(key)) {
+        if (chainSized.size > 256) chainSized.clear();
+        chainSized.set(key, widgetSize(icon));
+      }
+      growBlock(item, chainSized.get(key));
+      const block = widgetSize(item);
+      if (block.w <= 0 || block.h <= 0) return;
+      // The whole box where it fits; in a narrow or low block the same shape smaller, the buttons still beside it.
+      const scale = Math.min(1, (block.w - 36) / LARGE_BOX.w, block.h / LARGE_BOX.h);
+      if (scale <= 0) return;
+      resizePicture(icon, Math.max(1, Math.round(LARGE_BOX.w * scale)), Math.max(1, Math.round(LARGE_BOX.h * scale)));
     } else if (chainSized.has(key)) {
       const own = chainSized.get(key);
-      impl.add(0x90).writeS32(own.w);
-      impl.add(0x94).writeS32(own.h);
-      centreDown(icon, 50, 1, 0);
-      relayout(icon);
+      shrinkBlock(item, own);
+      resizePicture(icon, own.w, own.h);
       chainSized.delete(key);
     }
   }
@@ -2631,12 +2676,15 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       if (chainItems.size > 256) chainItems.clear();
       chainItems.set(item.toString(), {item, object, vtable: item.readPointer()});
       const bypassed = object.add(0x1c).readU8() !== 0;
+      // "Block names under large pictures" off: a large block's label is drawn clear (alpha 0), selected or not.
+      const unnamed = chainArt && chainLarge && !chainNames && !!chainFile(object);
       const colour = item.add(0x90), now = colour.readU32(), key = item.toString(), seen = chainColours.get(key);
       const base = seen && seen.dimmed === now ? seen.base : now;            // a refresh writes the category's again
-      if (chainArt && bypassed) {
+      if ((chainArt && bypassed) || unnamed) {
         const bytes = colour.readByteArray(4), rgba = new Uint8Array(bytes);
-        for (let i = 0; i < 3; i++) rgba[i] = Math.round(((base >>> (8 * i)) & 255) * LABEL_OFF);
-        rgba[3] = (base >>> 24) & 255;
+        const dim = chainArt && bypassed ? LABEL_OFF : 1;
+        for (let i = 0; i < 3; i++) rgba[i] = Math.round(((base >>> (8 * i)) & 255) * dim);
+        rgba[3] = unnamed ? 0 : (base >>> 24) & 255;
         colour.writeByteArray(rgba.buffer);
         if (chainColours.size > 256) chainColours.clear();
         chainColours.set(key, {base, dimmed: colour.readU32()});
@@ -2667,9 +2715,11 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     applyLook(item, 1);
   }
   function setChainOption(name, on) {
-    // UI thread: "Large pictures in the signal chain" changed; every block seen is drawn again.
-    if (name !== 'chainLarge') return;
-    chainLarge = on === true;
+    // UI thread: "Large pictures in the signal chain" or "Block names under large pictures" changed; every block
+    // seen is drawn again.
+    if (name === 'chainLarge') chainLarge = on === true;
+    else if (name === 'chainNames') chainNames = on === true;
+    else return;
     setChainArt(chainArt);
   }
   function setChainArt(on) {
@@ -2834,17 +2884,70 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     Interceptor.attach(base.add(0x40b790), {            // path item: apply label colour and picture opacity
       onEnter() { if (chainArt || chainColours.size || chainSized.size) chainLook(this.context.ecx); },
     });
+    // A block with a model: its dark tile and grey outline, drawn at the picture's bounds before the picture
+    // (0x40a780: white with a tile in the block's colour when selected, +0x94). A large picture has neither, so
+    // only the gear and its glow show; the selected block keeps HX Edit's frame, which is how it is told apart.
+    // HX Edit's frame is a filled rounded rect (graphics vtable +0x74: rect, colour, 3, 0xf) and its outline (+0x70:
+    // rect, colour, thickness 1.6, 3, 0xf) at the picture's bounds less 1. A large picture fills the block's height,
+    // so that outline would cross the label: the selected large block gets a thin, half-white outline round the
+    // picture and the label instead (round the picture alone with names off), and no tile.
+    const blockFrame = new NativeFunction(base.add(0x40a780), 'void', ['pointer', 'pointer'], 'thiscall');
+    const selectRect = Memory.alloc(16), selectColour = Memory.alloc(4);
+    selectColour.writeByteArray([0xff, 0xff, 0xff, 0x80]);            // B, G, R, A: white at 50%
+    function selectedFrame(item, graphics) {
+      const icon = widgetBounds(item.add(0x80).readPointer());
+      const left = icon.readS32(), top = icon.add(4).readS32(), right = icon.add(8).readS32(), bottom = icon.add(12).readS32();
+      const low = chainNames ? widgetSize(item).h : bottom;
+      selectRect.writeS32(left + 1); selectRect.add(4).writeS32(top + 1);
+      selectRect.add(8).writeS32(right - 1); selectRect.add(12).writeS32(low - 1);
+      const outline = new NativeFunction(graphics.readPointer().add(0x70).readPointer(), 'void',
+        ['pointer', 'pointer', 'pointer', 'float', 'int', 'int'], 'thiscall');
+      outline(graphics, selectRect, selectColour, 1.0, 3, 0xf);
+    }
+    Interceptor.replace(base.add(0x40a780), new NativeCallback(function (item, graphics) {
+      try {
+        if (chainSized.has(item.toString())) {
+          if (item.add(0x94).readU8() !== 0) selectedFrame(item, graphics);
+          return;
+        }
+      } catch (_) { /* HX Edit's own */ }
+      blockFrame(item, graphics);
+    }, 'void', ['pointer', 'pointer'], 'thiscall'));
+    // HX Edit's layout sets a block's bounds again (window size, the path laid out again) after the look has
+    // grown it: a large block gets its LABEL_DROP there too, in a copy of HX Edit's rect, which it keeps as the
+    // top and bottom to put back. The path item's own setBounds (vtable 0x924324 +0x38); ours pass straight on.
+    const grownRect = Memory.alloc(16);
+    Interceptor.attach(base.add(0x924324).add(0x38).readPointer(), {
+      onEnter(args) {
+        if (ownBounds || !chainSized.size) return;
+        try {
+          const entry = chainSized.get(this.context.ecx.toString());
+          if (!entry || !entry.grown) return;
+          const r = args[0], top = r.add(4).readS32(), bottom = r.add(12).readS32();
+          entry.block = {top, bottom};
+          entry.grown = {top: top - LABEL_DROP, bottom: bottom + LABEL_DROP};
+          grownRect.writeS32(r.readS32()); grownRect.add(4).writeS32(entry.grown.top);
+          grownRect.add(8).writeS32(r.add(8).readS32()); grownRect.add(12).writeS32(entry.grown.bottom);
+          args[0] = grownRect;
+        } catch (_) { /* HX Edit's own bounds */ }
+      },
+    });
     const buttonSites = [base.add(0x40c12c), base.add(0x40c1e5)];    // bypass, delete: placed from this rect
     Interceptor.attach(base.add(0x40ac90), {            // path item: the rect its hover buttons are placed by
       onEnter(args) { this.item = this.context.ecx; this.rect = args[0]; this.site = this.returnAddress; },
       onLeave() {
         try {
           if (!chainSized.has(this.item.toString()) || !buttonSites.some(site => site.equals(this.site))) return;
-          // A large picture reaches the block's top: the buttons beside its top corners, not above them.
-          const r = this.rect;
-          r.writeS32(r.readS32() - BYPASS_BUTTON - 2);
-          r.add(8).writeS32(r.add(8).readS32() + DELETE_BUTTON + 2);
-          r.add(4).writeS32(r.add(4).readS32() + BUTTON_HEIGHT + 1);
+          // HX Edit puts the bypass button's left at this rect's left - 1, the delete button's right at its
+          // right + 1, and both bottoms at its top - 1. A large picture reaches the block's top, so the rect is
+          // widened by each button and lowered by their height: they sit beside the picture's top corners.
+          const view = this.item.add(0x54).readPointer().add(0x14).readPointer();
+          if (view.isNull()) return;
+          const bypass = widgetSize(view.add(0xb0).readPointer()), remove = widgetSize(view.add(0xb4).readPointer());
+          const r = this.rect, first = this.site.equals(buttonSites[0]);
+          r.writeS32(r.readS32() - bypass.w - BUTTON_GAP + 1);
+          r.add(8).writeS32(r.add(8).readS32() + remove.w + BUTTON_GAP - 1);
+          r.add(4).writeS32(r.add(4).readS32() + (first ? bypass.h : remove.h) + 1);
         } catch (_) { /* HX Edit's own place */ }
       },
     });

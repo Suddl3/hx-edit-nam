@@ -115,7 +115,7 @@ function installNamSidebar(namView) {
     });
   }
   function chainOption() {
-    // HX Unbound menu: "Large pictures in the signal chain" (name chainLarge).
+    // HX Unbound menu: "Large pictures in the signal chain" (chainLarge), "Block names under large pictures" (chainNames).
     recv('chainOption', message => {
       const name = message.payload?.name, on = message.payload?.on === true;
       namView.queueSidebarAction(() => toneView.setChainOption?.(name, on));

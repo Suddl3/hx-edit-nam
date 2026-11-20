@@ -47,7 +47,7 @@ class DspMeter:
         self.notice = None
         self.ir_dots = None       # the HX Unbound menu's "Mark NAM slots in the IR list" tick (set_ir_dots)
         self.chain_art = None     # its "3D pictures in the signal chain" tick (set_chain_art)
-        self.chain_options = {}   # its "Large pictures in the signal chain" tick, as chainLarge (set_chain_option)
+        self.chain_options = {}   # its "Large pictures" and "Block names" ticks, as chainLarge / chainNames (set_chain_option)
         self.ghost = None         # {name, icon, over} while a model from the block picker is dragged
         self.ghost_shown = False
         self.icons = Path(icons) if icons else None   # HX Edit's res/icons_models
@@ -86,7 +86,7 @@ class DspMeter:
         if self.on_choice and getattr(self.process, 'stdout', None) is not None:
             Thread(target=self._clicks, args=(self.process.stdout,), daemon=True).start()
 
-    CHOICES = ('level', 'look', 'library', 'irDots', 'chainArt', 'chainLarge')
+    CHOICES = ('level', 'look', 'library', 'irDots', 'chainArt', 'chainLarge', 'chainNames')
 
     def _clicks(self, output):
         # The helper writes one line per choice from the HX Unbound menu.
