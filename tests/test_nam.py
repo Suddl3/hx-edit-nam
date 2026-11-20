@@ -111,7 +111,7 @@ class NamTests(unittest.TestCase):
             self.assertEqual(symbols[768]['parameters'], symbols[380]['parameters'])   # Model, the knobs
             definitions = msgpack.unpackb((res / 'HelixModelDefs.bin').read_bytes())
             self.assertEqual((definitions[-1]['symbolicID\0'], round(definitions[-1]['load\0'], 3)),
-                             ('HD2_AmpNAMPedal\0', 8.5))
+                             ('HD2_AmpNAMPedal\0', 7.5))
             catalog = msgpack.unpackb((res / 'HX_ModelCatalog.bin').read_bytes())
             amp = next(c for c in catalog['categories\0'] if c['name\0'] == 'Amp\0')
             folder = next(c for c in amp['subcategories\0'] if c['name\0'] == 'NAM\0')

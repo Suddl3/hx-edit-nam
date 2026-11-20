@@ -159,7 +159,7 @@ class FloorCatalogTests(unittest.TestCase):
     def test_pedal_floor_adds_only_the_pedal_block(self):
         changed, loads, recorded = self.catalog(FloorFirmware(nam_cost=3250, pedal=True))
         self.assertEqual(changed, [380, 768])                      # no LT layer blocks on the Floor
-        self.assertEqual(loads, {'HD2_AmpNAMLite': 32.5, 'HD2_AmpNAMPedal': 8.5})
+        self.assertEqual(loads, {'HD2_AmpNAMLite': 32.5, 'HD2_AmpNAMPedal': 7.5})
         self.assertTrue(recorded.pedal)
 
 

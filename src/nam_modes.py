@@ -34,7 +34,7 @@ MODES = (
      'Instant. Any capture, full quality. NAM A2 Lite block, about 36% of a DSP.'),
     ('pedal', 0, 'pedal', 'Pedal · ~25 s · NAM Pedal',
      'About 25 seconds. For pedals: overdrive, distortion, fuzz (on 13 TONE3000 pedals 0.4-6% error, a fuzz 6%). '
-     'NAM Pedal block, about 8.5% of a DSP. Not for captures with an amp and a cabinet.'),
+     'NAM Pedal block, about 7.5% of a DSP. Not for captures with an amp and a cabinet.'),
     ('16-quick', 16, 'quick', '16 layers · fast · NAM Lite 16',
      'About 2 minutes. Close to the original (Benson Preamp: 0.54% error). NAM Lite 16 block, about 29%.'),
     ('16-standard', 16, 'standard', '16 layers · best · NAM Lite 16',

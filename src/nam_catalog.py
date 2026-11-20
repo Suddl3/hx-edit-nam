@@ -29,7 +29,7 @@ NAM_LAYERS_LOAD = 36.5                    # NAM A2 Lite on that firmware (3650: 
 # The NAM5_PEDAL firmware (lt_port.py --pedal) adds a fifth block for pedal models (tools/nam_pedal.py).
 # On with "namPedal": true or HX_EDIT_NAM_PEDAL=1 (on the Helix LT it implies the three lighter blocks:
 # nam_layers()). The Floor's pedal port has the pedal block only, so patch_catalog takes them apart.
-NAM_PEDAL_MODEL = ('HD2_AmpNAMPedal', 768, 'NAM Pedal', 8.5)    # the firmware's 850, from the LT meter
+NAM_PEDAL_MODEL = ('HD2_AmpNAMPedal', 768, 'NAM Pedal', 7.5)    # the firmware's 750 (hx-unbound-floor#15)
 HX_NAM_ID = 555
 HX_NAM_SYMBOL = 'HD2_DistNAMLite'
 DEVICE_IDS = (0x00210004, 0x00210001)  # Helix LT and Helix Floor
@@ -96,7 +96,7 @@ def nam_layers():
 
 def patch_catalog(resources, layers=False, pedal=False, *, nam_load=None, pedal_load=None):
     """Add the NAM blocks to HX Edit's catalog. nam_load / pedal_load: the firmware's costs / 100 (the Floor's
-    profile, floor_firmware.py); None keeps the defaults (36.0, 36.5 with the LT's layers, the pedal's 8.5)."""
+    profile, floor_firmware.py); None keeps the defaults (36.0, 36.5 with the LT's layers, the pedal's 7.5)."""
     symbols_path = resources / 'Helix.sym'
     definitions_path = resources / 'HelixModelDefs.bin'
     catalog_path = resources / 'HX_ModelCatalog.bin'

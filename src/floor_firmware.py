@@ -27,7 +27,7 @@ PEDAL_COSTS = (300, 3000)
 class FloorFirmware:
     nam_cost: int = 3600       # HD2_AmpNAMLite, id 380
     pedal: bool = False        # HD2_AmpNAMPedal, id 768 (NAM_PEDAL=1 builds)
-    pedal_cost: int = 850      # the LT's measured value until the Floor's is measured
+    pedal_cost: int = 750      # the Floor's, measured on the faster pedal loop (hx-unbound-floor#15, November 18)
     source: str = 'default'
 
     @property
@@ -59,7 +59,7 @@ def from_dict(data, source):
     if not isinstance(pedal, bool):
         raise ValueError('Floor firmware: pedal must be true or false.')
     return FloorFirmware(nam_cost=_cost(data.get('namCost', 3600), NAM_COSTS, 'namCost'), pedal=pedal,
-                         pedal_cost=_cost(data.get('pedalCost', 850), PEDAL_COSTS, 'pedalCost'), source=source)
+                         pedal_cost=_cost(data.get('pedalCost', 750), PEDAL_COSTS, 'pedalCost'), source=source)
 
 
 def profile(settings=None):
