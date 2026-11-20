@@ -169,7 +169,42 @@
   #optimizePanel { flex-direction: column; align-items: stretch; gap: 4px; }
   #optimizePanel p { margin: 0; }
   #versionsHead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; max-width: 760px; }
-  #versionsHead b { font-weight: 600; }
+  #versionsToggle { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: #cfcfcf; }
+  #versionsToggle:focus-visible { outline: 2px solid #fa8585; outline-offset: 2px; border-radius: 3px; }
+  #versionsToggle b { color: #eee; font-weight: 600; }
+  #versionsToggle .names { color: #a9a9a9; }
+  #versionsToggle .dot { width: 5px; height: 5px; border-radius: 50%; background: #b8893a; }
+  #versionsToggle .chev { color: #888; transition: transform .15s; }
+  #optimizePanel:not(.collapsed) #versionsToggle .names, #optimizePanel:not(.collapsed) #versionsToggle .dot { display: none; }
+  #optimizePanel:not(.collapsed) #versionsToggle .chev { transform: rotate(90deg); }
+  #optimizePanel.collapsed #versionRows, #optimizePanel.collapsed #listenSource, #optimizePanel.collapsed #listenRecord,
+  #optimizePanel.collapsed #listenMatch { display: none !important; }
+  /* Footer: the two everyday actions with icons, the occasional ones in the ⋯ menu; library-wide ones in the header. */
+  #status { flex: 1; min-width: 0; }
+  #audition, #install { display: inline-flex; align-items: center; gap: 6px; }
+  #audition::before, #install::before { content: ''; width: 12px; height: 12px; background: currentColor; flex: none; }
+  #audition::before { -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 1.5v9l7.5-4.5z'/%3E%3C/svg%3E") center/contain no-repeat; }
+  #install::before { -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 1.5v6M3.3 5L6 7.7 8.7 5M1.8 9v1.5h8.4V9'/%3E%3C/svg%3E") center/contain no-repeat; }
+  #more { padding: 3px 9px; font-size: 15px; line-height: 1; letter-spacing: 1px; }
+  #moreMenu { position: fixed; z-index: 7; min-width: 200px; background: #262626; border: 1px solid #575757; border-radius: 6px;
+              padding: 4px; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
+  #moreMenu[hidden] { display: none; }
+  #moreMenu button { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; background: none; border: 0;
+                     border-radius: 4px; padding: 6px 9px; }
+  #moreMenu button:enabled:hover, #moreMenu button:focus-visible { background: #333; outline: none; }
+  #moreMenu hr { border: 0; border-top: 1px solid #3c3c3c; margin: 4px 2px; }
+  #moreMenu .danger { color: #f08a8a; }
+  #moreMenu svg, #catalog svg { width: 14px; height: 14px; flex: none; }
+  header { flex-wrap: nowrap; }
+  #search { min-width: 0; flex: 1 1 60px; }
+  #catalog { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 3px 9px; }
+  #close { padding: 3px 9px; }
+  /* Close lives in the header on the library; the Level and Floor look pages keep the footer's. */
+  body:not(.levelMode):not(.lookMode) footer #finish { display: none; }
+  @media (max-width: 560px) { #catalog .label { display: none; } header select { max-width: 96px; } }
+  /* Type and Instrument read as text; a row's dropdowns show on hover, on the selected row and while in use. */
+  tbody tr:not(:hover):not([aria-selected="true"]) td select:not(:focus) { -webkit-appearance: none; appearance: none;
+      background: transparent; border-color: transparent; color: #bdbdbd; }
   #listenSource { color: #9a9a9a; font-size: 12px; flex: 1; min-width: 0; }
   #versionRows { display: flex; flex-direction: column; gap: 2px; max-width: 760px; }
   /* One grid for every row, so Hear, Put on block and the delete cross line up whatever the text. */
@@ -274,6 +309,8 @@
   <select id="instrument" aria-label="Instrument"><option value="*">All</option><option value="guitar">Guitar</option><option value="bass">Bass</option></select>
   <select id="filter" aria-label="Type"><option value="*">All types</option>$gears</select>
   <button id="layout" aria-pressed="false" title="Show as a grid of pictures">⊞</button>
+  <button id="catalog" title="Browse TONE3000"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2h4v4M12 2L6.5 7.5M10.5 8.5V12h-8.5V3.5H5.5"/></svg><span class="label">TONE3000</span></button>
+  <button id="close" title="Close the library" aria-label="Close">✕</button>
 </header>
 <div class="rows">
   <table>
@@ -312,6 +349,13 @@
       <small id="chooseLightText"></small></button>
     <div class="buttons"><button id="chooseCancel">Cancel</button></div>
   </div>
+</div>
+<div id="moreMenu" role="menu" hidden>
+  <button role="menuitem" data-for="lighter"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2 11h10M4 8.5h6M6 6h2"/></svg><span>Lighter…</span></button>
+  <button role="menuitem" data-for="optimize"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2 11h10M4 8.5h6M6 6h2"/></svg><span>Make lighter…</span></button>
+  <button role="menuitem" data-for="changeIcon"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="1.5" y="2.5" width="11" height="9" rx="1.5"/><path d="M3 10l3-3 2 2 1.5-1.5L11 10"/></svg><span>Change icon…</span></button>
+  <hr>
+  <button role="menuitem" data-for="remove" class="danger"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4h9M5.5 4V2.5h3V4M3.8 4l.6 8h5.2l.6-8"/></svg><span>Remove from library…</span></button>
 </div>
 <section id="levelPanel" hidden aria-label="Level presets">
   <h2>Level presets</h2>
@@ -367,7 +411,7 @@
 </section>
 <section id="optimizePanel" hidden aria-label="Versions of this capture">
   <div id="versionsHead">
-    <b>Versions</b>
+    <button id="versionsToggle" aria-expanded="false"><span class="chev">▸</span><b>Versions</b><span class="names"></span><span class="dot" hidden></span></button>
     <span id="listenSource"></span>
     <button id="listenRecord" hidden title="Opens Level presets, where you record 10 seconds of your guitar once (kept on this PC). Hear then plays it through each version.">Record your guitar…</button>
   </div>
@@ -401,10 +445,13 @@
 <footer>
   <span id="target" title="The NAM block this pane loads into and how the capture is converted" hidden></span>
   <p id="status" role="status"></p>
-  <button id="lighter" disabled>Lighter…</button>
-  <button id="optimize" hidden disabled>Make lighter…</button>
-  <button id="changeIcon" disabled title="Choose the icon shown for the selected capture">Change icon…</button>
-  <button id="remove" disabled>Remove</button>
+  <div id="menuActions" hidden>   <!-- the ⋯ menu's actions: their state is kept here, the menu mirrors it -->
+    <button id="lighter" disabled>Lighter…</button>
+    <button id="optimize" hidden disabled>Make lighter…</button>
+    <button id="changeIcon" disabled title="Choose the icon shown for the selected capture">Change icon…</button>
+    <button id="remove" disabled>Remove</button>
+  </div>
+  <button id="more" aria-haspopup="menu" aria-expanded="false" title="More for this capture" aria-label="More for this capture">⋯</button>
   <button id="audition" disabled>Preview</button>
   <button id="install" disabled>Load on Floor</button>
   <div class="destination" hidden>
@@ -415,7 +462,6 @@
     <select id="destination" aria-label="Free User IR slot"></select>
     <button id="save">Load on Floor</button>
   </div>
-  <button id="catalog">Browse TONE3000</button>
   <button id="lookSave" title="Write the pictures and backgrounds to the file the Floor's picture tool reads. Nothing changes on the Floor now.">Save for the Floor</button>
   <button id="finish">Close</button>
 </footer>
@@ -568,6 +614,7 @@
     return row;
   }
 
+  let versionsOpen = stored('versionsOpen', '') === 'true';
   function renderOptimize(capture) {
     const optimizeButton = q('#optimize'), panel = q('#optimizePanel');
     optimizeButton.hidden = !canOptimize;
@@ -580,6 +627,13 @@
     panel.hidden = !canOptimize || !capture || !(running || versions.length || optimizing?.error);
     if (panel.hidden) return;
     const mine = listening && listening.id === capture.id ? listening : null;
+    // One line until opened ("Versions Original · Light · Pedal"); open while one plays or renders.
+    const open = versionsOpen || !!(mine && (mine.running || mine.playing));
+    panel.classList.toggle('collapsed', !open);
+    q('#versionsToggle').setAttribute('aria-expanded', String(open));
+    q('#versionsToggle .names').textContent = ['Original', ...versions.map(version => VERSION_INFO[version.key].name)].join(' · ');
+    q('#versionsToggle .dot').hidden = !versions.some(version => version.quality === 'different');
+    q('#versionsToggle').title = open ? 'Hide the versions' : 'Show the versions: hear, compare and choose the default';
     const onBlock = blockOn(capture);
     const light = versions.some(version => version.key === 'light16');
     const head = document.createElement('div');
@@ -1520,6 +1574,65 @@
   };
   q('#catalog').onclick = () => host.postMessage('catalog');
   q('#finish').onclick = () => host.postMessage('finish');
+  q('#close').onclick = () => host.postMessage('finish');
+  q('#versionsToggle').onclick = () => {
+    versionsOpen = q('#optimizePanel').classList.contains('collapsed');
+    store('versionsOpen', String(versionsOpen));
+    renderOptimize(rows.find(row => row.id === selected));
+  };
+  // The ⋯ menu (and a row's right-click): Make lighter, Change icon, Remove. Each item runs its hidden button, so
+  // their enabled state and handlers stay where they were.
+  const menu = q('#moreMenu');
+  function closeMenu() {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    q('#more').setAttribute('aria-expanded', 'false');
+    host?.postMessage('dialog:closed');
+  }
+  function openMenu(x, y) {
+    for (const item of menu.querySelectorAll('button')) {
+      const target = q('#' + item.dataset.for);
+      item.hidden = target.hidden;
+      item.disabled = target.disabled;
+    }
+    menu.hidden = false;
+    q('#more').setAttribute('aria-expanded', 'true');
+    host?.postMessage('dialog:open');      // Escape closes the menu, not the window
+    const width = menu.offsetWidth, height = menu.offsetHeight;
+    menu.style.left = Math.max(6, Math.min(x, innerWidth - width - 6)) + 'px';
+    menu.style.top = Math.max(6, y + height + 6 > innerHeight ? y - height - 6 : y) + 'px';
+    menu.querySelector('button:not([hidden]):enabled')?.focus();
+  }
+  q('#more').onclick = event => {
+    event.stopPropagation();
+    if (!menu.hidden) { closeMenu(); return; }
+    const box = q('#more').getBoundingClientRect();
+    openMenu(box.left, box.top);
+  };
+  menu.onclick = event => {
+    const item = event.target.closest('button');
+    if (!item || item.disabled) return;
+    closeMenu();
+    q('#' + item.dataset.for).click();
+  };
+  menu.onkeydown = event => {
+    const items = [...menu.querySelectorAll('button:not([hidden]):enabled')];
+    const at = items.indexOf(document.activeElement);
+    if (event.key === 'Escape') { closeMenu(); q('#more').focus(); }
+    else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      items[(at + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
+    }
+  };
+  addEventListener('click', event => { if (!menu.contains(event.target)) closeMenu(); });
+  addEventListener('blur', closeMenu);
+  document.addEventListener('contextmenu', event => {
+    const row = event.target.closest('tbody tr, .tile');
+    if (!row || event.target.closest('select, input')) return;
+    event.preventDefault();
+    row.click();                              // the row right-clicked is the one the menu acts on
+    openMenu(event.clientX, event.clientY);
+  });
   save.onclick = () => host.postMessage('save:' + trial + ':' + destination.value);
   let replaceUsers = new Map();   // slot -> opened presets that use it (learned as presets are opened)
   q('#replaceGo').onclick = async () => {

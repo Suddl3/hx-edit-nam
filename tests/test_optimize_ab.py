@@ -431,7 +431,9 @@ class ListenFlowTests(unittest.TestCase):
                            "host?.postMessage('versionRemove:' + id + ':' + key)", "host?.postMessage('listenStop')",
                            'listening = data.listen || null', "'Needs a firmware that skips layers'",
                            "'Needs the pedal firmware'", 'pick.disabled = !!reason', 'effectiveDefault(capture)', 'Put on block', "make.id = 'suggestLight'", "'optimize:' + capture.id + ':' + kind",
-                           'id="choosePedal"', 'id="chooseLight"', 'Make lighter…'):
+                           'id="choosePedal"', 'id="chooseLight"', 'Make lighter…',
+                           'id="moreMenu"', 'data-for="remove"', 'id="versionsToggle"', "q('#close').onclick",
+                           "document.addEventListener('contextmenu'", 'body:not(.levelMode):not(.lookMode) footer #finish'):
                 self.assertIn(marker, page)
             self.assertNotIn('Remove the Pedal version', page)
 
