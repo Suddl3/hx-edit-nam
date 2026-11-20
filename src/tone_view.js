@@ -1228,6 +1228,32 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       try { dimItem(dimmed, 0, 1); } catch (_) { /* drawing only */ }
       dimmed = null;
     }
+    let roomSeen = {key: '', at: 0, full: null};
+    function namDropFull(D, entry) {
+      // Why a NAM capture dragged here (an 'lbir' NAM slot) cannot become a NAM block on this DSP,
+      // else null: over a NAM block it only changes the capture; over another block that block's
+      // load is freed (namRoomOn). Kept for 300 ms, as DragOver runs on every move.
+      if (!entry || entry.isNull() || entry.readU32() !== LBIR) return null;
+      const slot = entry.add(4).readPointer().readU32() + 1;
+      const dsp = D.add(0x10).readS32(), mode = D.add(0x48).readS32(), row = D.add(0x4c).readS32(), col = D.add(0x50).readS32();
+      const key = `${slot}:${dsp}:${mode}:${row}:${col}`, now = Date.now();
+      if (key === roomSeen.key && now - roomSeen.at < 300) return roomSeen.full;
+      let full = null;
+      if (namView.isNamSlot(slot)) {
+        const object = cellAt(D.add(0x14).readPointer(), row, col);
+        const empty = object.isNull() || object.readU32() !== 0 || cellEmpty(object);
+        let replaced = null, keeps = false;
+        if (!empty && mode === REPLACE) {
+          const name = blockName(object);
+          const seen = name ? targetBinding?.peekModel?.(D.add(8).readPointer(), dsp, name) : null;
+          replaced = seen ? seen.model : null;
+          keeps = replaced === 'HD2_AmpNAMLite';
+        }
+        full = keeps ? null : namRoomOn(dsp, replaced);
+      }
+      roomSeen = {key, at: now, full};
+      return full;
+    }
 
     Interceptor.attach(base.add(0x413d70), {
       onEnter(args) {
@@ -1235,7 +1261,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         try {
           if (!irDrag(args[4])) return;
           const D = this.context.ecx;
-          this.ir = true; this.D = D; this.info = args[6]; overD = D;
+          this.ir = true; this.D = D; this.info = args[6]; this.dd = args[4]; overD = D;
           let state = held.get(D.toString());
           if (!state) { state = {point: Memory.alloc(8), has: false, pending: null}; held.set(D.toString(), state); }
           if ((args[1].toInt32() & 0xff) !== 0 || D.add(0x18).readPointer().isNull()) { state.has = false; state.pending = null; return; }
@@ -1267,7 +1293,9 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
             const object = cellAt(D.add(0x14).readPointer(), D.add(0x4c).readS32(), D.add(0x50).readS32());
             dropHint = object.isNull() || object.readU32() !== 0 || cellEmpty(object) ? 'place' : 'insert';
           }
-          if (D.add(0x48).readS32() === REPLACE && (effect === 1 || effect === 2) && !D.add(0x18).readPointer().isNull()) {
+          // No room on this DSP for the NAM block a drop would make: the drag box greys out.
+          if (dropHint !== 'none') { try { if (namDropFull(D, find(this.dd, LBIR))) dropHint = 'full'; } catch (_) { /* HX Edit decides */ } }
+          if (dropHint !== 'full' && D.add(0x48).readS32() === REPLACE && (effect === 1 || effect === 2) && !D.add(0x18).readPointer().isNull()) {
             const item = itemAt(D.add(0xc).readPointer(), D.add(0x4c).readS32(), D.add(0x50).readS32());
             if (!item.isNull() && !item.equals(dimmed)) { undim(); dimItem(item, 1, 1); dimmed = item; }
           } else undim();
@@ -1441,6 +1469,15 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
               targetBinding.addModel(editor, dsp, row, col, droppingDrag.symbol);
               send({type: 'toneTrace', reason: 'drop-replace', stage: 'model-added', ms: Date.now()});
             }
+            return;
+          }
+          const full = namDropFull(D, entry);
+          if (full) {
+            // The drag box said so already: nothing changes (as makeNamBlock and pickerCaptureDrop refuse).
+            info.writeU8(0);
+            namView.clearIrPick?.();
+            send({type: 'dspNotice', text: full});
+            send({type: 'toneTrace', reason: 'drop-replace', stage: 'no-room'});
             return;
           }
           if (entry.readU32() === LBIR && droppingDrag?.fromPicker && pickerCaptureDrop(D, entry, info)) return;

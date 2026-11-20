@@ -96,7 +96,8 @@ class NamLibrary : Form
         readonly string name;
         readonly Image icon;
         bool over;
-        // What a drop here would do, when the editor says (place / replace / insert / none).
+        // What a drop here would do, when the editor says (place / replace / insert / none), or full:
+        // this DSP has no room for the NAM block a drop would make (the picture greys out).
         string hint="";
         public void SetHint(string value){ value=value??""; if(value!=hint){hint=value;Invalidate();} }
         public bool HasHint { get { return hint.Length>0; } }
@@ -105,6 +106,7 @@ class NamLibrary : Form
             if(hint=="replace")return "Drop to replace this block";
             if(hint=="insert")return "Drop to insert it here";
             if(hint=="place")return "Drop to put it here";
+            if(hint=="full")return "Not enough DSP room here";
             return over&&hint.Length==0?"Drop to put it on this block":"Drop on a block in the chain";
         }
         public DropGhost(string name,Image icon){
@@ -124,17 +126,28 @@ class NamLibrary : Form
             var g=args.Graphics;
             var picture=new Rectangle((Width-Picture)/2,0,Picture,Picture);
             g.InterpolationMode=System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-            if(icon!=null)g.DrawImage(icon,picture);
+            bool full=hint=="full";
+            if(icon!=null&&full){
+                // Grey and faded: this DSP cannot take it.
+                var grey=new System.Drawing.Imaging.ColorMatrix(new float[][]{
+                    new float[]{0.3f,0.3f,0.3f,0,0},new float[]{0.59f,0.59f,0.59f,0,0},new float[]{0.11f,0.11f,0.11f,0,0},
+                    new float[]{0,0,0,0.45f,0},new float[]{0,0,0,0,1}});
+                using(var look=new System.Drawing.Imaging.ImageAttributes()){
+                    look.SetColorMatrix(grey);
+                    g.DrawImage(icon,picture,0,0,icon.Width,icon.Height,GraphicsUnit.Pixel,look);
+                }
+            }
+            else if(icon!=null)g.DrawImage(icon,picture);
             else using(var brush=new SolidBrush(Color.FromArgb(60,60,60)))g.FillRectangle(brush,picture);
             var label=new Rectangle(0,Picture+4,Width,LabelHeight);
             using(var brush=new SolidBrush(Color.FromArgb(32,32,32)))g.FillRectangle(brush,label);
-            using(var pen=new Pen(over?Color.FromArgb(170,84,158):Color.FromArgb(80,80,80)))
+            using(var pen=new Pen(full?Color.FromArgb(190,70,70):over?Color.FromArgb(170,84,158):Color.FromArgb(80,80,80)))
                 g.DrawRectangle(pen,label.X,label.Y,label.Width-1,label.Height-1);
             using(var bold=new Font(Font,FontStyle.Bold))
                 TextRenderer.DrawText(g,name,bold,new Rectangle(6,label.Y+2,Width-12,15),ForeColor,
                     TextFormatFlags.HorizontalCenter|TextFormatFlags.EndEllipsis);
             TextRenderer.DrawText(g,HintText(hint,over),Font,
-                new Rectangle(6,label.Y+17,Width-12,15),over?Color.White:Color.Silver,
+                new Rectangle(6,label.Y+17,Width-12,15),full?Color.FromArgb(240,130,120):over?Color.White:Color.Silver,
                 TextFormatFlags.HorizontalCenter|TextFormatFlags.EndEllipsis);
         }
     }
@@ -1200,7 +1213,8 @@ class NamLibrary : Form
         // The drag box says what a drop would do once the editor tells it; before that, over the chain or not.
         if(DropGhost.HintText("replace",true)!="Drop to replace this block"||DropGhost.HintText("insert",true)!="Drop to insert it here"||
            DropGhost.HintText("place",false)!="Drop to put it here"||DropGhost.HintText("none",true)!="Drop on a block in the chain"||
-           DropGhost.HintText("",true)!="Drop to put it on this block")throw new Exception("Drop box wording");
+           DropGhost.HintText("",true)!="Drop to put it on this block"||DropGhost.HintText("full",false)!="Not enough DSP room here")
+            throw new Exception("Drop box wording");
         if(BlockedReason(ready,false,true,false,true).Length==0||BlockedReason(ready,true,false,false,true).Length==0)throw new Exception("Busy reasons");
         var a=new ListViewItem("z"){Name="a"};var b=new ListViewItem("a"){Name="b"};
         foreach(var item in new[]{a,b}){item.SubItems.Add("Amp");item.SubItems.Add("?");item.SubItems.Add("—").Tag="";}

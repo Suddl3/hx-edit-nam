@@ -1,5 +1,14 @@
 # What's new
 
+## November 19
+
+- **Drag and drop onto the chain**: captures from the NAM tab and the library window, and (with NAM categories) any model from the block picker. Dropping on a block replaces it, an empty cell adds one, between blocks inserts.
+- **HX Edit's IR list**: the middle of a block now replaces it; NAM slots become NAM blocks and show in violet.
+- **Block picker** (NAM categories): a click selects, double-click or Enter applies, the arrows only move the selection, and the model the block plays is shown in yellow.
+- A NAM block is only made where the DSP has room.
+
+These change how parts of HX Edit behave: see [how it behaves differently from stock HX Edit](../README.md#how-it-behaves-differently-from-stock-hx-edit).
+
 ## November 16
 
 - **Level presets**, from the new **HX Unbound** menu button beside TONE3000: brings presets and snapshots to one output level. It measures each snapshot silently over USB with a short recording of your own playing (saved by guitar, reusable), suggests output-level changes toward one target, keeps intentional offsets (a lead +2 dB), then Applies with Undo. Only output levels change. [How it works](PRODUCT-VISION.md#level-presets-built-november-16).

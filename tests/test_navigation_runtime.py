@@ -524,6 +524,36 @@ class NavigationNativeTests(unittest.TestCase):
         self.assertIn('92.5 of 75', result[3])        # an empty cell frees nothing
         self.assertIsNone(result[4])                  # no reading from the Floor: HX Edit decides
 
+    def test_a_nam_capture_dragged_over_a_full_dsp_says_so_before_the_drop(self):
+        # DSP 1 at 56.5 of 75: a new NAM block (36) does not fit, unless the block it replaces frees enough
+        # or already is a NAM block (then only its capture changes). Plain IR slots are never checked.
+        drop_full = re.search(r'^    function namDropFull\(.*?^    }$', TONE, re.S | re.M).group(0)
+        result = js('''
+          const LBIR=0x6c626972, REPLACE=0, NULL={isNull:()=>true};
+          const dspLoadsNow=[{used:56.5,budget:75},null];
+          const profile={namLoad:36,modelLoads:{HD2_AmpBritPlexiBrt:30,HD2_ImpulseResponse1024:7}};
+          let roomSeen={key:'',at:0,full:null}, now=1000; Date.now=()=>now;
+          let cell=null;
+          const namView={isNamSlot:slot=>slot===22};
+          const targetBinding={peekModel:()=>cell?{model:cell}:null};
+          const cellAt=()=>({isNull:()=>false,readU32:()=>0}), cellEmpty=()=>cell?0:1, blockName=()=>cell?'block3':'';
+          const D=(mode)=>({add:o=>({readS32:()=>o===0x48?mode:0,readPointer:()=>'x'})});
+          const entry=(slot,type=LBIR)=>({isNull:()=>false,readU32:()=>type,add:()=>({readPointer:()=>({readU32:()=>slot-1})})});
+        ''' + drop_full + function('namRoomOn') + '''
+          const out=[];
+          const at=(model,mode,slot,type)=>{cell=model;now+=1000;return namDropFull(D(mode),entry(slot,type));};
+          out.push(at(null,1,22));                          // an empty cell: 92.5 of 75
+          out.push(at('HD2_ImpulseResponse1024',REPLACE,22)); // replaces an IR: 85.5
+          out.push(at('HD2_AmpBritPlexiBrt',REPLACE,22));   // frees an amp's 30: 62.5 fits
+          out.push(at('HD2_AmpNAMLite',REPLACE,22));        // only the capture changes
+          out.push(at(null,1,5));                           // a plain IR slot
+          out.push(at(null,1,22,0x58474649));               // not an IR-list slot
+          console.log(JSON.stringify(out));
+        ''')
+        self.assertIn('92.5 of 75', result[0])
+        self.assertIn('85.5 of 75', result[1])
+        self.assertEqual(result[2:], [None, None, None, None])
+
     def test_only_nam_rows_of_the_ir_list_are_marked_in_its_own_colour_order(self):
         # HX Edit's IR list paints its rows itself; the marks recolour them.
         view = (Path(__file__).resolve().parents[1] / 'src' / 'nam_view.js').read_text(encoding='utf-8')

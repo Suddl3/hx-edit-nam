@@ -175,7 +175,7 @@ class DspMeter:
         if 'hint' in value:
             if not self.ghost and 'name' not in value:
                 return None                  # a hint for a drag this helper does not show
-            ghost['hint'] = value.get('hint') if value.get('hint') in ('place', 'replace', 'insert') else 'none'
+            ghost['hint'] = value.get('hint') if value.get('hint') in ('place', 'replace', 'insert', 'full') else 'none'
         ghost.setdefault('hint', 'none')
         return ghost
 

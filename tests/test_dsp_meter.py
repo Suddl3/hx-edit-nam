@@ -136,6 +136,8 @@ class DspMeterHostTests(unittest.TestCase):
             self.assertEqual(processes[0].lines[-1]['ghost'], {'name': 'Bucket Brigade', 'icon': '', 'hint': 'none'})
             meter.receive({'type': 'dropHint', 'hint': 'replace'})
             self.wait_for(lambda: (processes[0].lines[-1].get('ghost') or {}).get('hint') == 'replace')
+            meter.receive({'type': 'dropHint', 'hint': 'full'})           # this DSP has no room: greyed
+            self.wait_for(lambda: (processes[0].lines[-1].get('ghost') or {}).get('hint') == 'full')
             meter.receive({'type': 'pickerGhost', 'hide': True})
             self.wait_for(lambda: 'ghost' in processes[0].lines[-1] and processes[0].lines[-1]['ghost'] is None)
             meter.receive({'type': 'dspLoad', 'dsp': [{'used': 32}, {'used': 36}]})
