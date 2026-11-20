@@ -23,7 +23,8 @@ ROOT = Path(__file__).resolve().parent
 CATALOG = Path(r'C:\Program Files (x86)\Line6\HX Edit\res\HX_ModelCatalog.json')
 SIZE, FIT, RING, RADIUS = 38, 28, 2, 7     # the chain icon's size; the gear's longest side; the ring
 NAM_PURPLE = 0xB070E0                      # nam_catalog.NAM_CATEGORY_COLOR
-RING_OFF, GEAR_OFF = 0.42, 0.72            # a bypassed block (chain_off/): its ring and picture dimmed, as on the Floor
+RING_OFF, GEAR_OFF = 0.8, 0.8               # a bypassed block (chain_off/), dimmed as on the Floor; HX Edit
+                                           # also draws it at 0.66 opacity: about 0.5 of the colour in all
 TILE = (44, 44, 50, 235)                   # behind the gear, so dark amps and pedals stand off the black chain
 # A render's own category (icons.json) -> the colour of HX Edit's category of that name.
 RENDER_COLOURS = {'amp': 0xDD1111, 'preamp': 0xDD1111, 'cab': 0xDD1111, 'distortion': 0xF5901E,

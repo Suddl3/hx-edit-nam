@@ -2573,16 +2573,41 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     const picture = l6text(record.add(0x18));              // the model's own picture file (ModelObj +0x18)
     return /^[A-Za-z0-9_ +%.()-]{1,80}\.png$/.test(picture) ? 'CHAIN_' + picture : null;
   }
-  function chainPicture(item) {
-    // Put the block's 3D picture on one chain item, after HX Edit has refreshed it. Never throws.
+  // A chain block's look is applied by 0x40b790 (item, redraw): the label in the item's colour (+0x90, set from the
+  // category by each refresh) and the picture at an opacity from the block's state: bypassed (SFObj+0x1c) 0.66.
+  // (SFObj+0x1e only brackets the label: 0x40b225.) It runs at the end of every refresh and on its own when only
+  // the state changes (a bypass toggled), so the picture and the dimmed label are put there, before it applies.
+  const applyLook = new NativeFunction(base.add(0x40b790), 'void', ['pointer', 'int'], 'thiscall');
+  const LABEL_OFF = 0.55;                // a bypassed block's label colour, with the option on
+  const chainColours = new Map();        // item -> {base, dimmed}: the category colour and what was written over it
+  function blockObject(item) {
+    let object = item.add(0x8c).readPointer();
+    if (object.isNull()) object = item.add(0x88).readPointer();
+    return object.isNull() || object.readS32() !== 0 ? null : object;      // blocks only
+  }
+  function chainLook(item) {
+    // The block's 3D picture (dimmed set when bypassed) and, when bypassed, a dimmer label. With the option off,
+    // the label colour goes back to the category's. Never throws.
     try {
-      let object = item.add(0x8c).readPointer();
-      if (object.isNull()) object = item.add(0x88).readPointer();
-      if (object.isNull() || object.readS32() !== 0) return;                 // blocks only
+      const object = blockObject(item);
+      if (!object) return;
       if (chainItems.size > 256) chainItems.clear();
       chainItems.set(item.toString(), {item, object, vtable: item.readPointer()});
-      // Bypassed (HX Edit then brackets the label, from the same byte: 0x40b225): the picture with a grey ring.
-      const owner = item.add(0x88).readPointer(), bypassed = !owner.isNull() && owner.add(0x1e).readU8() !== 0;
+      const bypassed = object.add(0x1c).readU8() !== 0;
+      const colour = item.add(0x90), now = colour.readU32(), key = item.toString(), seen = chainColours.get(key);
+      const base = seen && seen.dimmed === now ? seen.base : now;            // a refresh writes the category's again
+      if (chainArt && bypassed) {
+        const bytes = colour.readByteArray(4), rgba = new Uint8Array(bytes);
+        for (let i = 0; i < 3; i++) rgba[i] = Math.round(((base >>> (8 * i)) & 255) * LABEL_OFF);
+        rgba[3] = (base >>> 24) & 255;
+        colour.writeByteArray(rgba.buffer);
+        if (chainColours.size > 256) chainColours.clear();
+        chainColours.set(key, {base, dimmed: colour.readU32()});
+      } else if (seen) {
+        colour.writeU32(base);
+        chainColours.delete(key);
+      }
+      if (!chainArt) return;
       let file = chainFile(object);
       if (file && bypassed) file = file.replace(/^CHAIN_/, 'CHAIN_OFF_');
       const image = file ? chainImage(file) : NULL;
@@ -2591,10 +2616,16 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       const icon = item.add(0x80).readPointer();
       if (icon.isNull()) return;
       const setImage = new NativeFunction(icon.readPointer().add(0x18).readPointer(), 'void', ['pointer', 'pointer', 'int'], 'thiscall');
-      setImage(icon, image, 1);
+      setImage(icon, image, 0);              // painted by the look's own redraw, or the refresh's
     } catch (error) {
       if (chainReports > 0) { chainReports--; send({type: 'toneTrace', reason: 'chain-art', error: String(error.message)}); }
     }
+  }
+  function chainRedraw(item) {
+    // From a hook callback (where HX Edit's calls run no hooks): refresh, then this look, then apply it.
+    redrawItem(item, 1);
+    chainLook(item);
+    applyLook(item, 1);
   }
   function setChainArt(on) {
     // UI thread. HX Edit's own refresh puts its picture back; with the option on, ours follows.
@@ -2603,8 +2634,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       try {
         const current = entry.item.add(0x8c).readPointer().isNull() ? entry.item.add(0x88).readPointer() : entry.item.add(0x8c).readPointer();
         if (!entry.item.readPointer().equals(entry.vtable) || !current.equals(entry.object)) { chainItems.delete(key); continue; }
-        redrawItem(entry.item, 1);
-        if (chainArt) chainPicture(entry.item);
+        chainRedraw(entry.item);
       } catch (_) { chainItems.delete(key); }
     }
   }
@@ -2616,8 +2646,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         const current = entry.item.add(0x8c).readPointer().isNull() ? entry.item.add(0x88).readPointer() : entry.item.add(0x8c).readPointer();
         if (!entry.item.readPointer().equals(entry.vtable) || !current.equals(entry.object)) { flowItems.delete(key); continue; }
         retargetItem(entry.item, 'redraw');
-        redrawItem(entry.item, 1);
-        if (chainArt) chainPicture(entry.item);       // a redraw asked for here runs no hooks
+        chainRedraw(entry.item);                     // a redraw asked for here runs no hooks
       } catch (_) { flowItems.delete(key); }
     }
   }
@@ -2755,8 +2784,10 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       },
     });
     Interceptor.attach(base.add(0x40ae70), {            // path item: refresh icon, label and colour
-      onEnter() { this.item = this.context.ecx; retargetItem(this.context.ecx, 'path'); },
-      onLeave() { if (chainArt) chainPicture(this.item); },
+      onEnter() { retargetItem(this.context.ecx, 'path'); },
+    });
+    Interceptor.attach(base.add(0x40b790), {            // path item: apply label colour and picture opacity
+      onEnter() { if (chainArt || chainColours.size) chainLook(this.context.ecx); },
     });
   }
 

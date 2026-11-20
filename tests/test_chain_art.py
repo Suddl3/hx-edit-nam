@@ -48,9 +48,10 @@ class ChainOptionTests(unittest.TestCase):
     def test_the_menu_option_and_the_hook_are_wired(self):
         self.assertIn('chainArt', DspMeter.CHOICES)
         tone = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
-        for marker in ("onLeave() { if (chainArt) chainPicture(this.item); }", 'let chainArt = profile.chainArt === true;',
-                       "`CHAIN_NAMCAP_${capture.icon}.png`", "'CHAIN_' + picture", 'if (chainArt) chainPicture(entry.item);',
-                       'setChainArt: on =>', "owner.add(0x1e).readU8() !== 0", "file.replace(/^CHAIN_/, 'CHAIN_OFF_')"):
+        for marker in ("onEnter() { if (chainArt || chainColours.size) chainLook(this.context.ecx); }",
+                       'let chainArt = profile.chainArt === true;', "`CHAIN_NAMCAP_${capture.icon}.png`", "'CHAIN_' + picture",
+                       'chainRedraw(entry.item);', 'setChainArt: on =>', "object.add(0x1c).readU8() !== 0",
+                       "file.replace(/^CHAIN_/, 'CHAIN_OFF_')", 'const LABEL_OFF = 0.55;'):
             self.assertIn(marker, tone)
         self.assertIn("recv('chainArt'", (ROOT / 'nam_sidebar.js').read_text(encoding='utf-8'))
         self.assertIn('3D pictures in the signal chain', (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8'))
