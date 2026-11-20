@@ -61,7 +61,7 @@ Also: NAM categories in the block picker (opt-in), a warning before clearing a s
 
 ## Get started
 
-[Setup and launch](docs/FLOOR-SETUP.md#the-navigation-branch) installs it from source on Windows: official HX Edit 3.82, Python and Git, then one command to launch. Already have a copy? See [updating an existing clone](docs/FLOOR-SETUP.md#updating-an-existing-clone).
+[Setup and launch](docs/FLOOR-SETUP.md#install-the-current-editor) installs it from source on Windows: official HX Edit 3.82, Python and Git, then one command to launch. Already have a copy? See [updating an existing clone](docs/FLOOR-SETUP.md#updating-an-existing-clone).
 
 Your captures, recordings and settings stay in `%LOCALAPPDATA%\HX Edit NAM`. Nothing here changes the Floor's firmware; for that, see [HX Unbound Floor](https://github.com/Suddl3/hx-unbound-floor).
 
@@ -73,7 +73,7 @@ Your captures, recordings and settings stay in `%LOCALAPPDATA%\HX Edit NAM`. Not
 - [Product vision and roadmap](docs/PRODUCT-VISION.md), including [how Level presets works](docs/PRODUCT-VISION.md#level-presets-built-november-16).
 - [Firmware/editor compatibility](https://github.com/Suddl3/hx-unbound-floor/blob/main/EDITOR.md)
 
-The repository: `src/` holds the app, `tests/` its tests, `docs/` these documents. `floor-navigation` is the current branch; `floor` is the older source preview.
+The repository: `src/` holds the app, `tests/` its tests, `docs/` these documents. `main` is the current branch. It was developed as `floor-navigation`, which stays for now so older clones and links keep working; `floor` is the older source preview.
 
 ## Attribution
 

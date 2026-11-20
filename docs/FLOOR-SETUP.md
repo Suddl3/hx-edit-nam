@@ -38,14 +38,14 @@ Expected stock Windows HX Edit executable SHA256:
 
 For a reproducible code snapshot, check out the full editor SHA in the table above. Do not install an upstream release ZIP expecting it to contain this fork's Floor-library changes.
 
-## The navigation branch
+## Install the current editor
 
-The `floor-navigation` branch is the newer editor: a Browse TONE3000 button in the banner, the rich NAM tab with Load on Floor / Use on Floor, previews that put the original capture back, and no slot scan after the first launch. It is a test build. What has run on a Floor and what has not is listed in [FLOOR-WORKFLOW.md](FLOOR-WORKFLOW.md#status-november-13).
+The `main` branch is the current editor (developed as `floor-navigation`): a Browse TONE3000 button in the banner, the rich NAM tab with Load on Floor / Use on Floor, previews that put the original capture back, and no slot scan after the first launch. It is a test build. What has run on a Floor and what has not is listed in [FLOOR-WORKFLOW.md](FLOOR-WORKFLOW.md#status-november-13).
 
 Same prerequisites as above. In a new working folder:
 
 ```powershell
-git clone --branch floor-navigation https://github.com/Suddl3/hx-edit-unbound.git
+git clone https://github.com/Suddl3/hx-edit-unbound.git
 git clone https://github.com/andreidevs/helix-lt-nam.git
 git -C helix-lt-nam checkout c94834768546393420692794fdbb27c9cc31d718
 cd hx-edit-unbound
@@ -62,7 +62,7 @@ Close HX Edit first. In your editor folder (`hx-edit-unbound`, or `hx-edit-nam` 
 ```powershell
 git remote set-url origin https://github.com/Suddl3/hx-edit-unbound.git
 git fetch origin
-git checkout floor-navigation
+git checkout main
 git pull
 .\.venv\Scripts\python.exe -m pip install numpy sounddevice==0.5.6 soundfile==0.14.0
 $env:T3K_PUBLISHABLE_KEY = "t3k_pub_your_own_key"

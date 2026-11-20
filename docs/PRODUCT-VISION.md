@@ -226,7 +226,7 @@ from the **HX Unbound** menu button beside TONE3000: **Level presets…**.
 2. Finish the Floor checks listed under "Still to test on the Floor" in
    FLOOR-WORKFLOW.md: snapshot change and preset change during a preview, and Load on
    Floor from the NAM tab for a capture that is not on the Floor yet.
-3. A second maintainer runs the `floor-navigation` branch from source (FLOOR-SETUP.md)
+3. A second maintainer runs the `main` branch from source (FLOOR-SETUP.md)
    and reports what differs on their unit.
 4. Add a NAM category to the block selector (Amp, Amp + cab, Pedal captures), first as
    a feasibility spike in the editor, coordinated with the firmware's own block menu.
