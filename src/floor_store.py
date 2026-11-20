@@ -171,11 +171,14 @@ def build(slots, payloads, *, pictures=None, look=None):
     if models:
         store['pictures']['models_dir'] = str(models)
     scenes = _folder(look.get('scenesDir')) or _folder(SCENES_DIR)
-    if scenes:
-        store['backgrounds'] = {'scenes_dir': str(scenes)}
-        for key in ('assign', 'theme'):
-            if isinstance(look.get(key), dict):
-                store['backgrounds'][key] = look[key]
+    chosen = look.get('assign') if isinstance(look.get('assign'), dict) else None
+    known = sorted(path.stem for path in scenes.glob('*.png')) if scenes else []
+    if scenes and (chosen or known):
+        # The Floor tool needs an assignment with the scenes folder: with none chosen on the page ("Use the
+        # defaults"), its own default one, limited to the scenes this folder has.
+        store['backgrounds'] = {'scenes_dir': str(scenes), 'assign': chosen or assignment(DEFAULT_ASSIGN, known)}
+        if isinstance(look.get('theme'), dict):
+            store['backgrounds']['theme'] = look['theme']
     store['nam'] = {'preset_ids': list(NAM_PRESET_IDS),
                     'slots': {str(slot): value for slot, value in slot_pictures(slots, payloads, pictures, art).items()}}
     store['icons'] = {'size': icon}

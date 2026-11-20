@@ -59,6 +59,24 @@ class FloorStoreTests(unittest.TestCase):
         self.assertEqual(json.loads(path.read_text(encoding='utf-8')), store)
         self.assertEqual([p.name for p in path.parent.iterdir()], ['floor-store.json'])
 
+    def test_with_no_backgrounds_chosen_the_file_carries_the_tools_default_assignment(self):
+        # "Use the defaults" removes the page's choice; the Floor tool refuses a scenes folder without an assignment
+        # (hx-unbound-floor#16), so the file carries the tool's default one, limited to the scenes the folder has.
+        scenes = self.root / 'scenes'
+        scenes.mkdir()
+        for name in ('studio', 'stage', 'rack'):
+            (scenes / f'{name}.png').write_bytes(b'png')
+        store = floor_store.build({}, {}, look={'scenesDir': str(scenes)})
+        assign = store['backgrounds']['assign']
+        self.assertEqual(assign['default'], 'studio')
+        self.assertEqual(assign['category']['amp'], 'stage')
+        self.assertEqual(assign['category']['output'], 'rack')
+        self.assertNotIn('delay', assign['category'])            # deep_sea is not in this folder
+        self.assertEqual(set(assign['scenes']), {'studio', 'stage', 'rack'})
+        empty = self.root / 'empty'
+        empty.mkdir()
+        self.assertNotIn('backgrounds', floor_store.build({}, {}, look={'scenesDir': str(empty)}))
+
     def test_sizes_the_firmware_cannot_take_are_refused(self):
         for look in ({'iconSize': 48}, {'iconSize': 0}, {'pictureSize': 512}, {'pictureSize': '256'}):
             with self.subTest(look=look), self.assertRaises(ValueError):
