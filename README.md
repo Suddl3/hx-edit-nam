@@ -15,7 +15,7 @@ Some of HX Edit's own controls work differently here. None of this changes your 
 - **The IR list drags differently.** Drop a slot on the middle of a block to replace that block (stock HX Edit only inserts). Drop on a block's edge to insert beside it, as before. The block that would be replaced dims while you hover, and blocks slide aside a little faster.
 - **NAM slots become NAM blocks.** A NAM capture slot dragged or double-clicked from the IR list makes a NAM block on that slot, not an IR block. NAM slots show in violet in the IR list (switch this off in the HX Unbound menu).
 - **Drag captures onto the chain** from the NAM tab or the library window. On a NAM block, it changes the capture. On an empty cell or another block, that cell becomes a NAM block.
-- **A NAM block is only added where the DSP has room.** Otherwise the DSP meter says so and nothing changes.
+- **A NAM block is only added where the DSP has room.** Drag a capture over a DSP that cannot fit another NAM block and its picture goes grey with a red outline and "Not enough DSP room here". A drop there changes nothing, and the DSP meter says which DSP is full.
 - **Clearing an IR slot asks first** when presets you have opened still use it.
 - **The window keeps its size and place** when the Floor reconnects.
 
