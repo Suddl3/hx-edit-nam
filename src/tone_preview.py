@@ -79,8 +79,9 @@ def render_card(tone=None, models=(), library=False):
 class TonePreview:
     def __init__(self, script, workspace, converter, detached, message, *, browser_factory=ToneBrowser, client_id='',
                  library=None, payload_callback=None, trace_callback=None, optimize=False, pedal_block=False,
-                 level=False, level_di=None, level_files=None, listen_folder=None):
+                 level=False, level_di=None, level_files=None, listen_folder=None, nam_load=36.0, pedal_load=7.5):
         self.script = script
+        self.nam_load, self.pedal_load = float(nam_load), float(pedal_load)   # the Floor firmware's DSP shares (%)
         # Level presets (HX Unbound): the player's recorded playing (or NAM's input file, when found)
         # played through each snapshot to bring every preset to one output standard (nam_level_flow).
         # level_di: one more place a build says NAM's input file is.
@@ -541,6 +542,7 @@ class TonePreview:
                          installed=loaded_now,
                          can_train=not self.navigation,
                          optimize=optimizing, can_optimize=self.optimize, pedal_block=self.pedal_block,
+                         nam_load=self.nam_load, pedal_load=self.pedal_load,
                          listen=listening, listen_source=listen_source_name() if self.optimize else None,
                          block_model=self.navigation_state.get('blockModel'),
                          block_slot=self.navigation_state.get('blockSlot'),
@@ -1202,7 +1204,13 @@ class TonePreview:
                     elif command == 'pick' and identity in self.library.entries():
                         audition_local(identity)
                     elif self.navigation and command in ('use', 'load') and identity in self.library.entries():
-                        install_local(identity, use_only=command == 'use')
+                        # The capture's default version, where the Floor's firmware plays it (a Pedal version needs
+                        # the NAM Pedal block; a Light one saves nothing until the firmware skips layers).
+                        default = self.library.default_version(identity)
+                        if default == 'pedal' and self.pedal_block:
+                            install_local(identity, capture_version='pedal')
+                        else:
+                            install_local(identity, use_only=command == 'use')
                     elif self.navigation and command == 'nativeDrag' and identity in self.library.entries():
                         if self.native_drag_handler:
                             self.native_drag_handler(identity)
@@ -1224,6 +1232,13 @@ class TonePreview:
                             install_local(identity, capture_version='pedal' if value == 'pedal' else None)
                     elif command == 'gear':
                         self.library.update(identity, gear=value)
+                    elif command == 'versionDefault' and identity in self.library.entries():
+                        self.library.set_default(identity, value)
+                        import nam_library
+                        name = 'the original' if value in ('', 'original') else f'the {nam_library.VERSIONS[value][0]} version'
+                        playable = value in ('', 'original') or (value == 'pedal' and self.pedal_block)
+                        status(f'Load on Floor now uses {name} of this capture.' if playable else
+                               f'Load on Floor will use {name} once the Floor can play it; until then the original.')
                     elif command == 'instrument' and identity in self.library.entries():
                         self.library.set_instrument(identity, value or None)
                     elif command == 'icon' and identity in self.library.entries():

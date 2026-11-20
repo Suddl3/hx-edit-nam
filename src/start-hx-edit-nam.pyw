@@ -217,6 +217,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                               trace_callback=trace if navigation else None,
                               optimize=bool(navigation and (exe.parent / 'res' / 'nam-optimize.flag').is_file()),
                               pedal_block=bool(navigation and floor_pedal),
+                              nam_load=floor_firmware.recorded(exe.parent / 'res').nam_load if floor_reference else 36.0,
+                              pedal_load=floor_firmware.recorded(exe.parent / 'res').pedal_load if floor_reference else 7.5,
                               level=bool(navigation), level_di=level_di(exe) if navigation else None)
         if navigation:
             from nam_sidebar import NamSidebar

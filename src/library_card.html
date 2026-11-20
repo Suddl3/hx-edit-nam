@@ -173,10 +173,14 @@
   #listenSource { color: #9a9a9a; font-size: 12px; flex: 1; min-width: 0; }
   #versionRows { display: flex; flex-direction: column; gap: 2px; max-width: 760px; }
   /* One grid for every row, so Hear, Put on block and the delete cross line up whatever the text. */
-  .vrow { display: grid; grid-template-columns: 58px minmax(0, 1fr) 132px 76px 112px 26px;
-          grid-template-areas: "name meta verdict hear use del"; align-items: center; column-gap: 8px;
+  .vrow, .vhead { display: grid; grid-template-columns: 22px 58px minmax(0, 1fr) 132px 76px 112px 26px;
+          grid-template-areas: "def name meta verdict hear use del"; align-items: center; column-gap: 8px;
           min-height: 28px; padding: 2px 6px 2px 9px; border-radius: 3px; }
   .vrow[data-on="true"] { background: #241f2b; box-shadow: inset 3px 0 0 #9a6bd0; }
+  .vhead { min-height: 0; padding: 0 6px 0 9px; color: #7d7d7d; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; }
+  .vhead .vdefhead { grid-column: 1 / span 2; }
+  .vdef { grid-area: def; display: flex; align-items: center; }
+  .vdef input { margin: 0; accent-color: #9a6bd0; cursor: pointer; }
   .vname { grid-area: name; font-weight: 600; }
   .vmeta { grid-area: meta; color: #9a9a9a; font-size: 12px; font-variant-numeric: tabular-nums;
            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -192,7 +196,7 @@
                  margin-right: 6px; vertical-align: middle; }
   .vrow .vdelete { background: none; border-color: transparent; color: #888; padding: 1px 6px; }
   .vrow .vdelete:hover { color: #eee; border-color: #575757; }
-  .vsuggest { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 6px 4px 75px; color: #b5b5b5; font-size: 12px; }
+  .vsuggest { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 6px 4px 105px; color: #b5b5b5; font-size: 12px; }
   .vsuggest button { padding: 1px 8px; font-size: 12px; }
   #versionsNote { color: #8f8f8f; font-size: 12px; max-width: 760px; }
   #optimizeInfo { color: #ccc; font-size: 12px; }
@@ -201,8 +205,9 @@
   #listenMatch { color: #aaa; font-size: 12px; }
   /* Docked narrow: name, verdict and the buttons on one line, the block and DSP under them. */
   @media (max-width: 560px) {
-    .vrow { grid-template-columns: auto minmax(0, 1fr) 70px 98px 22px; column-gap: 6px;
-            grid-template-areas: "name verdict hear use del" "meta meta meta meta meta"; padding-top: 3px; padding-bottom: 3px; }
+    .vrow, .vhead { grid-template-columns: 18px auto minmax(0, 1fr) 70px 98px 22px; column-gap: 6px;
+            grid-template-areas: "def name verdict hear use del" ". meta meta meta meta meta"; padding-top: 3px; padding-bottom: 3px; }
+    .vhead { padding-top: 0; padding-bottom: 0; }
     .vsuggest { padding-left: 9px; }
   }
   #choose .option { position: relative; display: block; width: 100%; text-align: left; margin: 6px 0; padding: 8px 28px 8px 10px;
@@ -302,11 +307,9 @@
   <div class="panel">
     <p id="chooseTitle"></p>
     <button class="option" id="choosePedal"><b>Pedal version<em id="choosePedalTag"></em></b>
-      <small>About 30 seconds. About 7.5% of a DSP instead of 36%. Very close for boosts and overdrives, not
-      for fuzz. Plays once the Floor has the pedal firmware.</small></button>
+      <small id="choosePedalText"></small></button>
     <button class="option" id="chooseLight"><b>Light version<em id="chooseLightTag"></em></b>
-      <small>About 10 minutes. Works for any capture, fuzz and amps too. Saves nothing on the Floor until a
-      firmware update; then about 29% of a DSP instead of 36%.</small></button>
+      <small id="chooseLightText"></small></button>
     <div class="buttons"><button id="chooseCancel">Cancel</button></div>
   </div>
 </div>
@@ -472,11 +475,19 @@
   // toggle, on this PC), Put on block (or "On the block") and a quiet delete cross. What the Floor cannot play yet
   // is said once under the rows, not on each row.
   const VERSION_INFO = {
-    original: {name: 'Original', meta: 'NAM A2 Lite · 36% DSP', detail: 'The capture as it is, in a NAM A2 Lite block.'},
-    pedal: {name: 'Pedal', meta: 'NAM Pedal · 7.5% DSP', detail: 'A small model for the NAM Pedal block.'},
-    light16: {name: 'Light', meta: 'NAM A2 Lite · ~29% DSP after update',
-              detail: 'The same NAM model with 16 of its 23 layers. It saves DSP once the Floor firmware skips the unused layers.'},
+    original: {name: 'Original', detail: 'The capture as it is. Plays in a NAM A2 Lite block.'},
+    pedal: {name: 'Pedal', detail: 'A small model of the capture. Plays in a NAM Pedal block (pedal firmware).'},
+    light16: {name: 'Light', detail: 'The same NAM model with 16 of its 23 layers, in a NAM A2 Lite block. It saves DSP ' +
+              'once the Floor firmware skips the unused layers (measured on a Helix LT: 29% where the full one is 36%).'},
   };
+  // DSP shares from the Floor's firmware profile (a PAIR build runs the NAM block at 32.5%, not 36%). A Light
+  // version's is an estimate: the LT's 29-of-36 ratio applied to this firmware's NAM block.
+  let namLoad = 36, pedalLoad = 7.5;
+  const share = value => (Math.round(value * 10) / 10).toString() + '% DSP';
+  function versionMeta(key) {
+    return key === 'original' ? share(namLoad) : key === 'pedal' ? share(pedalLoad) :
+      '~' + Math.round(namLoad * 29 / 36) + '% DSP after a firmware update';
+  }
   function notYet(key) {      // why the Floor cannot use this version yet ('' when it can)
     return key === 'pedal' && !pedalBlock ? 'Pedal needs the pedal firmware' :
       key === 'light16' ? 'Light saves DSP after a firmware update' : '';
@@ -497,7 +508,7 @@
     const row = document.createElement('div');
     row.className = 'vrow'; row.setAttribute('role', 'listitem');
     row.dataset.key = key; row.dataset.on = onBlock === key ? 'true' : 'false';
-    const meta = cell('vmeta', info.meta);
+    const meta = cell('vmeta', versionMeta(key));
     meta.title = info.detail + (version?.error != null ? ' ' + pct(version.error) + ' error against the original.' : '');
     const verdict = cell('vverdict');
     if (version) {
@@ -537,7 +548,15 @@
       remove.setAttribute('aria-label', 'Delete the ' + info.name + ' version');
       deleteCell.append(remove);
     }
-    row.append(cell('vname', info.name), meta, verdict, hearCell, useCell, deleteCell);
+    const def = cell('vdef');
+    const pick = document.createElement('input');
+    pick.type = 'radio'; pick.name = 'versionDefault'; pick.value = key; pick.className = 'vdefault';
+    pick.checked = (capture.defaultVersion || 'original') === key;
+    pick.setAttribute('aria-label', 'Load the ' + info.name + ' version by default');
+    pick.title = 'Default: Load on Floor puts the ' + (key === 'original' ? 'original' : info.name + ' version') +
+      ' on the block' + (notYet(key) ? ' once the Floor can play it (until then, the original).' : '.');
+    def.append(pick);
+    row.append(def, cell('vname', info.name), meta, verdict, hearCell, useCell, deleteCell);
     return row;
   }
 
@@ -555,7 +574,10 @@
     const mine = listening && listening.id === capture.id ? listening : null;
     const onBlock = blockOn(capture);
     const light = versions.some(version => version.key === 'light16');
-    const rowsShown = [versionRow(capture, 'original', null, onBlock, mine)];
+    const head = document.createElement('div');
+    head.className = 'vhead'; head.setAttribute('aria-hidden', 'true');
+    head.append(cell('vdefhead', 'Default'));
+    const rowsShown = [head, versionRow(capture, 'original', null, onBlock, mine)];
     for (const version of versions) {
       rowsShown.push(versionRow(capture, version.key, version, onBlock, mine));
       if (version.key === 'pedal' && version.quality === 'different' && !light && !running && capture.canTrain !== false) {
@@ -579,7 +601,7 @@
     q('#listenRecord').hidden = !none || !canLevel;
     const reasons = versions.map(version => notYet(version.key)).filter(Boolean);
     q('#versionsNote').textContent = reasons.length ? 'Not on your Floor yet: ' + reasons.join('; ') +
-      '. The Original plays meanwhile.' : '';
+      '. Until then, Load on Floor uses the Original.' : '';
     q('#versionsNote').hidden = !reasons.length;
     const rendering = !!mine?.running;
     q('#listenMatch').textContent = rendering ? 'Rendering your ' + (mine.source || 'guitar') + ' recording through the original and the ' +
@@ -600,11 +622,17 @@
     const pedal = capture.versions?.find(version => version.key === 'pedal');
     const light = capture.versions?.find(version => version.key === 'light16');
     const pedalSuits = capture.gear === 'pedal';
+    const full = share(namLoad).replace(' DSP', '');
+    q('#choosePedalText').textContent = 'About 30 seconds. ' + share(pedalLoad).replace(' DSP', '') + ' of a DSP instead of ' +
+      full + '. Very close for boosts and overdrives, not for fuzz. Plays once the Floor has the pedal firmware.';
+    q('#chooseLightText').textContent = 'About 10 minutes. Works for any capture, fuzz and amps too. Saves nothing on the ' +
+      'Floor until a firmware update; then about ' + Math.round(namLoad * 29 / 36) + '% of a DSP instead of ' + full + '.';
     q('#chooseTitle').textContent = 'Make a lighter version of “' + capture.name + '”. The original is kept.';
     q('#choosePedal').disabled = !pedalSuits;
-    q('#choosePedalTag').textContent = !pedalSuits ? 'pedal captures only' :
-      pedal?.quality === 'different' ? 'didn’t match this capture' : pedal ? 'already made · remake' : !light ? 'suggested' : '';
-    q('#chooseLightTag').textContent = light ? 'already made · remake' :
+    const made = version => 'made · ' + (version.quality === 'same' ? 'sounds the same' :
+      version.quality === 'different' ? 'may sound different' : 'not compared') + ' · making it again replaces it';
+    q('#choosePedalTag').textContent = !pedalSuits ? 'pedal captures only' : pedal ? made(pedal) : !light ? 'suggested' : '';
+    q('#chooseLightTag').textContent = light ? made(light) :
       !pedalSuits || pedal?.quality === 'different' ? 'suggested' : '';
     box.hidden = false;
     host?.postMessage('dialog:open');
@@ -1185,6 +1213,13 @@
   };
   q('#optimizeCancel').onclick = () => host?.postMessage('optimizeCancel');
   q('#listenRecord').onclick = () => host?.postMessage('levelOpen');   // record once there; Hear then uses it
+  q('#versionRows').addEventListener('change', event => {
+    const pick = event.target.closest('input.vdefault'), capture = rows.find(row => row.id === selected);
+    if (!pick || !capture || !canOptimize) return;
+    capture.defaultVersion = pick.value;
+    host?.postMessage('versionDefault:' + capture.id + ':' + pick.value);
+    renderOptimize(capture);
+  });
   q('#versionRows').addEventListener('click', async event => {
     const button = event.target.closest('button'), id = selected;
     if (!button || button.disabled || !id || !canOptimize) return;
@@ -1517,6 +1552,8 @@
     listening = data.listen || null;
     listenSource = typeof data.listen_source === 'string' ? data.listen_source : null;
     blockModel = data.block_model || null;
+    if (typeof data.nam_load === 'number') namLoad = data.nam_load;
+    if (typeof data.pedal_load === 'number') pedalLoad = data.pedal_load;
     blockSlot = Number.isInteger(data.block_slot) ? data.block_slot : null;
     q('#status').textContent = q('#status').title = data.text || '';
     q('#target').textContent = data.target || '';

@@ -41,6 +41,21 @@ class CaptureVersionTests(unittest.TestCase):
                          [('pedal', 'Pedal', 'NAM Pedal', 'same')])
         self.assertTrue(row['canOptimize'])
 
+    def test_the_default_version_is_kept_and_falls_back_to_the_original(self):
+        self.assertEqual(self.library.default_version(self.identity), 'original')
+        with self.assertRaises(ValueError):
+            self.library.set_default(self.identity, 'pedal')                    # no Pedal version yet
+        self.library.add_version(self.identity, 'pedal', self.made, error=0.012)
+        self.library.set_default(self.identity, 'pedal')
+        self.assertEqual(self.library.default_version(self.identity), 'pedal')
+        self.assertIn('"defaultVersion": "pedal"', render_library(self.library.entries()))
+        self.library.set_default(self.identity, 'original')
+        self.assertEqual(self.library.default_version(self.identity), 'original')
+        self.library.set_default(self.identity, 'pedal')
+        self.library.remove_version(self.identity, 'pedal')                      # a deleted default goes back
+        self.assertEqual(self.library.default_version(self.identity), 'original')
+        self.assertNotIn('defaultVersion', self.library.entries()[self.identity])
+
     def test_replacing_removing_and_deleting_the_capture(self):
         self.library.add_version(self.identity, 'pedal', self.made, error=0.06)
         self.assertEqual(self.library.entries()[self.identity]['versions']['pedal']['quality'], 'different')
@@ -194,6 +209,21 @@ class OptimizeFlowTests(unittest.TestCase):
             browser = self.browse(folder, library, [f'optimize:{amp}'], optimize=False, job=job)
             job.assert_not_called()
             self.assertIn('not available', browser.send.call_args_list[-1].kwargs['text'])
+
+    def test_choosing_the_default_version_from_the_page(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder, 'Klon.nam')
+            source.write_text('{}', encoding='utf-8')
+            library = Library(Path(folder, 'library'))
+            identity = library.add(source, gear='pedal')
+            made = Path(folder, 'made.wav')
+            made.write_bytes(b'RIFF')
+            library.add_version(identity, 'pedal', made, error=0.01)
+            browser = self.browse(folder, library, [f'versionDefault:{identity}:pedal'])
+            self.assertEqual(library.default_version(identity), 'pedal')
+            self.assertIn('once the Floor can play it', browser.send.call_args_list[-1].kwargs['text'])
+            self.browse(folder, library, [f'versionDefault:{identity}:original'])
+            self.assertEqual(library.default_version(identity), 'original')
 
     def test_page_shows_chips_and_the_optimize_button(self):
         with tempfile.TemporaryDirectory() as folder:

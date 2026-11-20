@@ -183,6 +183,28 @@ class NavigationWorkerTests(unittest.TestCase):
         library.mark_pending.assert_called_once_with(identity, 2)
         self.assertTrue(any('Loaded into User IR 2' in x.get('text', '') for x in b.sent))
 
+    def test_load_on_floor_uses_the_default_pedal_version_only_on_pedal_firmware(self):
+        import tempfile
+        identity = 'c' * 64
+        for pedal_block, wanted in ((True, 'HD2_AmpNAMPedal'), (False, None)):
+            b, library = Browser(['load:' + identity, 'cancel']), Mock()
+            library.entries.return_value = {identity: {'name': 'Demo', 'irSlots': [], 'slotState': 'verified'}}
+            library.default_version.return_value = 'pedal'
+            library.export.return_value = 'source.wav'
+            with tempfile.TemporaryDirectory() as folder:
+                made = Path(folder, 'made.pedal.wav')
+                made.write_bytes(b'RIFF')
+                library.version_path.return_value = made
+                p = self.make_preview(b, library=library, pedal_block=pedal_block)
+                p.workspace = folder
+                p.navigation_state.update(bound=True, preview=False)
+                p.command = Mock(return_value={'loadedSlot': 2})
+                with patch('tone_preview.Thread'), patch('tone_preview.convert_batch', return_value=['converted.wav']),                         patch('floor_capture.validate_floor_capture_files'):
+                    p.browse(b, 5, 't3k_pub_test')
+            values = p.command.call_args.kwargs
+            self.assertEqual(values.get('model'), wanted)
+            self.assertEqual(values.get('version'), 'pedal' if pedal_block else None)
+
     def test_direct_load_is_blocked_during_preview_without_side_effects(self):
         identity = 'b' * 64
         b, library = Browser(['load:' + identity, 'cancel']), Mock()

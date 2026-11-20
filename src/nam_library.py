@@ -521,6 +521,30 @@ class Library:
             self._write(entries)
         self._changed()
 
+    def set_default(self, identity, key):
+        """The version Load on Floor puts on a block: a kept version's key, or None / 'original' for the original."""
+        if key in (None, '', 'original'):
+            key = None
+        elif key not in VERSIONS:
+            raise ValueError(f'Unknown version: {key}')
+        with self.lock:
+            entries = self._read(for_write=True)
+            entry = entries[identity]
+            if key is not None and key not in (entry.get('versions') or {}):
+                raise ValueError('This capture has no such version.')
+            if key is None:
+                entry.pop('defaultVersion', None)
+            else:
+                entry['defaultVersion'] = key
+            self._write(entries)
+        self._changed()
+
+    def default_version(self, identity):
+        """The capture's default version: a kept version's key, else 'original'."""
+        entry = self._read().get(identity) or {}
+        key = entry.get('defaultVersion')
+        return key if key in VERSIONS and key in (entry.get('versions') or {}) else 'original'
+
     def reset_gear(self, identity):
         with self.lock:
             entries = self._read(for_write=True)
@@ -574,6 +598,8 @@ class Library:
             if key not in versions:
                 return False
             versions.pop(key)
+            if entry.get('defaultVersion') == key:     # a deleted default: back to the original
+                entry.pop('defaultVersion', None)
             if versions:
                 entry['versions'] = versions
             else:
@@ -668,7 +694,9 @@ def render_library(entries, view_state=None, pictures=None):
                     instrumentChosen=value.get('instrument') in INSTRUMENTS,
                     versions=[dict(key=k, label=VERSIONS[k][0], block=VERSIONS[k][2],
                                    quality=v.get('quality', 'unknown'), error=v.get('error'))
-                              for k, v in sorted((value.get('versions') or {}).items()) if k in VERSIONS])
+                              for k, v in sorted((value.get('versions') or {}).items()) if k in VERSIONS],
+                    defaultVersion=value.get('defaultVersion') if value.get('defaultVersion') in
+                    (value.get('versions') or {}) else 'original')
     rows = [row(key, value) for key, value in entries.items()]
     # Every gear picture once, as a small data: URI (the picker shows them all); rows refer to them by id.
     icons = {ident: small_data_uri(ident) for ident in known_icons()}
