@@ -287,21 +287,27 @@ def patch_model_art(resources):
 
 CHAIN_MODELS = ROOT / 'helix_model_icons' / 'chain'      # make_chain_pictures.py
 CHAIN_CAPTURES = CAPTURE_ICONS / 'chain'
+# The same with a grey ring, for bypassed blocks: (folder of the coloured ones, of the grey ones, file prefixes).
+CHAIN_SETS = ((CHAIN_MODELS, ROOT / 'helix_model_icons' / 'chain_off', ''),
+              (CHAIN_CAPTURES, CAPTURE_ICONS / 'chain_off', 'NAMCAP_'))
 
 
 def patch_chain_art(resources):
     """The signal-chain pictures (HX Unbound menu, Options: "3D pictures in the signal chain"): each stock model's
     3D render and each NAM capture picture at the chain icon's size, as res/icons_models/CHAIN_<stock file> and
-    CHAIN_NAMCAP_<id>.png. tone_view shows them only while the option is on. Returns how many were added."""
+    CHAIN_NAMCAP_<id>.png, and CHAIN_OFF_... with a grey ring for bypassed blocks. tone_view shows them only while
+    the option is on. Returns how many were added."""
     models = resources / 'icons_models'
     added = 0
-    for picture in sorted(CHAIN_MODELS.glob('*.png')):
-        if (models / picture.name).is_file():
-            shutil.copyfile(picture, models / f'CHAIN_{picture.name}')
+    for on, off, prefix in CHAIN_SETS:
+        for picture in sorted(on.glob('*.png')):
+            if not prefix and not (models / picture.name).is_file():
+                continue                      # a stock picture this copy of HX Edit does not have
+            shutil.copyfile(picture, models / f'CHAIN_{prefix}{picture.name}')
             added += 1
-    for picture in sorted(CHAIN_CAPTURES.glob('*.png')):
-        shutil.copyfile(picture, models / f'CHAIN_NAMCAP_{picture.name}')
-        added += 1
+            if (off / picture.name).is_file():
+                shutil.copyfile(off / picture.name, models / f'CHAIN_OFF_{prefix}{picture.name}')
+                added += 1
     return added
 
 

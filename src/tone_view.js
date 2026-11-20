@@ -2581,8 +2581,12 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       if (object.isNull() || object.readS32() !== 0) return;                 // blocks only
       if (chainItems.size > 256) chainItems.clear();
       chainItems.set(item.toString(), {item, object, vtable: item.readPointer()});
-      const file = chainFile(object), image = file ? chainImage(file) : NULL;
-      if (chainReports > 0) { chainReports--; send({type: 'toneTrace', reason: 'chain-art', block: l6text(object.add(8)), file, shown: !image.isNull()}); }
+      // Bypassed (HX Edit then brackets the label, from the same byte: 0x40b225): the picture with a grey ring.
+      const owner = item.add(0x88).readPointer(), bypassed = !owner.isNull() && owner.add(0x1e).readU8() !== 0;
+      let file = chainFile(object);
+      if (file && bypassed) file = file.replace(/^CHAIN_/, 'CHAIN_OFF_');
+      const image = file ? chainImage(file) : NULL;
+      if (file && chainReports > 0) { chainReports--; send({type: 'toneTrace', reason: 'chain-art', block: l6text(object.add(8)), file, bypassed, shown: !image.isNull()}); }
       if (image.isNull()) return;
       const icon = item.add(0x80).readPointer();
       if (icon.isNull()) return;
