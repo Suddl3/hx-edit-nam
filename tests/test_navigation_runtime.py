@@ -525,7 +525,7 @@ class NavigationNativeTests(unittest.TestCase):
         self.assertIsNone(result[4])                  # no reading from the Floor: HX Edit decides
 
     def test_only_nam_rows_of_the_ir_list_are_marked_in_its_own_colour_order(self):
-        # HX Edit's IR list paints its rows itself (research/ir-list-re/FINDINGS.md); the marks recolour them.
+        # HX Edit's IR list paints its rows itself; the marks recolour them.
         view = (Path(__file__).resolve().parents[1] / 'src' / 'nam_view.js').read_text(encoding='utf-8')
         body = view[view.index('  function irListRow('):view.index('  function installIrMarks(')]
         result = json.loads(subprocess.run(['node', '-e', '''

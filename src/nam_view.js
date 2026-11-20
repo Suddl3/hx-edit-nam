@@ -988,7 +988,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
   // NAM capture slots in HX Edit's IR list (HX Unbound menu: "Mark NAM slots in the IR list"): their
   // number and name in violet, the NAM categories' colour. The IR list's class (vtable 0x91ebb4, mode
   // [list+0x1d4] = 1) paints its rows itself and draws no row pictures, so its text colour getter
-  // 0x401ec0 (thiscall: out colour*, index; returns out) is hooked (research/ir-list-re/FINDINGS.md).
+  // 0x401ec0 (thiscall: out colour*, index; returns out) is hooked.
   // Drawing only; the same class paints the presets and favourites lists, so it checks for the IR list.
   const irMarkGuards = { '401ec0': '558bec538b5d0c568b750857538bf9c7' };
   const IR_MARK_RGB = [176, 128, 255];                       // violet, apart from the pink selection

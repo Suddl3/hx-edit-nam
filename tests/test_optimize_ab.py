@@ -436,7 +436,7 @@ class PinnedKernelTests(unittest.TestCase):
     round-trips, so the A/B plays the very coefficients the NAM Pedal block will get."""
 
     def test_round_trip_through_the_fitter(self):
-        fitter = Path(r'E:\Dev\HelixNam\research\pedal-port-20261115\helix-lt-nam-dev\tools')
+        fitter = Path(__file__).resolve().parents[3] / 'research/pedal-port-20261115/helix-lt-nam-dev/tools'
         try:
             import torch  # noqa: F401
         except ImportError:

@@ -1107,10 +1107,10 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // --- Dropping an IR-list slot on the chain: over a block replaces it ------------------------
   // HX Edit's own drag from the IR list ('lbir', the slot's row) only ever inserts: the chain gives
   // an occupied cell a "before" and an "after" zone and slides the blocks aside. installDropReplace
-  // adds a centre "replace" zone inside HX Edit's own zone machinery (research/ir-list-re/
-  // FINDINGS-drag.md); the per-DSP drop delegate D (controller + 0x34) holds editor [D+8], view
-  // [D+0xc], dsp [D+0x10], path model [D+0x14], preview clone [D+0x18], zones at D+0x1c and the
-  // chosen zone at D+0x34 (mode at D+0x48, row D+0x4c, col D+0x50).
+  // adds a centre "replace" zone inside HX Edit's own zone machinery; the per-DSP drop delegate D
+  // (controller + 0x34) holds editor [D+8], view [D+0xc], dsp [D+0x10], path model [D+0x14], preview
+  // clone [D+0x18], zones at D+0x1c and the chosen zone at D+0x34 (mode at D+0x48, row D+0x4c, col
+  // D+0x50).
   const dropGuards = {
     '413d70': '558bec6aff68????????64a100000000', '412560': '558bec6aff68????????64a100000000',
     '413a90': '558bec6aff68????????64a100000000', '513620': '558bec6aff68????????64a100000000',
@@ -1164,7 +1164,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   }
 
   function installDropReplace() {
-    // HX Edit's own hover stays in charge (research/ir-list-re/FINDINGS-drag.md, part 2). For a drag
+    // HX Edit's own hover stays in charge. For a drag
     // from the IR list ('lbir'):
     //  - the zone builder 0x40e730 gets a centre zone on each occupied cell (mode 0 = REPLACE), between
     //    narrower before/after edges, where HX Edit's dry run allows a replace;
@@ -1488,7 +1488,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // --- A capture dragged from the NAM tab or the library, through HX Edit's own drop handling ---
   // For a capture on the Floor, the drag behaves as one from HX Edit's IR list: the same zones,
   // sliding preview, replace zone and Undo. HX Edit's window-level drag functions are driven
-  // directly (no OLE; research/ir-list-re/FINDINGS-drag.md, "D3") with an 'lbir' payload (the slot's
+  // directly (no OLE) with an 'lbir' payload (the slot's
   // row): over 0x38af00(W; sameSource, POINT* client, mods, dd, allowed, DropInfo*) while the button is
   // down, then drop 0x38ae50(W; sameSource, POINT*, Item*, DropInfo*) or leave 0x38aec0(W; sameSource,
   // dd). They run from a Win32 timer callback, not from inside a hook, so the replace-zone hooks above
@@ -1633,8 +1633,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // here while the button is down. Released without moving: it is replayed, so a click is a click.
   // Moved past the drag distance: the picker's old selection is put back and the row's model is
   // dragged onto the chain through HX Edit's own drop handling (startChainDrag): a NAM capture row
-  // as its slot, any other model as a one-block favorite file (research/ir-list-re/FINDINGS-drag.md,
-  // part 3). The main window holds the mouse from the press, so moves and the release reach it.
+  // as its slot, any other model as a one-block favorite file. The main window holds
+  // the mouse from the press, so moves and the release reach it.
   const pickerGuards = {
     '402e70': '558bec83ec0c5357ff75108b7d088bd9', '37aba0': '558bec5156576a006a006a108bf9e82d',
     '380b50': '558bec83ec14538bd9568b7508578b03', '37a460': '558bec83ec105356578bf933f683cbff',
