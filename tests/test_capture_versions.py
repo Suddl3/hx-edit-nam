@@ -206,9 +206,9 @@ class OptimizeFlowTests(unittest.TestCase):
             library.add_version(identity, 'pedal', made, error=0.06)
             page = render_library(library.entries())
             self.assertIn('"versions": [{"key": "pedal", "label": "Pedal", "block": "NAM Pedal", "quality": "different"', page)
-            for marker in ('id="optimize"', 'appendVersionChips(name, row)', "'optimize:' + selected",
-                           "'versionRemove:' + id + ':pedal'", 'canOptimize = data.can_optimize === true',
-                           "ask('Remove the Pedal version? The original capture stays.'"):
+            for marker in ('id="optimize"', 'appendVersionChips(name, row)', "'optimize:' + capture.id + ':' + kind",
+                           "'versionRemove:' + id + ':' + key", 'canOptimize = data.can_optimize === true',
+                           "ask('Delete the ' + name + ' version from this PC? The original capture stays"):
                 self.assertIn(marker, page)
             self.assertNotIn('confirm(', page.replace('a browser confirm()', ''))   # in-page dialogs only
 

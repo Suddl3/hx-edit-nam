@@ -789,20 +789,36 @@ class TonePreview:
                                            steps, lambda state: browser.actions.put({'light': state}))
             status(f'Training a {layers}-layer version…')
 
-        def start_optimize(identity):
+        def start_optimize(identity, kind='pedal'):
+            """Make a lighter version: kind 'pedal' (the NAM Pedal fit, ~30 s, pedal captures) or 'light16'
+            (16 of the A2 Lite's 23 layers, trained against the capture's own bigger model, ~10 min, any capture)."""
             nonlocal optimizing, optimize_job
+            import nam_light
             import nam_optimize
             entry = self.library.entries()[identity]
             if not self.optimize:
                 status('Optimize is not available in this build.')
                 return
             if not entry.get('canTrain', True):
-                status('Optimize needs the original .nam capture. This library entry is a converted device capture.')
+                status('A lighter version needs the original .nam capture. This library entry is a converted device capture.')
+                return
+            if kind == nam_optimize.LIGHT_KEY:
+                folder = Path(tempfile.mkdtemp(prefix='optimize-', dir=self.workspace))
+                capture = self.library.export(identity, folder, original=True)
+                output = folder / 'out' / 'version.nam'
+                output.parent.mkdir()
+                trainer = nam_optimize.light_trainer(self.converter)
+                optimizing = {'running': True, 'id': identity, 'key': kind, 'step': 0, 'steps': nam_optimize.LIGHT_STEPS,
+                              'output': str(output), 'converter': nam_optimize.converter_id(trainer)}
+                optimize_job = nam_light.LightJob(trainer, capture, output, nam_optimize.LIGHT_LAYERS,
+                                                  nam_optimize.LIGHT_STEPS,
+                                                  lambda state: browser.actions.put({'optimize': state}))
+                status(f'Making a Light version of "{entry.get("name", "")}" (about 10 minutes)…', busy=True)
                 return
             key = nam_optimize.version_for(entry.get('gear', ''))
             if key is None:
-                status('Optimize makes a NAM Pedal version, for pedal captures. Amps and cabs get a lighter '
-                       'version once the Floor firmware has layer skipping.')
+                status('A Pedal version is for pedal captures (set the type to Pedal). Any capture can have a '
+                       'Light version.')
                 return
             folder = Path(tempfile.mkdtemp(prefix='optimize-', dir=self.workspace))
             capture = self.library.export(identity, folder, original=True)
@@ -826,15 +842,19 @@ class TonePreview:
                 optimizing['running'] = False
                 optimize_job = None
                 try:
+                    pedal = optimizing['key'] == 'pedal'
+                    error = state.get('esr') if pedal else state.get('after')
                     self.library.add_version(optimizing['id'], optimizing['key'], optimizing['output'],
-                                             error=state.get('esr'), converter=optimizing['converter'])
+                                             error=error, converter=optimizing['converter'])
                     import nam_library
-                    quality = nam_library.version_quality(state.get('esr'))
-                    message = ('Pedal version ready: it sounds the same as the original.' if quality == 'same' else
-                               'Pedal version ready, but it may sound different from the original. Compare '
-                               'before using it.' if quality == 'different' else 'Pedal version ready.')
-                    message += (' It plays in a NAM Pedal block.' if self.pedal_block else
-                                ' It plays in a NAM Pedal block, which needs Floor firmware with that block.')
+                    quality = nam_library.version_quality(error)
+                    label = 'Pedal version' if pedal else 'Light version'
+                    message = (f'{label} ready: it sounds the same as the original.' if quality == 'same' else
+                               f'{label} ready, but it may sound different from the original. Hear both '
+                               'before using it.' if quality == 'different' else f'{label} ready.')
+                    message += ((' It plays in a NAM Pedal block.' if self.pedal_block else
+                                 ' It plays in a NAM Pedal block, which needs Floor firmware with that block.') if pedal else
+                                ' It saves DSP once the Floor firmware skips the unused layers.')
                 except (OSError, ValueError, KeyError) as error:
                     optimizing['error'] = str(error)
                     message = f'Could not keep the optimized version: {error}'
@@ -849,21 +869,29 @@ class TonePreview:
             return nam_ab.Renders(self.listen_folder or nam_ab.RENDERS)
 
         def listen(identity, which):
-            """Listen: Original / Pedal. Plays the kept pair at once, else renders it first (nam_ab)."""
+            """Hear on this PC: 'original', or a version's key (pedal, light16). The original and one version are
+            rendered as a level-matched pair (nam_ab); the kept pair plays at once."""
             nonlocal listening, listen_job
             import nam_ab
+            import nam_library
             import nam_optimize
             if not self.optimize:
                 status('Optimize is not available in this build.')
                 return
-            if which not in nam_ab.WHICH:
-                return
             entry = self.library.entries()[identity]
-            if 'pedal' not in (entry.get('versions') or {}) or not entry.get('canTrain'):
-                status('This capture has no Pedal version to compare yet. Optimize it first.')
+            kept = [key for key in nam_library.VERSIONS if key in (entry.get('versions') or {})]
+            same = listening is not None and listening.get('id') == identity and listening.get('key') in kept
+            if which == 'original':     # against the version heard last for this capture, else the first one
+                version_key = listening['key'] if same else (kept[0] if kept else None)
+            else:
+                version_key = which if which in kept else None
+            if version_key is None or not entry.get('canTrain'):
+                status('This capture has no lighter version to compare yet. Make one first.')
                 return
+            which = 'original' if which == 'original' else 'pedal'      # the pair's two files
+            label = nam_library.VERSIONS[version_key][0] + ' version'
             if listen_job is not None:
-                if listening and listening.get('id') == identity:
+                if listening and listening.get('id') == identity and listening.get('key') == version_key:
                     listening['which'] = which          # plays this one when the render is done
                     status(text, busy=True)
                 return
@@ -873,11 +901,11 @@ class TonePreview:
                        '(HX Unbound menu), or put NAM\'s v3 input file in Downloads.')
                 return
             capture = self.library.original_path(identity)
-            version = self.library.version_path(identity, 'pedal')
+            version = self.library.version_path(identity, version_key)
             renders = listen_renders()
             key = nam_ab.cache_key(source, capture, version)
-            listening = {'id': identity, 'key': 'pedal', 'which': which, 'running': False, 'match': None,
-                         'source': source['name'], 'error': None, 'playing': None}
+            listening = {'id': identity, 'key': version_key, 'label': label, 'which': which, 'running': False,
+                         'match': None, 'source': source['name'], 'error': None, 'playing': None}
             match = renders.lookup(key)
             if match is not None:
                 listening['match'] = match
@@ -888,8 +916,7 @@ class TonePreview:
                     'version': str(version), 'source': source['path'], 'start': source['start'],
                     'seconds': source['seconds'], 'peak': source['peak']}
             listen_job = nam_ab.RenderJob(renders, key, spec, lambda state: browser.actions.put({'listen': state}))
-            status(f'Rendering {source["name"]} through the original and the Pedal version (about 10 seconds)…',
-                   busy=True)
+            status(f'Rendering {source["name"]} through the original and the {label} (about 10 seconds)…', busy=True)
 
         def listen_play():
             nonlocal player
@@ -899,7 +926,7 @@ class TonePreview:
                 player = player or nam_ab.Player()
                 player.play(listen_renders().path(listening['match']['key'], which))
                 listening['playing'] = which
-                status(f'Playing the {"original" if which == "original" else "Pedal version"} on this PC '
+                status(f'Playing the {"original" if which == "original" else listening.get("label", "version")} on this PC '
                        f'({listening["source"]}). {nam_ab.match_text(listening["match"])}')
             except (OSError, RuntimeError, ImportError) as error:
                 listening['playing'] = None
@@ -1215,7 +1242,7 @@ class TonePreview:
                     elif command == 'lightCancel' and light_job is not None:
                         light_job.cancel()
                     elif command == 'optimize' and identity in self.library.entries() and optimize_job is None:
-                        start_optimize(identity)
+                        start_optimize(identity, value or 'pedal')
                     elif command == 'optimizeCancel' and optimize_job is not None:
                         optimize_job.cancel()
                     elif command == 'listen' and identity in self.library.entries():

@@ -48,6 +48,10 @@
   #picker[hidden] { display: none; }
   #ask { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 6; }
   #ask[hidden] { display: none; }
+  #choose { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 6; }
+  #choose[hidden] { display: none; }
+  #choose .panel { background: #232323; border: 1px solid #575757; border-radius: 6px; width: min(460px, calc(100vw - 24px)); padding: 12px 14px; }
+  #choose .buttons { display: flex; justify-content: flex-end; }
   #ask .panel { background: #232323; border: 1px solid #575757; border-radius: 6px; width: min(460px, calc(100vw - 24px)); padding: 12px 14px; }
   #askText { margin: 0 0 12px; white-space: pre-wrap; line-height: 1.4; }
   #askInput { width: 100%; box-sizing: border-box; margin: 0 0 12px; }
@@ -162,24 +166,33 @@
   .levelHead { color: #8a8a8a; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
   #levelPanel .buttons { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }   /* the list gives way, not these panels */
   #optimizePanel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; background: #1e1e1e; border-top: 1px solid #404040; }
+  #optimizePanel { flex-direction: column; align-items: stretch; gap: 4px; }
   #optimizePanel p { margin: 0; }
-  #versionLine { display: flex; align-items: center; gap: 8px; flex-basis: 100%; }
-  #versionLine p { flex: 1; min-width: 0; }
-  #optimizeInfo[data-quality="same"] b { color: #7fc48a; }
-  #optimizeInfo[data-quality="different"] b { color: #d9a441; }
-  #versionRemove { padding: 1px 8px; font-size: 12px; }
-  #optimizePanel .label { color: #aaa; min-width: 92px; }
+  #versionsHead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #versionsHead b { font-weight: 600; }
+  #listenSource { color: #aaa; font-size: 12px; flex: 1; min-width: 0; }
+  #versionRows { display: flex; flex-direction: column; gap: 2px; }
+  .vrow { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border: 1px solid transparent; border-radius: 4px; }
+  .vrow[data-on="true"] { border-color: #9a6bd0; background: #2a2233; }
+  .vrow .vname { font-weight: 600; min-width: 48px; }
+  .vrow .vmeta { color: #aaa; font-size: 12px; flex: 1; min-width: 0; }
+  .vrow .vmeta b { font-weight: 600; }
+  .vrow .vmeta b[data-quality="same"] { color: #7fc48a; }
+  .vrow .vmeta b[data-quality="different"] { color: #d9a441; }
+  .vrow .vnote { color: #888; font-size: 11.5px; }
+  .vrow .vtag { color: #d8c4f2; font-size: 11.5px; }
+  .vrow button { padding: 1px 8px; font-size: 12px; }
+  .vrow button[aria-pressed="true"] { background: #3a3a3a; border-color: #888; color: #fff; }
+  .vrow .vdelete { color: #bbb; }
+  #optimizeInfo { color: #ccc; font-size: 12px; }
+  #optimizeInfo button { margin-left: 6px; padding: 1px 8px; font-size: 12px; }
+  #optimizeWork { display: flex; align-items: center; gap: 8px; }
   #optimizeBar { flex: 1; min-width: 80px; }
-  #listen { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex-basis: 100%; }
-  #listen button[aria-pressed="true"] { background: #3a3a3a; border-color: #888; color: #fff; }
   #listenMatch { color: #aaa; font-size: 12px; }
-  #listenSource { color: #ccc; }
-  .switch { display: inline-flex; }
-  .switch button { border-radius: 0; margin: 0; }
-  .switch button:first-child { border-radius: 3px 0 0 3px; }
-  .switch button:last-child { border-radius: 0 3px 3px 0; border-left: 0; }
-  .switch button[aria-pressed="true"] { background: #5a3c7a; border-color: #9a6bd0; color: #fff; }
-  #useVersion { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex-basis: 100%; }
+  #choose .option { display: block; width: 100%; text-align: left; margin: 6px 0; padding: 8px 10px; white-space: normal; line-height: 1.35; }
+  #choose .option b { display: block; margin-bottom: 2px; }
+  #choose .option small { color: #aaa; }
+  #choose .option em { font-style: normal; color: #d8c4f2; margin-left: 6px; font-size: 11px; }
   #light { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; background: #1e1e1e; border-top: 1px solid #404040; }
   #light p { margin: 0; flex-basis: 100%; }
   #light .note { color: #aaa; font-size: 12px; }
@@ -266,6 +279,18 @@
     <div class="buttons"><button id="askNo">Cancel</button><button id="askYes"></button></div>
   </div>
 </div>
+<div id="choose" role="dialog" aria-modal="true" aria-labelledby="chooseTitle" hidden>
+  <div class="panel">
+    <p id="chooseTitle"></p>
+    <button class="option" id="choosePedal"><b>Pedal version<em id="choosePedalTag"></em></b>
+      <small>About 30 seconds. A small model for the NAM Pedal block: about 7.5% of a DSP instead of 36%.
+      Very close for boosts and overdrives, not for fuzz. The Floor needs the pedal firmware to play it.</small></button>
+    <button class="option" id="chooseLight"><b>Light version<em id="chooseLightTag"></em></b>
+      <small>About 10 minutes. The real NAM model with 16 of its 23 layers: about 29% of a DSP once the Floor
+      firmware skips the unused layers. Works for any capture, fuzz and amps too.</small></button>
+    <div class="buttons"><button id="chooseCancel">Cancel</button></div>
+  </div>
+</div>
 <section id="levelPanel" hidden aria-label="Level presets">
   <h2>Level presets</h2>
   <p class="note" title="A short test signal plays through each snapshot while the output goes to USB only, and each snapshot is measured two to four times. Only each output block's Level changes.">Brings presets and snapshots to one output level, silently and without touching the tone. Allow about a minute per preset.</p>
@@ -318,24 +343,17 @@
   <div id="lookBgButtons"><button id="lookReset" title="Back to the Floor tool's own choices">Use the defaults</button><span id="lookBgNote" class="note"></span></div>
   <div id="lookScenes"></div>
 </section>
-<section id="optimizePanel" hidden aria-label="Optimized versions">
-  <div id="versionLine">
-    <p id="optimizeInfo" role="status"></p>
-    <button id="versionRemove" hidden title="Delete the Pedal version. The original capture stays.">Remove</button>
-  </div>
-  <span id="listen" hidden role="group" aria-label="Hear on this PC: the original against the Pedal version"
-        title="Plays a few seconds of your guitar through each on this PC (not the Floor), at the same loudness. Nothing on the Floor changes."><span class="label">Hear on this PC<span id="listenSource"></span>:</span>
-    <button id="listenRecord" hidden title="Opens Level presets, where you record 10 seconds of your guitar once (kept on this PC). Both versions are then played with it.">Record your guitar…</button>
-    <button id="listenOriginal" aria-pressed="false" title="Play a few seconds of your guitar through the original capture on this PC">Original</button>
-    <button id="listenPedal" aria-pressed="false" title="Play the same guitar through the Pedal version on this PC, at the same loudness">Pedal</button>
+<section id="optimizePanel" hidden aria-label="Versions of this capture">
+  <div id="versionsHead">
+    <b>Versions</b>
+    <span id="listenSource" title="Hear plays a few seconds of this guitar through each version on this PC (not the Floor), at the same loudness."></span>
+    <button id="listenRecord" hidden title="Opens Level presets, where you record 10 seconds of your guitar once (kept on this PC). Hear then plays it through each version.">Record your guitar…</button>
     <button id="listenStop" hidden>Stop</button>
-    <span id="listenMatch"></span>
-  </span>
-  <span id="useVersion" hidden role="group" aria-label="Put on the selected NAM block"><span class="label">Selected block plays:</span>
-    <span class="switch"><button id="useOriginal" aria-pressed="false" title="Put the original capture on the selected block (as a NAM A2 Lite block). The preset is not saved.">Original</button><button id="usePedal" aria-pressed="false" title="Put the Pedal version on the selected block (HX Edit changes it to a NAM Pedal block). The preset is not saved.">Pedal</button></span>
-  </span>
-  <progress id="optimizeBar" max="1" value="0" hidden></progress>
-  <button id="optimizeCancel" hidden>Cancel</button>
+  </div>
+  <div id="versionRows"></div>
+  <p id="listenMatch"></p>
+  <p id="optimizeInfo" role="status"></p>
+  <div id="optimizeWork" hidden><progress id="optimizeBar" max="1" value="0"></progress><button id="optimizeCancel">Cancel</button></div>
 </section>
 <section id="light" hidden aria-label="Lighter version">
   <span id="lightTitle"></span>
@@ -362,7 +380,7 @@
   <span id="target" title="The NAM block this pane loads into and how the capture is converted" hidden></span>
   <p id="status" role="status"></p>
   <button id="lighter" disabled>Lighter…</button>
-  <button id="optimize" hidden disabled>Optimize</button>
+  <button id="optimize" hidden disabled>Make lighter…</button>
   <button id="changeIcon" disabled title="Choose the icon shown for the selected capture">Change icon…</button>
   <button id="remove" disabled>Remove</button>
   <button id="audition" disabled>Preview</button>
@@ -424,76 +442,151 @@
     }
   }
   // Listen: Original / Pedal renders the player's guitar through both on this PC, level-matched (nam_ab).
-  function matchText(match) {
+  function matchText(match, label = 'Pedal version') {
     const difference = match?.difference;
     if (typeof difference !== 'number') return match ? 'Level-matched.' : '';
-    return 'Level-matched at ' + Math.round(match.lufs ?? -18) + ' LUFS (the Pedal version came out ' +
+    return 'Level-matched at ' + Math.round(match.lufs ?? -18) + ' LUFS (the ' + label + ' came out ' +
       (Math.abs(difference) < 0.5 ? 'at the same level' : Math.abs(difference).toFixed(1) + ' dB ' +
         (difference > 0 ? 'louder' : 'quieter')) + ').';
   }
-  function renderListen(capture, pedal) {
-    const group = q('#listen');
-    group.hidden = !canOptimize || !capture || !pedal;
-    if (group.hidden) return;
-    const mine = listening && listening.id === capture.id ? listening : null;
-    const rendering = !!mine?.running;
-    // No guitar to play through both yet: one button to record it (Level presets), not an error after a click.
-    const none = listenSource === '' && !mine;
-    q('#listenSource').textContent = listenSource ? ' (' + listenSource + ')' : '';
-    q('#listenRecord').hidden = !none || !canLevel;
-    q('#listenOriginal').hidden = q('#listenPedal').hidden = none;
-    for (const [id, which] of [['#listenOriginal', 'original'], ['#listenPedal', 'pedal']])
-      q(id).setAttribute('aria-pressed', (rendering ? mine.which : mine?.playing) === which ? 'true' : 'false');
-    q('#listenStop').hidden = !(rendering || mine?.playing);
-    if (none) { q('#listenMatch').textContent = canLevel ? '' : 'Needs a recording of your guitar (Level presets).'; return; }
-    // Only while there is something to say: the explanation is the row's tooltip.
-    q('#listenMatch').textContent = rendering ? 'Rendering ' + (mine.source || 'your guitar') + ' through both…' :
-      mine?.match ? matchText(mine.match) + ' Guitar: ' + (mine.source || '') + '.' :
-      mine?.error ? mine.error : '';
+  // The selected capture's versions: the original and each kept lighter version, one row each with what it is,
+  // how close it sounds, Hear (on this PC), Use (on the selected block, where the Floor's firmware can play it)
+  // and Delete. The row the selected block plays is outlined.
+  const VERSION_INFO = {
+    original: {name: 'Original', meta: 'NAM A2 Lite · 36% DSP'},
+    pedal: {name: 'Pedal', meta: 'NAM Pedal · 7.5% DSP'},
+    light16: {name: 'Light', meta: '16 of 23 layers · ~29% DSP'},
+  };
+  function versionRow(capture, key, version, onBlock, mine) {
+    const row = document.createElement('div');
+    row.className = 'vrow'; row.dataset.key = key; row.dataset.on = onBlock === key ? 'true' : 'false';
+    const name = document.createElement('span'); name.className = 'vname'; name.textContent = VERSION_INFO[key].name;
+    const meta = document.createElement('span'); meta.className = 'vmeta'; meta.append(VERSION_INFO[key].meta);
+    if (version) {
+      const close = document.createElement('b');
+      close.dataset.quality = version.quality;
+      close.textContent = version.quality === 'same' ? 'sounds the same' :
+        version.quality === 'different' ? 'may sound different' : 'not compared';
+      meta.append(' · ', close);
+      meta.title = VERSION_INFO[key].name + ' version: ' + qualityText(version) +
+        (version.error != null ? ' (' + pct(version.error) + ' error against the original)' : '') + '.';
+    }
+    row.append(name, meta);
+    if (onBlock === key) {
+      const tag = document.createElement('span'); tag.className = 'vtag'; tag.textContent = 'on the block'; row.append(tag);
+    }
+    // Hear: plays on this PC (renders the original and one version, level-matched, the first time).
+    if (listenSource) {
+      const hear = document.createElement('button');
+      hear.className = 'vhear'; hear.dataset.key = key; hear.textContent = 'Hear';
+      const playing = mine && (key === 'original' ? (mine.running ? mine.which : mine.playing) === 'original' :
+        mine.key === key && (mine.running ? mine.which : mine.playing) === 'pedal');
+      hear.setAttribute('aria-pressed', playing ? 'true' : 'false');
+      hear.title = 'Play your guitar (' + listenSource + ') through the ' + (key === 'original' ? 'original' :
+        VERSION_INFO[key].name + ' version') + ' on this PC, not the Floor.';
+      row.append(hear);
+    }
+    // Use: the Floor plays the original anywhere; a Pedal version needs the NAM Pedal block (pedal firmware); a
+    // Light version saves DSP only once the firmware skips layers, so it is not offered yet.
+    if (key === 'pedal' && !pedalBlock || key === 'light16') {
+      const note = document.createElement('span'); note.className = 'vnote';
+      note.textContent = key === 'pedal' ? 'needs the pedal firmware' : 'saves DSP once the firmware skips layers';
+      row.append(note);
+    } else if (pedalBlock && onBlock !== key && (key === 'pedal' || capture.versions?.some(v => v.key === 'pedal'))) {
+      const use = document.createElement('button');
+      use.className = 'vuse'; use.dataset.key = key; use.textContent = 'Use';
+      use.disabled = q('#install').disabled;
+      use.title = key === 'pedal' ? 'Put the Pedal version on the selected block (HX Edit changes it to a NAM Pedal block). The preset is not saved.' :
+        'Put the original capture back on the selected block (as a NAM A2 Lite block). The preset is not saved.';
+      row.append(use);
+    }
+    if (key !== 'original') {
+      const remove = document.createElement('button');
+      remove.className = 'vdelete'; remove.dataset.key = key; remove.textContent = 'Delete…';
+      remove.title = 'Delete this ' + VERSION_INFO[key].name + ' version from this PC. The original capture stays.';
+      row.append(remove);
+    }
+    return row;
   }
 
   function renderOptimize(capture) {
     const optimizeButton = q('#optimize'), panel = q('#optimizePanel');
     optimizeButton.hidden = !canOptimize;
     const running = !!optimizing?.running;
-    const pedal = capture?.versions?.find(version => version.key === 'pedal');
-    const suits = capture && capture.canTrain !== false && capture.gear === 'pedal';
-    optimizeButton.disabled = !canOptimize || !capture || running || busy;   // a click explains a refusal
-    optimizeButton.dataset.suits = suits ? 'true' : 'false';
-    optimizeButton.textContent = pedal ? 'Optimize again' : 'Optimize';
+    const versions = (capture?.versions || []).filter(version => VERSION_INFO[version.key]);
+    const pedal = versions.find(version => version.key === 'pedal');
+    optimizeButton.disabled = !canOptimize || !capture || running || busy;
     optimizeButton.title = !capture ? 'Select a capture' : capture.canTrain === false ?
       'This kept capture is a converted WAV. Its original .nam file is needed.' :
-      capture.gear !== 'pedal' ? 'Optimize makes a NAM Pedal version, for pedal captures (set the type to Pedal).' :
-      'Make a NAM Pedal version (about 30 seconds). The original is kept.';
-    panel.hidden = !canOptimize || !(running || pedal || optimizing?.error);
-    q('#optimizeBar').hidden = q('#optimizeCancel').hidden = !running;
-    if (running) q('#optimizeBar').value = (optimizing.step || 0) / Math.max(1, optimizing.steps || 400);
-    q('#versionRemove').hidden = running || !pedal;
-    // On a NAM Pedal firmware: switch the selected NAM block between the original and the Pedal version
-    // (block type and slot together; one Undo step each in HX Edit). Enabled as Load on Floor is.
-    q('#useVersion').hidden = running || !pedal || !pedalBlock;
-    q('#useOriginal').disabled = q('#usePedal').disabled = q('#install').disabled;
-    // Which one the selected block plays, when it plays this capture (its slot is one of the capture's).
-    // (the Pedal version is a payload of its own, in its own slot: versionSlots.pedal).
-    const onBlock = blockSlot == null || !capture ? null :
+      'Make a lighter version of this capture: a Pedal version or a Light version. The original is kept.';
+    panel.hidden = !canOptimize || !capture || !(running || versions.length || optimizing?.error);
+    if (panel.hidden) return;
+    const mine = listening && listening.id === capture.id ? listening : null;
+    // Which one the selected block plays, when it plays this capture: by its model and slot (a Pedal version is a
+    // payload of its own, in its own slot: versionSlots.pedal).
+    const onBlock = blockSlot == null ? null :
       blockModel === 'HD2_AmpNAMPedal' ? ((capture.versionSlots?.pedal || []).includes(blockSlot) ? 'pedal' : null) :
       (capture.irSlots || []).includes(blockSlot) ? 'original' : null;
-    q('#useOriginal').setAttribute('aria-pressed', onBlock === 'original' ? 'true' : 'false');
-    q('#usePedal').setAttribute('aria-pressed', onBlock === 'pedal' ? 'true' : 'false');
-    renderListen(capture, running ? null : pedal);
+    q('#versionRows').replaceChildren(versionRow(capture, 'original', null, onBlock, mine),
+      ...versions.map(version => versionRow(capture, version.key, version, onBlock, mine)));
+    // What Hear plays: the player's guitar; with no recording yet, one button to make it (Level presets).
+    const none = listenSource === '' && !mine;
+    q('#listenSource').textContent = listenSource ? 'Hear plays: ' + listenSource + ', on this PC' :
+      none && !canLevel ? 'Hear needs a recording of your guitar.' : '';
+    q('#listenRecord').hidden = !none || !canLevel;
+    const rendering = !!mine?.running;
+    q('#listenStop').hidden = !(rendering || mine?.playing);
+    q('#listenMatch').textContent = rendering ? 'Rendering ' + (mine.source || 'your guitar') + ' through the original and the ' +
+      (mine.label || 'version') + '…' : mine?.match ? matchText(mine.match, mine.label) + ' Guitar: ' + (mine.source || '') + '.' :
+      mine?.error ? mine.error : '';
+    q('#listenMatch').hidden = !q('#listenMatch').textContent;
+    q('#optimizeWork').hidden = !running;
+    if (running) q('#optimizeBar').value = (optimizing.step || 0) / Math.max(1, optimizing.steps || 400);
     const info = q('#optimizeInfo');
-    info.dataset.quality = !running && pedal ? pedal.quality : '';
-    info.title = pedal && !running ? 'Pedal version: ' + qualityText(pedal) + (pedal.error != null ? ' (' + pct(pedal.error) +
-      ' error)' : '') + '. It plays in a NAM Pedal block' + (pedalBlock ? '.' : ', which needs Floor firmware with that block.') : '';
-    if (running) info.textContent = 'Optimizing… step ' + (optimizing.step || 0) + ' of ' + (optimizing.steps || 400);
-    else if (pedal) {
-      // One short line: what the Pedal version is and how close it is (the details are the tooltip).
-      const close = document.createElement('b');
-      close.textContent = pedal.quality === 'same' ? 'sounds the same' :
-        pedal.quality === 'different' ? 'may sound a little different' : 'not compared yet';
-      info.replaceChildren('Pedal version: ', close, pedal.error != null ? ' · ' + pct(pedal.error) + ' error' : '',
-        pedalBlock ? '' : ' · for the NAM Pedal block, coming with the pedal firmware');
-    } else info.textContent = optimizing?.error ? 'Optimize: ' + optimizing.error : '';
+    const light = versions.some(version => version.key === 'light16');
+    if (running) {
+      info.textContent = 'Making a ' + (optimizing.key === 'light16' ? 'Light' : 'Pedal') + ' version… step ' +
+        (optimizing.step || 0) + ' of ' + (optimizing.steps || 400);
+    } else if (optimizing?.error && optimizing.id === capture.id) {
+      info.textContent = 'Could not make the version: ' + optimizing.error;
+    } else if (pedal?.quality === 'different' && !light && capture.canTrain !== false) {
+      // The pedal model cannot follow this one (fuzz, octave): a Light version keeps the real model.
+      const make = document.createElement('button');
+      make.id = 'suggestLight'; make.textContent = 'Make a Light version';
+      info.replaceChildren('The Pedal version may sound different. A Light version keeps the real model.', make);
+    } else info.textContent = '';
+    info.hidden = !info.textContent;
+  }
+
+  // "Make lighter…": Pedal or Light, with the one that suits this capture marked.
+  function chooseVersion(capture) {
+    const box = q('#choose');
+    const pedal = capture.versions?.find(version => version.key === 'pedal');
+    const light = capture.versions?.find(version => version.key === 'light16');
+    const pedalSuits = capture.gear === 'pedal';
+    q('#chooseTitle').textContent = 'Make a lighter version of “' + capture.name + '”. The original is kept.';
+    q('#choosePedal').disabled = !pedalSuits;
+    q('#choosePedalTag').textContent = !pedalSuits ? 'pedal captures only' : pedal ? 'made: make again' :
+      !light ? 'suggested' : '';
+    q('#chooseLightTag').textContent = light ? 'made: make again' :
+      !pedalSuits || pedal?.quality === 'different' ? 'suggested' : '';
+    box.hidden = false;
+    host?.postMessage('dialog:open');
+    q(pedalSuits && !(pedal?.quality === 'different') ? '#choosePedal' : '#chooseLight').focus();
+    return new Promise(resolve => {
+      const done = answer => {
+        box.hidden = true;
+        q('#choosePedal').onclick = q('#chooseLight').onclick = q('#chooseCancel').onclick = box.onkeydown = null;
+        askCancel = null;
+        host?.postMessage('dialog:closed');
+        resolve(answer);
+      };
+      askCancel = () => done(null);
+      q('#choosePedal').onclick = () => done('pedal');
+      q('#chooseLight').onclick = () => done('light16');
+      q('#chooseCancel').onclick = () => done(null);
+      box.onkeydown = event => { if (event.key === 'Escape') done(null); };
+    });
   }
 
   function slotText(row) {
@@ -1047,23 +1140,32 @@
     host?.postMessage('levelUndo');
   };
 
-  q('#optimize').onclick = () => {
-    if (!canOptimize || !selected) return;
-    if (q('#optimize').dataset.suits === 'true') host?.postMessage('optimize:' + selected);
-    else q('#status').textContent = q('#status').title = q('#optimize').title;   // why not, where it is seen
+  q('#optimize').onclick = async () => {
+    const capture = rows.find(row => row.id === selected);
+    if (!canOptimize || !capture) return;
+    if (capture.canTrain === false) { q('#status').textContent = q('#status').title = q('#optimize').title; return; }
+    const kind = await chooseVersion(capture);
+    if (kind && capture.id === selected) host?.postMessage('optimize:' + capture.id + ':' + kind);
   };
   q('#optimizeCancel').onclick = () => host?.postMessage('optimizeCancel');
-  q('#listenOriginal').onclick = () => { if (canOptimize && selected) host?.postMessage('listen:' + selected + ':original'); };
-  q('#listenPedal').onclick = () => { if (canOptimize && selected) host?.postMessage('listen:' + selected + ':pedal'); };
-  q('#listenRecord').onclick = () => host?.postMessage('levelOpen');   // record once there; Hear on this PC then uses it
+  q('#listenRecord').onclick = () => host?.postMessage('levelOpen');   // record once there; Hear then uses it
   q('#listenStop').onclick = () => host?.postMessage('listenStop');
-  q('#useOriginal').onclick = () => { if (pedalBlock && selected && !q('#useOriginal').disabled && q('#useOriginal').getAttribute('aria-pressed') !== 'true') host?.postMessage('useVersion:' + selected + ':original'); };
-  q('#usePedal').onclick = () => { if (pedalBlock && selected && !q('#usePedal').disabled && q('#usePedal').getAttribute('aria-pressed') !== 'true') host?.postMessage('useVersion:' + selected + ':pedal'); };
-  q('#versionRemove').onclick = async () => {
-    const id = selected;
-    if (id && await ask('Remove the Pedal version? The original capture stays.', 'Remove version') && id === selected)
-      host?.postMessage('versionRemove:' + id + ':pedal');
-  };
+  q('#optimizeInfo').addEventListener('click', event => {
+    if (event.target.id === 'suggestLight' && selected) host?.postMessage('optimize:' + selected + ':light16');
+  });
+  q('#versionRows').addEventListener('click', async event => {
+    const button = event.target.closest('button'), id = selected;
+    if (!button || button.disabled || !id || !canOptimize) return;
+    const key = button.dataset.key;
+    if (button.classList.contains('vhear')) host?.postMessage('listen:' + id + ':' + key);
+    else if (button.classList.contains('vuse') && pedalBlock) host?.postMessage('useVersion:' + id + ':' + key);
+    else if (button.classList.contains('vdelete')) {
+      const name = VERSION_INFO[key]?.name || 'this';
+      if (await ask('Delete the ' + name + ' version from this PC? The original capture stays, and you can make it again.',
+                    'Delete version') && id === selected)
+        host?.postMessage('versionRemove:' + id + ':' + key);
+    }
+  });
 
   // Confirmations in the page: a browser confirm() is titled with the page's address
   // ("hx-edit-nam.invalid says"). Resolves true for the action, false for Cancel or Escape.

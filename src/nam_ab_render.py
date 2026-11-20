@@ -150,15 +150,16 @@ def level_match(original, pedal, rate=RATE, target=TARGET_LUFS, ceiling=CEILING,
     return original, pedal, match
 
 
-def render(spec, run_original, play_pedal, loudness=None):
+def render(spec, run_original, play_pedal, loudness=None, run_version=None):
     """Write the matched pair into spec['out']; return the match. run_original(x) and play_pedal(model, x)
-    are the two engines (injected, so this runs without torch in tests)."""
+    are the two engines (injected, so this runs without torch in tests); run_version(x), when given, plays a
+    version that is a .nam of its own (a Light version) instead of a pedal model. The version's file is
+    pedal.wav either way."""
     import numpy as np
     out = Path(spec['out'])
     x = guitar(spec['source'], spec.get('start') or 0.0, spec.get('seconds'), spec.get('peak'))
-    model = pedal_model(spec['version'])
     original = np.asarray(run_original(x), np.float64)
-    pedal = np.asarray(play_pedal(model, x), np.float64)
+    pedal = np.asarray(run_version(x) if run_version else play_pedal(pedal_model(spec['version']), x), np.float64)
     original, pedal, match = level_match(original, pedal, loudness=loudness)
     out.mkdir(parents=True, exist_ok=True)
     write_wav(out / 'original.wav', original)
@@ -179,7 +180,11 @@ def engines(fitter):
 
     def run_original(capture):
         d = json.loads(Path(capture).read_text(encoding='utf-8'))
-        teacher = nam_pedal.load_teacher(d)
+        try:
+            teacher = nam_pedal.load_teacher(d)
+        except SystemExit:                 # an A2 Lite on its own (a Light version): the file's own model
+            from nam.models import init_from_nam
+            teacher = init_from_nam(nam_refine.upgrade(d)).eval()
         # At the level a NAM block plays it: its loudness brought to LOUD_TARGET, as the fitter did for the
         # pedal version's FIR d. So the level difference reported is the one the Floor would have.
         loud = nam_refine.nam_pack_number((d.get('metadata') or {}).get('loudness'))
@@ -194,7 +199,9 @@ def main(argv=None):
     try:
         spec = json.loads(Path(argv[0]).read_text(encoding='utf-8'))
         load_original, play_pedal = engines(spec['fitter'])
-        match = render(spec, load_original(spec['capture']), play_pedal)
+        light = str(spec['version']).lower().endswith('.nam')
+        match = render(spec, load_original(spec['capture']), play_pedal,
+                       run_version=load_original(spec['version']) if light else None)
         print(json.dumps(dict(match, ok=True)), flush=True)
         return 0
     except SystemExit as error:            # the fitter's helpers stop with SystemExit("...") on a bad capture

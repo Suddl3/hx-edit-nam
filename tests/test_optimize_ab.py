@@ -399,7 +399,7 @@ class ListenFlowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             library, identity = pedal_library(folder, version=False)
             browser = self.browse(folder, library, [f'listen:{identity}:pedal'], job=job)
-            self.assertIn('no Pedal version', browser.send.call_args_list[-1].kwargs['text'])
+            self.assertIn('no lighter version', browser.send.call_args_list[-1].kwargs['text'])
             job.assert_not_called()
 
     def test_a_failed_render_and_stop(self):
@@ -419,16 +419,19 @@ class ListenFlowTests(unittest.TestCase):
             self.assertIn('Stopped.', texts)
             self.player.play.assert_not_called()
 
-    def test_the_page_has_hear_on_this_pc_beside_the_version_line(self):
+    def test_the_page_lists_versions_with_hear_use_and_delete(self):
         with tempfile.TemporaryDirectory() as folder:
             library, _ = pedal_library(folder)
             page = render_library(library.entries())
-            for marker in ('id="listenOriginal"', 'id="listenPedal"', 'id="listenStop"', 'Hear on this PC', 'id="listenRecord"', "host?.postMessage('levelOpen')",
+            for marker in ('id="versionRows"', 'id="listenStop"', 'id="listenRecord"', "host?.postMessage('levelOpen')",
                            "listenSource === '' && !mine", "(capture.versionSlots?.pedal || []).includes(blockSlot)",
-                           "'listen:' + selected + ':original'", "'listen:' + selected + ':pedal'",
-                           "host?.postMessage('listenStop')", 'listening = data.listen || null',
-                           'group.hidden = !canOptimize || !capture || !pedal', 'renderListen(capture, running ? null : pedal)'):
+                           "host?.postMessage('listen:' + id + ':' + key)", "host?.postMessage('useVersion:' + id + ':' + key)",
+                           "host?.postMessage('versionRemove:' + id + ':' + key)", "host?.postMessage('listenStop')",
+                           'listening = data.listen || null', "'saves DSP once the firmware skips layers'",
+                           "'needs the pedal firmware'", "make.id = 'suggestLight'", "'optimize:' + capture.id + ':' + kind",
+                           'id="choosePedal"', 'id="chooseLight"', 'Make lighter…'):
                 self.assertIn(marker, page)
+            self.assertNotIn('Remove the Pedal version', page)
 
 
 @unittest.skipUnless(Path(nam_ab.RENDERER).is_file(), 'renderer missing')

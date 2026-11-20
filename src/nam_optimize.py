@@ -36,10 +36,19 @@ def fitter_path(converter):
 
 def converter_id(fitter):
     """A short id of the fitter that made a version: a new fitter can be told from the one before."""
+    name = Path(fitter).stem
     try:
-        return 'nam_pedal ' + sha256(Path(fitter).read_bytes()).hexdigest()[:12]
+        return name + ' ' + sha256(Path(fitter).read_bytes()).hexdigest()[:12]
     except OSError:
-        return 'nam_pedal'
+        return name
+
+
+LIGHT_KEY, LIGHT_LAYERS, LIGHT_STEPS = 'light16', 16, 3000   # a Light version: 16 of 23 layers, Standard training
+
+
+def light_trainer(converter):
+    """nam_refine.py, beside the fitter (the pinned helix-lt-nam-fit tools when the build has them)."""
+    return fitter_path(converter).with_name('nam_refine.py')
 
 
 class OptimizeJob(nam_light.LightJob):
