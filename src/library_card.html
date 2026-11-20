@@ -89,9 +89,9 @@
   #save:enabled, #audition:enabled { background: #862829; border-color: #b54545; }
   .chip { display: inline-block; margin-left: 6px; padding: 0 6px; border: 1px solid #555; border-radius: 9px;
           font-size: 11px; line-height: 16px; color: #ccc; vertical-align: middle; cursor: default; }
-  .chip[data-quality="same"] { border-color: #3d7a46; }
-  .chip[data-quality="different"] { border-color: #a07a2a; }
-  .chip[data-active="true"] { background: #3a3a3a; color: #fff; }
+  .chip[data-quality="different"]::before { content: ''; display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+                                            background: #b8893a; margin-right: 4px; vertical-align: 1px; }
+  .chip[data-active="true"] { background: #2a2233; border-color: #9a6bd0; color: #e6dbf5; }
   #optimizePanel, #light, #levelPanel { flex-shrink: 0; }
   #levelPanel { padding: 10px 14px; background: #1e1e1e; border-top: 1px solid #404040; }
   #levelPanel p { margin: 0 0 6px; }
@@ -168,31 +168,50 @@
   #optimizePanel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; background: #1e1e1e; border-top: 1px solid #404040; }
   #optimizePanel { flex-direction: column; align-items: stretch; gap: 4px; }
   #optimizePanel p { margin: 0; }
-  #versionsHead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #versionsHead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; max-width: 760px; }
   #versionsHead b { font-weight: 600; }
-  #listenSource { color: #aaa; font-size: 12px; flex: 1; min-width: 0; }
-  #versionRows { display: flex; flex-direction: column; gap: 2px; }
-  .vrow { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border: 1px solid transparent; border-radius: 4px; }
-  .vrow[data-on="true"] { border-color: #9a6bd0; background: #2a2233; }
-  .vrow .vname { font-weight: 600; min-width: 48px; }
-  .vrow .vmeta { color: #aaa; font-size: 12px; flex: 1; min-width: 0; }
-  .vrow .vmeta b { font-weight: 600; }
-  .vrow .vmeta b[data-quality="same"] { color: #7fc48a; }
-  .vrow .vmeta b[data-quality="different"] { color: #d9a441; }
-  .vrow .vnote { color: #888; font-size: 11.5px; }
-  .vrow .vtag { color: #d8c4f2; font-size: 11.5px; }
-  .vrow button { padding: 1px 8px; font-size: 12px; }
-  .vrow button[aria-pressed="true"] { background: #3a3a3a; border-color: #888; color: #fff; }
-  .vrow .vdelete { color: #bbb; }
+  #listenSource { color: #9a9a9a; font-size: 12px; flex: 1; min-width: 0; }
+  #versionRows { display: flex; flex-direction: column; gap: 2px; max-width: 760px; }
+  /* One grid for every row, so Hear, Put on block and the delete cross line up whatever the text. */
+  .vrow { display: grid; grid-template-columns: 58px minmax(0, 1fr) 132px 76px 112px 26px;
+          grid-template-areas: "name meta verdict hear use del"; align-items: center; column-gap: 8px;
+          min-height: 28px; padding: 2px 6px 2px 9px; border-radius: 3px; }
+  .vrow[data-on="true"] { background: #241f2b; box-shadow: inset 3px 0 0 #9a6bd0; }
+  .vname { grid-area: name; font-weight: 600; }
+  .vmeta { grid-area: meta; color: #9a9a9a; font-size: 12px; font-variant-numeric: tabular-nums;
+           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vverdict { grid-area: verdict; font-size: 12px; white-space: nowrap; color: #9a9a9a; }
+  .vverdict[data-quality="same"] { color: #7fc48a; }
+  .vverdict[data-quality="different"] { color: #c9a25a; }
+  .vhearcell { grid-area: hear; } .vusecell { grid-area: use; } .vdelcell { grid-area: del; text-align: right; }
+  .vrow button { padding: 1px 8px; font-size: 12px; white-space: nowrap; }
+  .vhear { min-width: 70px; }
+  .vhear[aria-pressed="true"] { background: #5a3c7a; border-color: #9a6bd0; color: #fff; }
+  .von { color: #c9aef0; font-size: 12px; white-space: nowrap; }
+  .von::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #9a6bd0;
+                 margin-right: 6px; vertical-align: middle; }
+  .vrow .vdelete { background: none; border-color: transparent; color: #888; padding: 1px 6px; }
+  .vrow .vdelete:hover { color: #eee; border-color: #575757; }
+  .vsuggest { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 6px 4px 75px; color: #b5b5b5; font-size: 12px; }
+  .vsuggest button { padding: 1px 8px; font-size: 12px; }
+  #versionsNote { color: #8f8f8f; font-size: 12px; max-width: 760px; }
   #optimizeInfo { color: #ccc; font-size: 12px; }
-  #optimizeInfo button { margin-left: 6px; padding: 1px 8px; font-size: 12px; }
-  #optimizeWork { display: flex; align-items: center; gap: 8px; }
+  #optimizeWork { display: flex; align-items: center; gap: 8px; max-width: 760px; }
   #optimizeBar { flex: 1; min-width: 80px; }
   #listenMatch { color: #aaa; font-size: 12px; }
-  #choose .option { display: block; width: 100%; text-align: left; margin: 6px 0; padding: 8px 10px; white-space: normal; line-height: 1.35; }
+  /* Docked narrow: name, verdict and the buttons on one line, the block and DSP under them. */
+  @media (max-width: 560px) {
+    .vrow { grid-template-columns: auto minmax(0, 1fr) 70px 98px 22px; column-gap: 6px;
+            grid-template-areas: "name verdict hear use del" "meta meta meta meta meta"; padding-top: 3px; padding-bottom: 3px; }
+    .vsuggest { padding-left: 9px; }
+  }
+  #choose .option { position: relative; display: block; width: 100%; text-align: left; margin: 6px 0; padding: 8px 28px 8px 10px;
+                    white-space: normal; line-height: 1.35; }
+  #choose .option:enabled:hover { border-color: #9a6bd0; background: #2a2233; }
+  #choose .option::after { content: '\203A'; position: absolute; right: 11px; top: 50%; transform: translateY(-50%); color: #888; font-size: 18px; }
   #choose .option b { display: block; margin-bottom: 2px; }
   #choose .option small { color: #aaa; }
-  #choose .option em { font-style: normal; color: #d8c4f2; margin-left: 6px; font-size: 11px; }
+  #choose .option em { font-style: normal; color: #d8c4f2; margin-left: 6px; font-size: 11px; font-weight: 400; }
   #light { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; background: #1e1e1e; border-top: 1px solid #404040; }
   #light p { margin: 0; flex-basis: 100%; }
   #light .note { color: #aaa; font-size: 12px; }
@@ -283,11 +302,11 @@
   <div class="panel">
     <p id="chooseTitle"></p>
     <button class="option" id="choosePedal"><b>Pedal version<em id="choosePedalTag"></em></b>
-      <small>About 30 seconds. A small model for the NAM Pedal block: about 7.5% of a DSP instead of 36%.
-      Very close for boosts and overdrives, not for fuzz. The Floor needs the pedal firmware to play it.</small></button>
+      <small>About 30 seconds. About 7.5% of a DSP instead of 36%. Very close for boosts and overdrives, not
+      for fuzz. Plays once the Floor has the pedal firmware.</small></button>
     <button class="option" id="chooseLight"><b>Light version<em id="chooseLightTag"></em></b>
-      <small>About 10 minutes. The real NAM model with 16 of its 23 layers: about 29% of a DSP once the Floor
-      firmware skips the unused layers. Works for any capture, fuzz and amps too.</small></button>
+      <small>About 10 minutes. Works for any capture, fuzz and amps too. Saves nothing on the Floor until a
+      firmware update; then about 29% of a DSP instead of 36%.</small></button>
     <div class="buttons"><button id="chooseCancel">Cancel</button></div>
   </div>
 </div>
@@ -346,11 +365,11 @@
 <section id="optimizePanel" hidden aria-label="Versions of this capture">
   <div id="versionsHead">
     <b>Versions</b>
-    <span id="listenSource" title="Hear plays a few seconds of this guitar through each version on this PC (not the Floor), at the same loudness."></span>
+    <span id="listenSource"></span>
     <button id="listenRecord" hidden title="Opens Level presets, where you record 10 seconds of your guitar once (kept on this PC). Hear then plays it through each version.">Record your guitar…</button>
-    <button id="listenStop" hidden>Stop</button>
   </div>
-  <div id="versionRows"></div>
+  <div id="versionRows" role="list"></div>
+  <p id="versionsNote"></p>
   <p id="listenMatch"></p>
   <p id="optimizeInfo" role="status"></p>
   <div id="optimizeWork" hidden><progress id="optimizeBar" max="1" value="0"></progress><button id="optimizeCancel">Cancel</button></div>
@@ -425,20 +444,20 @@
     return version.quality === 'same' ? 'sounds the same as the original' :
       version.quality === 'different' ? 'may sound different from the original' : 'not compared';
   }
-  function appendVersionChips(cell, row) {
+  // Table chips: one per kept version (no Original chip: every capture has one). A muted dot marks a version that
+  // may sound different; the chip of the version the selected block plays is filled violet.
+  function appendVersionChips(target, row) {
     if (!row.versions?.length) return;
-    const original = document.createElement('span');
-    original.className = 'chip'; original.dataset.active = 'true'; original.textContent = 'Original';
-    original.title = 'The capture as it is: NAM A2 Lite block';
-    cell.append(original);
+    const onBlock = blockOn(row);
     for (const version of row.versions) {
       const chip = document.createElement('span');
       chip.className = 'chip'; chip.dataset.quality = version.quality;
-      chip.textContent = version.label + (version.quality === 'different' ? ' ⚠' : '');
+      chip.dataset.active = onBlock === version.key ? 'true' : 'false';
+      chip.textContent = version.label;
       chip.title = version.label + ' version: ' + qualityText(version) +
-        (version.error != null ? ' (' + pct(version.error) + ' error)' : '') + '. Plays in a ' + version.block +
-        (pedalBlock ? ' block.' : ' block, which needs Floor firmware with that block.');
-      cell.append(chip);
+        (version.error != null ? ' (' + pct(version.error) + ' error)' : '') + '. Plays in a ' + version.block + ' block' +
+        (onBlock === version.key ? '; on the selected block.' : '.');
+      target.append(chip);
     }
   }
   // Listen: Original / Pedal renders the player's guitar through both on this PC, level-matched (nam_ab).
@@ -449,63 +468,76 @@
       (Math.abs(difference) < 0.5 ? 'at the same level' : Math.abs(difference).toFixed(1) + ' dB ' +
         (difference > 0 ? 'louder' : 'quieter')) + ').';
   }
-  // The selected capture's versions: the original and each kept lighter version, one row each with what it is,
-  // how close it sounds, Hear (on this PC), Use (on the selected block, where the Floor's firmware can play it)
-  // and Delete. The row the selected block plays is outlined.
+  // The selected capture's versions, one row each in one grid: name, block and DSP, how close it sounds, Hear (a
+  // toggle, on this PC), Put on block (or "On the block") and a quiet delete cross. What the Floor cannot play yet
+  // is said once under the rows, not on each row.
   const VERSION_INFO = {
-    original: {name: 'Original', meta: 'NAM A2 Lite · 36% DSP'},
-    pedal: {name: 'Pedal', meta: 'NAM Pedal · 7.5% DSP'},
-    light16: {name: 'Light', meta: '16 of 23 layers · ~29% DSP'},
+    original: {name: 'Original', meta: 'NAM A2 Lite · 36% DSP', detail: 'The capture as it is, in a NAM A2 Lite block.'},
+    pedal: {name: 'Pedal', meta: 'NAM Pedal · 7.5% DSP', detail: 'A small model for the NAM Pedal block.'},
+    light16: {name: 'Light', meta: 'NAM A2 Lite · ~29% DSP after update',
+              detail: 'The same NAM model with 16 of its 23 layers. It saves DSP once the Floor firmware skips the unused layers.'},
   };
+  function notYet(key) {      // why the Floor cannot use this version yet ('' when it can)
+    return key === 'pedal' && !pedalBlock ? 'Pedal needs the pedal firmware' :
+      key === 'light16' ? 'Light saves DSP after a firmware update' : '';
+  }
+  function blockOn(capture) {   // the version the selected block plays, when it plays this capture
+    if (blockSlot == null || !capture) return null;
+    // (a Pedal version is a payload of its own, in its own slot: versionSlots.pedal)
+    if (blockModel === 'HD2_AmpNAMPedal') return (capture.versionSlots?.pedal || []).includes(blockSlot) ? 'pedal' : null;
+    return (capture.irSlots || []).includes(blockSlot) ? 'original' : null;
+  }
+  function cell(className, ...content) {
+    const span = document.createElement('span');
+    span.className = className; span.append(...content);
+    return span;
+  }
   function versionRow(capture, key, version, onBlock, mine) {
+    const info = VERSION_INFO[key];
     const row = document.createElement('div');
-    row.className = 'vrow'; row.dataset.key = key; row.dataset.on = onBlock === key ? 'true' : 'false';
-    const name = document.createElement('span'); name.className = 'vname'; name.textContent = VERSION_INFO[key].name;
-    const meta = document.createElement('span'); meta.className = 'vmeta'; meta.append(VERSION_INFO[key].meta);
+    row.className = 'vrow'; row.setAttribute('role', 'listitem');
+    row.dataset.key = key; row.dataset.on = onBlock === key ? 'true' : 'false';
+    const meta = cell('vmeta', info.meta);
+    meta.title = info.detail + (version?.error != null ? ' ' + pct(version.error) + ' error against the original.' : '');
+    const verdict = cell('vverdict');
     if (version) {
-      const close = document.createElement('b');
-      close.dataset.quality = version.quality;
-      close.textContent = version.quality === 'same' ? 'sounds the same' :
+      verdict.dataset.quality = version.quality;
+      verdict.textContent = version.quality === 'same' ? 'sounds the same' :
         version.quality === 'different' ? 'may sound different' : 'not compared';
-      meta.append(' · ', close);
-      meta.title = VERSION_INFO[key].name + ' version: ' + qualityText(version) +
-        (version.error != null ? ' (' + pct(version.error) + ' error against the original)' : '') + '.';
     }
-    row.append(name, meta);
-    if (onBlock === key) {
-      const tag = document.createElement('span'); tag.className = 'vtag'; tag.textContent = 'on the block'; row.append(tag);
-    }
-    // Hear: plays on this PC (renders the original and one version, level-matched, the first time).
+    const hearCell = cell('vhearcell');
     if (listenSource) {
+      const now = mine && (mine.running ? mine.which : mine.playing);
+      const active = !!mine && (key === 'original' ? now === 'original' : mine.key === key && now === 'pedal');
       const hear = document.createElement('button');
-      hear.className = 'vhear'; hear.dataset.key = key; hear.textContent = 'Hear';
-      const playing = mine && (key === 'original' ? (mine.running ? mine.which : mine.playing) === 'original' :
-        mine.key === key && (mine.running ? mine.which : mine.playing) === 'pedal');
-      hear.setAttribute('aria-pressed', playing ? 'true' : 'false');
-      hear.title = 'Play your guitar (' + listenSource + ') through the ' + (key === 'original' ? 'original' :
-        VERSION_INFO[key].name + ' version') + ' on this PC, not the Floor.';
-      row.append(hear);
+      hear.className = 'vhear'; hear.dataset.key = key;
+      hear.setAttribute('aria-pressed', active ? 'true' : 'false');
+      hear.textContent = active ? '■ Stop' : '▶ Hear';
+      hear.title = active ? 'Stop playing' : 'Play your ' + listenSource + ' recording through the ' +
+        (key === 'original' ? 'original' : info.name + ' version') + ' on this PC, not the Floor.';
+      hearCell.append(hear);
     }
-    // Use: the Floor plays the original anywhere; a Pedal version needs the NAM Pedal block (pedal firmware); a
-    // Light version saves DSP only once the firmware skips layers, so it is not offered yet.
-    if (key === 'pedal' && !pedalBlock || key === 'light16') {
-      const note = document.createElement('span'); note.className = 'vnote';
-      note.textContent = key === 'pedal' ? 'needs the pedal firmware' : 'saves DSP once the firmware skips layers';
-      row.append(note);
-    } else if (pedalBlock && onBlock !== key && (key === 'pedal' || capture.versions?.some(v => v.key === 'pedal'))) {
+    const useCell = cell('vusecell');
+    if (onBlock === key) useCell.append(cell('von', 'On the block'));
+    else if (key !== 'original' || (pedalBlock && capture.versions?.some(version => version.key === 'pedal'))) {
+      const reason = notYet(key);
       const use = document.createElement('button');
-      use.className = 'vuse'; use.dataset.key = key; use.textContent = 'Use';
-      use.disabled = q('#install').disabled;
-      use.title = key === 'pedal' ? 'Put the Pedal version on the selected block (HX Edit changes it to a NAM Pedal block). The preset is not saved.' :
+      use.className = 'vuse'; use.dataset.key = key; use.textContent = 'Put on block';
+      use.disabled = !!reason || q('#install').disabled;
+      use.title = reason ? reason + '. Until then the Original plays on the Floor.' : key === 'pedal' ?
+        'Put the Pedal version on the selected block (HX Edit changes it to a NAM Pedal block). The preset is not saved.' :
         'Put the original capture back on the selected block (as a NAM A2 Lite block). The preset is not saved.';
-      row.append(use);
+      useCell.append(use);
     }
+    const deleteCell = cell('vdelcell');
     if (key !== 'original') {
       const remove = document.createElement('button');
-      remove.className = 'vdelete'; remove.dataset.key = key; remove.textContent = 'Delete…';
-      remove.title = 'Delete this ' + VERSION_INFO[key].name + ' version from this PC. The original capture stays.';
-      row.append(remove);
+      remove.className = 'vdelete'; remove.dataset.key = key; remove.textContent = '✕';
+      remove.title = 'Delete this ' + info.name + ' version…';
+      remove.setAttribute('aria-label', 'Delete the ' + info.name + ' version');
+      deleteCell.append(remove);
     }
+    row.append(cell('vname', info.name), meta, verdict, hearCell, useCell, deleteCell);
     return row;
   }
 
@@ -514,7 +546,6 @@
     optimizeButton.hidden = !canOptimize;
     const running = !!optimizing?.running;
     const versions = (capture?.versions || []).filter(version => VERSION_INFO[version.key]);
-    const pedal = versions.find(version => version.key === 'pedal');
     optimizeButton.disabled = !canOptimize || !capture || running || busy;
     optimizeButton.title = !capture ? 'Select a capture' : capture.canTrain === false ?
       'This kept capture is a converted WAV. Its original .nam file is needed.' :
@@ -522,39 +553,44 @@
     panel.hidden = !canOptimize || !capture || !(running || versions.length || optimizing?.error);
     if (panel.hidden) return;
     const mine = listening && listening.id === capture.id ? listening : null;
-    // Which one the selected block plays, when it plays this capture: by its model and slot (a Pedal version is a
-    // payload of its own, in its own slot: versionSlots.pedal).
-    const onBlock = blockSlot == null ? null :
-      blockModel === 'HD2_AmpNAMPedal' ? ((capture.versionSlots?.pedal || []).includes(blockSlot) ? 'pedal' : null) :
-      (capture.irSlots || []).includes(blockSlot) ? 'original' : null;
-    q('#versionRows').replaceChildren(versionRow(capture, 'original', null, onBlock, mine),
-      ...versions.map(version => versionRow(capture, version.key, version, onBlock, mine)));
-    // What Hear plays: the player's guitar; with no recording yet, one button to make it (Level presets).
+    const onBlock = blockOn(capture);
+    const light = versions.some(version => version.key === 'light16');
+    const rowsShown = [versionRow(capture, 'original', null, onBlock, mine)];
+    for (const version of versions) {
+      rowsShown.push(versionRow(capture, version.key, version, onBlock, mine));
+      if (version.key === 'pedal' && version.quality === 'different' && !light && !running && capture.canTrain !== false) {
+        // The pedal model cannot follow this one (fuzz, octave): say so under its row, with the way out.
+        const tip = document.createElement('div');
+        tip.className = 'vsuggest';
+        const make = document.createElement('button');
+        make.id = 'suggestLight'; make.textContent = 'Make a Light version';
+        tip.append('Pedal didn’t capture this one well. A Light version stays true to the original (about 10 min).', make);
+        rowsShown.push(tip);
+      }
+    }
+    q('#versionRows').replaceChildren(...rowsShown);
+    // What Hear plays, said once; with no recording yet, one button to make it (Level presets).
     const none = listenSource === '' && !mine;
-    q('#listenSource').textContent = listenSource ? 'Hear plays: ' + listenSource + ', on this PC' :
-      none && !canLevel ? 'Hear needs a recording of your guitar.' : '';
+    const source = q('#listenSource');
+    source.textContent = listenSource ? 'Compare on this PC · your ' + listenSource + ' recording · level-matched' :
+      none ? (canLevel ? 'Record your guitar once to compare the versions on this PC.' :
+        'Comparing needs a recording of your guitar (Level presets).') : '';
+    source.title = mine?.match ? matchText(mine.match, mine.label) : '';
     q('#listenRecord').hidden = !none || !canLevel;
+    const reasons = versions.map(version => notYet(version.key)).filter(Boolean);
+    q('#versionsNote').textContent = reasons.length ? 'Not on your Floor yet: ' + reasons.join('; ') +
+      '. The Original plays meanwhile.' : '';
+    q('#versionsNote').hidden = !reasons.length;
     const rendering = !!mine?.running;
-    q('#listenStop').hidden = !(rendering || mine?.playing);
-    q('#listenMatch').textContent = rendering ? 'Rendering ' + (mine.source || 'your guitar') + ' through the original and the ' +
-      (mine.label || 'version') + '…' : mine?.match ? matchText(mine.match, mine.label) + ' Guitar: ' + (mine.source || '') + '.' :
-      mine?.error ? mine.error : '';
+    q('#listenMatch').textContent = rendering ? 'Rendering your ' + (mine.source || 'guitar') + ' recording through the original and the ' +
+      (mine.label || 'version') + '…' : mine?.error ? mine.error : '';
     q('#listenMatch').hidden = !q('#listenMatch').textContent;
     q('#optimizeWork').hidden = !running;
     if (running) q('#optimizeBar').value = (optimizing.step || 0) / Math.max(1, optimizing.steps || 400);
     const info = q('#optimizeInfo');
-    const light = versions.some(version => version.key === 'light16');
-    if (running) {
-      info.textContent = 'Making a ' + (optimizing.key === 'light16' ? 'Light' : 'Pedal') + ' version… step ' +
-        (optimizing.step || 0) + ' of ' + (optimizing.steps || 400);
-    } else if (optimizing?.error && optimizing.id === capture.id) {
-      info.textContent = 'Could not make the version: ' + optimizing.error;
-    } else if (pedal?.quality === 'different' && !light && capture.canTrain !== false) {
-      // The pedal model cannot follow this one (fuzz, octave): a Light version keeps the real model.
-      const make = document.createElement('button');
-      make.id = 'suggestLight'; make.textContent = 'Make a Light version';
-      info.replaceChildren('The Pedal version may sound different. A Light version keeps the real model.', make);
-    } else info.textContent = '';
+    info.textContent = running ? 'Making a ' + (optimizing.key === 'light16' ? 'Light' : 'Pedal') + ' version… step ' +
+      (optimizing.step || 0) + ' of ' + (optimizing.steps || 400) :
+      optimizing?.error && optimizing.id === capture.id ? 'Could not make the version: ' + optimizing.error : '';
     info.hidden = !info.textContent;
   }
 
@@ -566,9 +602,9 @@
     const pedalSuits = capture.gear === 'pedal';
     q('#chooseTitle').textContent = 'Make a lighter version of “' + capture.name + '”. The original is kept.';
     q('#choosePedal').disabled = !pedalSuits;
-    q('#choosePedalTag').textContent = !pedalSuits ? 'pedal captures only' : pedal ? 'made: make again' :
-      !light ? 'suggested' : '';
-    q('#chooseLightTag').textContent = light ? 'made: make again' :
+    q('#choosePedalTag').textContent = !pedalSuits ? 'pedal captures only' :
+      pedal?.quality === 'different' ? 'didn’t match this capture' : pedal ? 'already made · remake' : !light ? 'suggested' : '';
+    q('#chooseLightTag').textContent = light ? 'already made · remake' :
       !pedalSuits || pedal?.quality === 'different' ? 'suggested' : '';
     box.hidden = false;
     host?.postMessage('dialog:open');
@@ -1149,16 +1185,15 @@
   };
   q('#optimizeCancel').onclick = () => host?.postMessage('optimizeCancel');
   q('#listenRecord').onclick = () => host?.postMessage('levelOpen');   // record once there; Hear then uses it
-  q('#listenStop').onclick = () => host?.postMessage('listenStop');
-  q('#optimizeInfo').addEventListener('click', event => {
-    if (event.target.id === 'suggestLight' && selected) host?.postMessage('optimize:' + selected + ':light16');
-  });
   q('#versionRows').addEventListener('click', async event => {
     const button = event.target.closest('button'), id = selected;
     if (!button || button.disabled || !id || !canOptimize) return;
+    if (button.id === 'suggestLight') { host?.postMessage('optimize:' + id + ':light16'); return; }
     const key = button.dataset.key;
-    if (button.classList.contains('vhear')) host?.postMessage('listen:' + id + ':' + key);
-    else if (button.classList.contains('vuse') && pedalBlock) host?.postMessage('useVersion:' + id + ':' + key);
+    if (button.classList.contains('vhear')) {
+      if (button.getAttribute('aria-pressed') === 'true') host?.postMessage('listenStop');
+      else host?.postMessage('listen:' + id + ':' + key);
+    } else if (button.classList.contains('vuse') && pedalBlock) host?.postMessage('useVersion:' + id + ':' + key);
     else if (button.classList.contains('vdelete')) {
       const name = VERSION_INFO[key]?.name || 'this';
       if (await ask('Delete the ' + name + ' version from this PC? The original capture stays, and you can make it again.',

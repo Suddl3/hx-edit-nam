@@ -927,7 +927,7 @@ class TonePreview:
                 player.play(listen_renders().path(listening['match']['key'], which))
                 listening['playing'] = which
                 status(f'Playing the {"original" if which == "original" else listening.get("label", "version")} on this PC '
-                       f'({listening["source"]}). {nam_ab.match_text(listening["match"])}')
+                       f'({listening["source"]}).')
             except (OSError, RuntimeError, ImportError) as error:
                 listening['playing'] = None
                 status(f'Could not play on this PC: {error}')

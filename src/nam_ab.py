@@ -99,8 +99,8 @@ class Renders:
             shutil.rmtree(old, ignore_errors=True)
 
 
-def match_text(match):
-    """What the panel says about the level match."""
+def match_text(match, label='Pedal version'):
+    """What the panel says about the level match (label: the version heard against the original)."""
     if not match:
         return ''
     difference = match.get('difference')
@@ -108,7 +108,7 @@ def match_text(match):
         return 'Level-matched.'
     louder = ('the same level as' if abs(difference) < 0.5 else
               f'{abs(difference):.1f} dB {"louder" if difference > 0 else "quieter"} than')
-    return f'Level-matched at {match.get("lufs", -18):.0f} LUFS (the Pedal version came out {louder} the original).'
+    return f'Level-matched at {match.get("lufs", -18):.0f} LUFS (the {label} came out {louder} the original).'
 
 
 class RenderJob:

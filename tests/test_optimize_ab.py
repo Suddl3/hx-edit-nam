@@ -251,6 +251,7 @@ class CacheTests(unittest.TestCase):
         self.assertIn('2.0 dB louder', nam_ab.match_text({'difference': 2.0, 'lufs': -18.0}))
         self.assertIn('the same level', nam_ab.match_text({'difference': 0.2, 'lufs': -18.0}))
         self.assertEqual(nam_ab.match_text(None), '')
+        self.assertIn('the Light version came out', nam_ab.match_text({'difference': 0.1, 'lufs': -18.0}, 'Light version'))
 
 
 class PlayerTests(unittest.TestCase):
@@ -376,7 +377,8 @@ class ListenFlowTests(unittest.TestCase):
             self.assertEqual(Path(played.args[0]).name, 'pedal.wav')
             last = browser.send.call_args_list[-1].kwargs
             self.assertIn('Playing the Pedal version on this PC (Strat)', last['text'])
-            self.assertIn('1.2 dB quieter', last['text'])
+            self.assertNotIn('LUFS', last['text'])            # the level match is the Versions tooltip
+            self.assertEqual(last['listen']['match']['difference'], -1.2)
             self.assertEqual((last['listen']['playing'], last['listen']['match']['difference']), ('pedal', -1.2))
             self.player.stop.assert_called()                                            # stopped when the page closed
             # the same guitar and version again: no render, straight to the player
@@ -423,12 +425,12 @@ class ListenFlowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             library, _ = pedal_library(folder)
             page = render_library(library.entries())
-            for marker in ('id="versionRows"', 'id="listenStop"', 'id="listenRecord"', "host?.postMessage('levelOpen')",
+            for marker in ('id="versionRows"', "'■ Stop'", 'Compare on this PC', 'id="listenRecord"', "host?.postMessage('levelOpen')",
                            "listenSource === '' && !mine", "(capture.versionSlots?.pedal || []).includes(blockSlot)",
                            "host?.postMessage('listen:' + id + ':' + key)", "host?.postMessage('useVersion:' + id + ':' + key)",
                            "host?.postMessage('versionRemove:' + id + ':' + key)", "host?.postMessage('listenStop')",
-                           'listening = data.listen || null', "'saves DSP once the firmware skips layers'",
-                           "'needs the pedal firmware'", "make.id = 'suggestLight'", "'optimize:' + capture.id + ':' + kind",
+                           'listening = data.listen || null', "'Light saves DSP after a firmware update'",
+                           "'Pedal needs the pedal firmware'", 'Put on block', "'Not on your Floor yet: '", "make.id = 'suggestLight'", "'optimize:' + capture.id + ':' + kind",
                            'id="choosePedal"', 'id="chooseLight"', 'Make lighter…'):
                 self.assertIn(marker, page)
             self.assertNotIn('Remove the Pedal version', page)
