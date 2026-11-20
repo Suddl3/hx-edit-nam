@@ -290,31 +290,36 @@ CHAIN_CAPTURES = CAPTURE_ICONS / 'chain'
 # The same with a grey ring, for bypassed blocks: (folder of the coloured ones, of the grey ones, file prefixes).
 CHAIN_SETS = ((CHAIN_MODELS, ROOT / 'helix_model_icons' / 'chain_off', ''),
               (CHAIN_CAPTURES, CAPTURE_ICONS / 'chain_off', 'NAMCAP_'))
+# The large ones ("Large pictures in the signal chain"), copied as CHAINL_ / CHAINL_OFF_.
+CHAIN_LARGE_SETS = ((ROOT / 'helix_model_icons' / 'chain_large', ROOT / 'helix_model_icons' / 'chain_large_off', ''),
+                    (CAPTURE_ICONS / 'chain_large', CAPTURE_ICONS / 'chain_large_off', 'NAMCAP_'))
 
 
 def patch_chain_art(resources):
     """The signal-chain pictures (HX Unbound menu, Options: "3D pictures in the signal chain"): each stock model's
     3D render and each NAM capture picture at the chain icon's size, as res/icons_models/CHAIN_<stock file> and
-    CHAIN_NAMCAP_<id>.png, and CHAIN_OFF_... with a grey ring for bypassed blocks. tone_view shows them only while
-    the option is on. Returns how many were added."""
+    CHAIN_NAMCAP_<id>.png, and CHAIN_OFF_... dimmed for bypassed blocks; the large set ("Large pictures in the
+    signal chain") as CHAINL_ / CHAINL_OFF_. tone_view shows them only while the option is on. Returns how many
+    were added."""
     models = resources / 'icons_models'
     added = 0
-    for on, off, prefix in CHAIN_SETS:
-        for picture in sorted(on.glob('*.png')):
-            if not prefix and not (models / picture.name).is_file():
-                continue                      # a stock picture this copy of HX Edit does not have
-            shutil.copyfile(picture, models / f'CHAIN_{prefix}{picture.name}')
-            added += 1
-            if (off / picture.name).is_file():
-                shutil.copyfile(off / picture.name, models / f'CHAIN_OFF_{prefix}{picture.name}')
+    for sets, tag in ((CHAIN_SETS, 'CHAIN'), (CHAIN_LARGE_SETS, 'CHAINL')):
+        for on, off, prefix in sets:
+            for picture in sorted(on.glob('*.png')):
+                if not prefix and not (models / picture.name).is_file():
+                    continue                  # a stock picture this copy of HX Edit does not have
+                shutil.copyfile(picture, models / f'{tag}_{prefix}{picture.name}')
                 added += 1
+                if (off / picture.name).is_file():
+                    shutil.copyfile(off / picture.name, models / f'{tag}_OFF_{prefix}{picture.name}')
+                    added += 1
     return added
 
 
 def chain_art_files(resources):
-    """The CHAIN_*.png pictures a prepared copy has (tone_view asks HX Edit only for these)."""
+    """The CHAIN*.png pictures a prepared copy has (tone_view asks HX Edit only for these)."""
     try:
-        return sorted(path.name for path in (Path(resources) / 'icons_models').glob('CHAIN_*.png'))
+        return sorted(path.name for path in (Path(resources) / 'icons_models').glob('CHAIN*.png'))
     except OSError:
         return []
 

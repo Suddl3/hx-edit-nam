@@ -114,5 +114,13 @@ function installNamSidebar(namView) {
       chainArt();
     });
   }
-  ready();actions();irDots();chainArt();
+  function chainOption() {
+    // HX Unbound menu: "Large pictures in the signal chain" (name chainLarge).
+    recv('chainOption', message => {
+      const name = message.payload?.name, on = message.payload?.on === true;
+      namView.queueSidebarAction(() => toneView.setChainOption?.(name, on));
+      chainOption();
+    });
+  }
+  ready();actions();irDots();chainArt();chainOption();
 }

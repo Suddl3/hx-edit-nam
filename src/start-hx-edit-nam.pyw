@@ -194,7 +194,9 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             options.update(irDots=nam_catalog.load_settings().get('irNamDots') is not False)
             # HX Unbound menu: "3D pictures in the signal chain" (off unless turned on), and the pictures it has.
             options.update(chainArt=nam_catalog.load_settings().get('chainModelArt') is True,
-                           chainArtFiles=nam_catalog.chain_art_files(exe.parent / 'res'))
+                           chainArtFiles=nam_catalog.chain_art_files(exe.parent / 'res'),
+                           # HX Unbound menu: "Large pictures in the signal chain" (off unless turned on).
+                           chainLarge=nam_catalog.load_settings().get('chainLarge') is True)
             # Read-only research probes: only in a copy prepared with this marker file.
             options.update(namProbe=(exe.parent / 'res' / 'nam-probe.flag').is_file())
             before = '\n'.join((ROOT / name).read_text(encoding='utf-8') for name in
@@ -254,6 +256,13 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     meter.set_ir_dots(on)
                     if not detached.is_set():
                         script.post({'type': 'irDots', 'payload': {'on': on}})
+                elif name == 'chainLarge':
+                    on = not chain_options[name]
+                    chain_options[name] = on
+                    nam_catalog.save_setting(name, on)
+                    meter.set_chain_option(name, on)
+                    if not detached.is_set():
+                        script.post({'type': 'chainOption', 'payload': {'name': name, 'on': on}})
                 elif name == 'chainArt':
                     on = not chain_art[0]
                     chain_art[0] = on
@@ -263,9 +272,12 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         script.post({'type': 'chainArt', 'payload': {'on': on}})
             ir_dots = [options.get('irDots') is not False]
             chain_art = [options.get('chainArt') is True]
+            chain_options = {'chainLarge': options.get('chainLarge') is True}
             meter = DspMeter(trace=trace, on_choice=unbound_choice, icons=exe.parent / 'res' / 'icons_models')
             meter.set_ir_dots(ir_dots[0])
             meter.set_chain_art(chain_art[0])
+            for name, on in chain_options.items():
+                meter.set_chain_option(name, on)
 
         def on_message(event, _data):
             if event['type'] == 'error':

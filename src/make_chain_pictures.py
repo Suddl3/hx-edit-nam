@@ -7,6 +7,8 @@ keeps the colour at a glance once the glyph is replaced. NAM captures get the NA
 The colour of a stock picture comes from HX Edit's model catalog (the category that lists the model that shows
 it); the few pictures no model in the catalog uses are matched by their render's category (icons.json).
 
+The large set (chain_large/, chain_large_off/: 54 px, no ring) is for "Large pictures in the signal chain".
+
 Written to helix_model_icons/chain/<stock file name> and nam_capture_icons/chain/<id>.png, and the same with a grey
 dimmed ring and picture for bypassed blocks in chain_off/, which nam_catalog.patch_chain_art copies into a prepared HX Edit as CHAIN_*.png
 and CHAIN_OFF_*.png. Each picture sits on a soft dark tile and dark gear is brightened a little. Run again after the renders change:
@@ -22,6 +24,7 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageStat
 ROOT = Path(__file__).resolve().parent
 CATALOG = Path(r'C:\Program Files (x86)\Line6\HX Edit\res\HX_ModelCatalog.json')
 SIZE, FIT, RING, RADIUS = 38, 28, 2, 7     # the chain icon's size; the gear's longest side; the ring
+LARGE, LARGE_FIT = 54, 48                  # "Large pictures in the signal chain": larger, no ring (chain_large/)
 NAM_PURPLE = 0xB070E0                      # nam_catalog.NAM_CATEGORY_COLOR
 RING_OFF, GEAR_OFF = 0.8, 0.8               # a bypassed block (chain_off/), dimmed as on the Floor; HX Edit
                                            # also draws it at 0.66 opacity: about 0.5 of the colour in all
@@ -87,7 +90,7 @@ def dimmed(colour, factor):
     return tuple(round(((colour >> shift) & 255) * factor) for shift in (16, 8, 0))
 
 
-def chain_picture(source, target, colour, off=False):
+def chain_picture(source, target, colour, off=False, size=SIZE, fit=FIT, ring=True):
     image = Image.open(source).convert('RGBA')
     box = image.getchannel('A').point(lambda alpha: 255 if alpha > 8 else 0).getbbox()
     if box:
@@ -97,16 +100,16 @@ def chain_picture(source, target, colour, off=False):
         alpha = image.getchannel('A')
         image = ImageEnhance.Brightness(image.convert('RGB')).enhance(GEAR_OFF).convert('RGBA')
         image.putalpha(alpha)
-    scale = FIT / max(image.size)
-    size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
-    image = image.resize(size, Image.LANCZOS)
+    scale = fit / max(image.size)
+    gear = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+    image = image.resize(gear, Image.LANCZOS)
     # Drawn at 4x and reduced, so the ring's corners are smooth.
-    big = Image.new('RGBA', (SIZE * 4, SIZE * 4), (0, 0, 0, 0))
+    big = Image.new('RGBA', (size * 4, size * 4), (0, 0, 0, 0))
     rgb = dimmed(colour, RING_OFF if off else 1.0) + (255,)
-    ImageDraw.Draw(big).rounded_rectangle((2, 2, SIZE * 4 - 3, SIZE * 4 - 3), radius=RADIUS * 4, fill=TILE, outline=rgb,
-                                          width=RING * 4)
-    out = big.resize((SIZE, SIZE), Image.LANCZOS)
-    out.alpha_composite(image, ((SIZE - size[0]) // 2, (SIZE - size[1]) // 2))
+    ImageDraw.Draw(big).rounded_rectangle((2, 2, size * 4 - 3, size * 4 - 3), radius=round(RADIUS * size / SIZE) * 4, fill=TILE,
+                                          outline=rgb if ring else None, width=RING * 4)
+    out = big.resize((size, size), Image.LANCZOS)
+    out.alpha_composite(image, ((size - gear[0]) // 2, (size - gear[1]) // 2))
     out.save(target, optimize=True)
 
 
@@ -115,16 +118,18 @@ def main(argv):
     renders = json.loads((ROOT / 'helix_model_icons' / 'icons.json').read_text(encoding='utf-8'))['icons']
     made = 0
     models, captures = ROOT / 'helix_model_icons', ROOT / 'nam_capture_icons'
-    for folder in (models / 'chain', models / 'chain_off', captures / 'chain', captures / 'chain_off'):
-        folder.mkdir(exist_ok=True)
-    for source in sorted((models / 'hxedit').glob('*.png')):
-        chain_picture(source, models / 'chain' / source.name, colour_of(source.name, catalog, renders))
-        chain_picture(source, models / 'chain_off' / source.name, colour_of(source.name, catalog, renders), off=True)
-        made += 2
-    for source in sorted(captures.glob('*.png')):
-        chain_picture(source, captures / 'chain' / source.name, NAM_PURPLE)
-        chain_picture(source, captures / 'chain_off' / source.name, NAM_PURPLE, off=True)
-        made += 2
+    sets = (('chain', {}), ('chain_large', {'size': LARGE, 'fit': LARGE_FIT, 'ring': False}))
+    for folder, _ in sets:
+        for root in (models, captures):
+            (root / folder).mkdir(exist_ok=True)
+            (root / f'{folder}_off').mkdir(exist_ok=True)
+    jobs = [(source, models, colour_of(source.name, catalog, renders)) for source in sorted((models / 'hxedit').glob('*.png'))]
+    jobs += [(source, captures, NAM_PURPLE) for source in sorted(captures.glob('*.png'))]
+    for source, root, colour in jobs:
+        for folder, look in sets:
+            chain_picture(source, root / folder / source.name, colour, **look)
+            chain_picture(source, root / f'{folder}_off' / source.name, colour, off=True, **look)
+            made += 2
     print(f'{made} chain pictures')
 
 

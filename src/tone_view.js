@@ -2579,6 +2579,43 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // the state changes (a bypass toggled), so the picture and the dimmed label are put there, before it applies.
   const applyLook = new NativeFunction(base.add(0x40b790), 'void', ['pointer', 'int'], 'thiscall');
   const LABEL_OFF = 0.55;                // a bypassed block's label colour, with the option on
+  // "Large pictures in the signal chain" (HX Unbound menu). Larger pictures (CHAINL_, 54 px, no ring) in today's
+  // rows, which the block's height limits: HX Edit's picture widget keeps a fixed size (31
+  // at 100%), centred in the block (0x3bc920 across, 0x3bc980 down: percent, mode 1 = centre). With the option, its
+  // width and height become shares of the block (layout 0x3b5e00: +0x90 / +0x94 percent, else its own size) and its
+  // centre moves up: a 40 box with a small gap at the top, clear of the label. The bypass and delete buttons, which
+  // HX Edit puts just above the picture's corners (0x40c0e7, 0x40c192, from the rect 0x40ac90 gives), go beside it.
+  let chainLarge = profile.chainLarge === true;
+  const centreDown = method(0x3bc980, 'void', ['int', 'int', 'int']);
+  const relayout = method(0x3b5e00, 'void', []);
+  const widgetBounds = method(0x3b8a60, 'pointer', []);
+  const LARGE_SIDE = 40, LARGE_GAP = 3, BYPASS_BUTTON = 6, DELETE_BUTTON = 19, BUTTON_HEIGHT = 12;
+  const chainSized = new Map();          // item -> the picture widget's own size shares, while it is large
+  function chainSet(file) {
+    // CHAIN_x / CHAIN_OFF_x -> the picture of the chosen size
+    return chainLarge ? 'CHAINL_' + file.slice('CHAIN_'.length) : file;
+  }
+  function sizePicture(item, icon, large) {
+    const impl = icon.add(0x54).readPointer(), key = item.toString();
+    if (large) {
+      const block = widgetBounds(item);
+      const width = block.add(8).readS32() - block.readS32(), height = block.add(12).readS32() - block.add(4).readS32();
+      if (width <= 0 || height <= 0) return;
+      if (!chainSized.has(key)) chainSized.set(key, {w: impl.add(0x90).readS32(), h: impl.add(0x94).readS32()});
+      const side = Math.min(LARGE_SIDE, height - 16);
+      impl.add(0x90).writeS32(Math.round(side * 100 / width));
+      impl.add(0x94).writeS32(Math.round(side * 100 / height));
+      centreDown(icon, Math.round((LARGE_GAP + side / 2) * 100 / height), 1, 0);
+      relayout(icon);
+    } else if (chainSized.has(key)) {
+      const own = chainSized.get(key);
+      impl.add(0x90).writeS32(own.w);
+      impl.add(0x94).writeS32(own.h);
+      centreDown(icon, 50, 1, 0);
+      relayout(icon);
+      chainSized.delete(key);
+    }
+  }
   const chainColours = new Map();        // item -> {base, dimmed}: the category colour and what was written over it
   function blockObject(item) {
     let object = item.add(0x8c).readPointer();
@@ -2607,14 +2644,16 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         colour.writeU32(base);
         chainColours.delete(key);
       }
-      if (!chainArt) return;
-      let file = chainFile(object);
-      if (file && bypassed) file = file.replace(/^CHAIN_/, 'CHAIN_OFF_');
-      const image = file ? chainImage(file) : NULL;
-      if (file && chainReports > 0) { chainReports--; send({type: 'toneTrace', reason: 'chain-art', block: l6text(object.add(8)), file, bypassed, shown: !image.isNull()}); }
-      if (image.isNull()) return;
       const icon = item.add(0x80).readPointer();
       if (icon.isNull()) return;
+      if (!chainArt) { sizePicture(item, icon, false); return; }
+      let file = chainFile(object);
+      if (file && bypassed) file = file.replace(/^CHAIN_/, 'CHAIN_OFF_');
+      if (file) file = chainSet(file);
+      const image = file ? chainImage(file) : NULL;
+      if (file && chainReports > 0) { chainReports--; send({type: 'toneTrace', reason: 'chain-art', block: l6text(object.add(8)), file, bypassed, shown: !image.isNull()}); }
+      sizePicture(item, icon, chainLarge && !image.isNull());
+      if (image.isNull()) return;
       const setImage = new NativeFunction(icon.readPointer().add(0x18).readPointer(), 'void', ['pointer', 'pointer', 'int'], 'thiscall');
       setImage(icon, image, 0);              // painted by the look's own redraw, or the refresh's
     } catch (error) {
@@ -2626,6 +2665,12 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     redrawItem(item, 1);
     chainLook(item);
     applyLook(item, 1);
+  }
+  function setChainOption(name, on) {
+    // UI thread: "Large pictures in the signal chain" changed; every block seen is drawn again.
+    if (name !== 'chainLarge') return;
+    chainLarge = on === true;
+    setChainArt(chainArt);
   }
   function setChainArt(on) {
     // UI thread. HX Edit's own refresh puts its picture back; with the option on, ours follows.
@@ -2787,7 +2832,21 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       onEnter() { retargetItem(this.context.ecx, 'path'); },
     });
     Interceptor.attach(base.add(0x40b790), {            // path item: apply label colour and picture opacity
-      onEnter() { if (chainArt || chainColours.size) chainLook(this.context.ecx); },
+      onEnter() { if (chainArt || chainColours.size || chainSized.size) chainLook(this.context.ecx); },
+    });
+    const buttonSites = [base.add(0x40c12c), base.add(0x40c1e5)];    // bypass, delete: placed from this rect
+    Interceptor.attach(base.add(0x40ac90), {            // path item: the rect its hover buttons are placed by
+      onEnter(args) { this.item = this.context.ecx; this.rect = args[0]; this.site = this.returnAddress; },
+      onLeave() {
+        try {
+          if (!chainSized.has(this.item.toString()) || !buttonSites.some(site => site.equals(this.site))) return;
+          // A large picture reaches the block's top: the buttons beside its top corners, not above them.
+          const r = this.rect;
+          r.writeS32(r.readS32() - BYPASS_BUTTON - 2);
+          r.add(8).writeS32(r.add(8).readS32() + DELETE_BUTTON + 2);
+          r.add(4).writeS32(r.add(4).readS32() + BUTTON_HEIGHT + 1);
+        } catch (_) { /* HX Edit's own place */ }
+      },
     });
   }
 
@@ -4369,5 +4428,6 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   }
   listen();
   return { openBrowser, makeNamBlock, selectedIsNam, startChainDrag, chainDragTook,
-           setChainArt: on => { try { setChainArt(on); } catch (_) { /* presentation only */ } } };
+           setChainArt: on => { try { setChainArt(on); } catch (_) { /* presentation only */ } },
+           setChainOption: (name, on) => { try { setChainOption(name, on); } catch (_) { /* presentation only */ } } };
 }
