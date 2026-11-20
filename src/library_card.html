@@ -488,9 +488,13 @@
     return key === 'original' ? share(namLoad) : key === 'pedal' ? share(pedalLoad) :
       '~' + Math.round(namLoad * 29 / 36) + '% DSP after a firmware update';
   }
-  function notYet(key) {      // why the Floor cannot use this version yet ('' when it can)
-    return key === 'pedal' && !pedalBlock ? 'Pedal needs the pedal firmware' :
-      key === 'light16' ? 'Light saves DSP after a firmware update' : '';
+  function notYet(key) {      // why the Floor cannot use this version ('' when it can)
+    return key === 'pedal' && !pedalBlock ? 'Needs the pedal firmware' :
+      key === 'light16' ? 'Needs a firmware that skips layers' : '';
+  }
+  function effectiveDefault(capture) {   // the default the Floor plays: a chosen version it cannot play is the original
+    const key = capture?.defaultVersion || 'original';
+    return key !== 'original' && notYet(key) ? 'original' : key;
   }
   function blockOn(capture) {   // the version the selected block plays, when it plays this capture
     if (blockSlot == null || !capture) return null;
@@ -535,9 +539,10 @@
       const use = document.createElement('button');
       use.className = 'vuse'; use.dataset.key = key; use.textContent = 'Put on block';
       use.disabled = !!reason || q('#install').disabled;
-      use.title = reason ? reason + '. Until then the Original plays on the Floor.' : key === 'pedal' ?
+      use.title = reason ? reason + '.' : key === 'pedal' ?
         'Put the Pedal version on the selected block (HX Edit changes it to a NAM Pedal block). The preset is not saved.' :
         'Put the original capture back on the selected block (as a NAM A2 Lite block). The preset is not saved.';
+      useCell.title = use.title;
       useCell.append(use);
     }
     const deleteCell = cell('vdelcell');
@@ -550,11 +555,14 @@
     }
     const def = cell('vdef');
     const pick = document.createElement('input');
+    const reason = notYet(key);
     pick.type = 'radio'; pick.name = 'versionDefault'; pick.value = key; pick.className = 'vdefault';
-    pick.checked = (capture.defaultVersion || 'original') === key;
+    pick.checked = effectiveDefault(capture) === key;
+    pick.disabled = !!reason;
     pick.setAttribute('aria-label', 'Load the ' + info.name + ' version by default');
-    pick.title = 'Default: Load on Floor puts the ' + (key === 'original' ? 'original' : info.name + ' version') +
-      ' on the block' + (notYet(key) ? ' once the Floor can play it (until then, the original).' : '.');
+    pick.title = reason || 'Default: Load on Floor puts the ' + (key === 'original' ? 'original' : info.name + ' version') +
+      ' on the block.';
+    def.title = pick.title;            // a disabled control shows no tooltip of its own in every case
     def.append(pick);
     row.append(def, cell('vname', info.name), meta, verdict, hearCell, useCell, deleteCell);
     return row;
@@ -599,10 +607,7 @@
         'Comparing needs a recording of your guitar (Level presets).') : '';
     source.title = mine?.match ? matchText(mine.match, mine.label) : '';
     q('#listenRecord').hidden = !none || !canLevel;
-    const reasons = versions.map(version => notYet(version.key)).filter(Boolean);
-    q('#versionsNote').textContent = reasons.length ? 'Not on your Floor yet: ' + reasons.join('; ') +
-      '. Until then, Load on Floor uses the Original.' : '';
-    q('#versionsNote').hidden = !reasons.length;
+    q('#versionsNote').hidden = true;     // what the Floor cannot play is greyed out, the reason on hover
     const rendering = !!mine?.running;
     q('#listenMatch').textContent = rendering ? 'Rendering your ' + (mine.source || 'guitar') + ' recording through the original and the ' +
       (mine.label || 'version') + '…' : mine?.error ? mine.error : '';

@@ -147,6 +147,55 @@ def ask_floor(firmware_tools, *, find=None, opener=None, timeout=1.5):
         return None
 
 
+SEEN = 'floorFirmwareSeen'      # settings.json: what the Floor answered last time ({namCost, pedal, pedalCost})
+
+
+def remembered(settings=None):
+    """The Floor's last answer, or None."""
+    if settings is None:
+        from nam_catalog import load_settings
+        settings = load_settings()
+    try:
+        return from_dict(settings[SEEN], 'remembered') if SEEN in settings else None
+    except ValueError:
+        return None
+
+
+def remember(firmware):
+    from nam_catalog import save_setting
+    data = {'namCost': firmware.nam_cost, 'pedal': firmware.pedal}
+    if firmware.pedal:
+        data['pedalCost'] = firmware.pedal_cost
+    save_setting(SEEN, data)
+
+
+def detect(firmware_tools, *, ask=None, settings=None):
+    """The firmware the Floor runs, for this launch: its own answer (kept for next time); without one (no Floor, the
+    first minute after power-on, a build without command 0x53), a profile set by hand (HX_EDIT_FLOOR_FIRMWARE or
+    settings "floorFirmware"), else its last answer, else the basic NAM firmware (no NAM Pedal block, no layer
+    skipping): what the Floor cannot be shown to play is never offered. settings "floorFirmwareAsk": false skips
+    asking. Never raises."""
+    if settings is None:
+        from nam_catalog import load_settings
+        settings = load_settings()
+    asked = None
+    if settings.get('floorFirmwareAsk') is not False and os.environ.get('HX_EDIT_FLOOR_ASK') != '0':
+        asked = (ask or ask_floor)(firmware_tools)
+    if asked is not None:
+        try:
+            remember(asked)
+        except Exception as error:                # remembering is a convenience: never a failed launch
+            print(f'Could not remember the Floor firmware: {error}')
+        return asked
+    try:
+        configured = profile(settings)
+    except ValueError:
+        configured = FloorFirmware()
+    if configured.source != 'default':
+        return configured
+    return remembered(settings) or FloorFirmware(source='assumed')
+
+
 def record(resources, firmware):
     """Write the profile a prepared copy's catalog was built with into its res folder."""
     data = {k: v for k, v in asdict(firmware).items() if k != 'source'}

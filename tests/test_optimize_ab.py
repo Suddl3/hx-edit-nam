@@ -429,8 +429,8 @@ class ListenFlowTests(unittest.TestCase):
                            "listenSource === '' && !mine", "(capture.versionSlots?.pedal || []).includes(blockSlot)",
                            "host?.postMessage('listen:' + id + ':' + key)", "host?.postMessage('useVersion:' + id + ':' + key)",
                            "host?.postMessage('versionRemove:' + id + ':' + key)", "host?.postMessage('listenStop')",
-                           'listening = data.listen || null', "'Light saves DSP after a firmware update'",
-                           "'Pedal needs the pedal firmware'", 'Put on block', "'Not on your Floor yet: '", "make.id = 'suggestLight'", "'optimize:' + capture.id + ':' + kind",
+                           'listening = data.listen || null', "'Needs a firmware that skips layers'",
+                           "'Needs the pedal firmware'", 'pick.disabled = !!reason', 'effectiveDefault(capture)', 'Put on block', "make.id = 'suggestLight'", "'optimize:' + capture.id + ':' + kind",
                            'id="choosePedal"', 'id="chooseLight"', 'Make lighter…'):
                 self.assertIn(marker, page)
             self.assertNotIn('Remove the Pedal version', page)

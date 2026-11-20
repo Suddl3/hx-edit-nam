@@ -127,6 +127,42 @@ class AskFloorTests(unittest.TestCase):
 
 
 @unittest.skipUnless(BASELINE.is_dir(), 'requires the prepared HX Edit 3.82 baseline')
+class DetectTests(unittest.TestCase):
+    """floor_firmware.detect: the Floor's answer (remembered), else a hand-set profile, else the last answer, else the
+    basic NAM firmware."""
+
+    def run_detect(self, settings, answer):
+        saved = {}
+        with patch.dict(os.environ, {}, clear=False), patch('nam_catalog.save_setting', lambda k, v: saved.update({k: v})):
+            os.environ.pop('HX_EDIT_FLOOR_FIRMWARE', None)
+            os.environ.pop('HX_EDIT_FLOOR_ASK', None)
+            asked = []
+            got = floor_firmware.detect('tools', ask=lambda tools: asked.append(tools) or answer, settings=settings)
+        return got, saved, asked
+
+    def test_the_floor_answer_wins_and_is_remembered(self):
+        pedal = FloorFirmware(nam_cost=3250, pedal=True, pedal_cost=750, source='floor')
+        got, saved, asked = self.run_detect({'floorFirmwareSeen': {'namCost': 3600, 'pedal': False}}, pedal)
+        self.assertEqual((got.nam_cost, got.pedal, got.source), (3250, True, 'floor'))
+        self.assertEqual(saved, {'floorFirmwareSeen': {'namCost': 3250, 'pedal': True, 'pedalCost': 750}})
+        self.assertEqual(asked, ['tools'])
+
+    def test_no_answer_uses_the_last_one_else_the_basic_firmware(self):
+        got, saved, _ = self.run_detect({'floorFirmwareSeen': {'namCost': 3250, 'pedal': True}}, None)
+        self.assertEqual((got.nam_cost, got.pedal, got.source), (3250, True, 'remembered'))
+        self.assertEqual(saved, {})
+        got, _, _ = self.run_detect({}, None)
+        self.assertEqual((got.nam_cost, got.pedal, got.source), (3600, False, 'assumed'))
+        got, _, _ = self.run_detect({'floorFirmwareSeen': 'broken'}, None)
+        self.assertEqual(got.source, 'assumed')
+
+    def test_a_hand_set_profile_beats_the_last_answer_and_asking_can_be_off(self):
+        got, _, _ = self.run_detect({'floorFirmware': {'namCost': 3250}, 'floorFirmwareSeen': {'namCost': 3600}}, None)
+        self.assertEqual((got.nam_cost, got.source), (3250, 'settings'))
+        got, _, asked = self.run_detect({'floorFirmwareAsk': False}, FloorFirmware(pedal=True, source='floor'))
+        self.assertEqual((asked, got.pedal, got.source), ([], False, 'assumed'))
+
+
 class FloorCatalogTests(unittest.TestCase):
     def setUp(self):
         for name in ('nam_catalog.load_settings', 'nam_catalog.read_custom_names'):

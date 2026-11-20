@@ -12,6 +12,7 @@ from threading import Event
 
 ROOT = Path(__file__).resolve().parent
 # helix-lt-nam's converter: inside a built package (beside src), else beside the repository folder
+FLOOR_SEEN = None   # the Floor's firmware profile for this launch (floor_firmware.detect), set by the launcher
 CONVERTER = next((base / 'helix-lt-nam' / 'tools' / 'nam2ir.py' for base in (ROOT.parent, ROOT.parent.parent)
                   if (base / 'helix-lt-nam' / 'tools' / 'nam2ir.py').is_file()),
                  ROOT.parent.parent / 'helix-lt-nam' / 'tools' / 'nam2ir.py')
@@ -136,7 +137,11 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
     import nam_catalog
 
     # The Floor firmware this copy's catalog was built for (floor_firmware.py): the NAM Pedal block and pedal files.
-    floor_pedal = floor_reference and floor_firmware.recorded(exe.parent / 'res').pedal
+    # What the Floor itself runs, when the launcher asked it (FLOOR_SEEN, floor_firmware.detect): a NAM Pedal version
+    # is offered only when this copy's catalog has the block and the Floor has it too.
+    built = floor_firmware.recorded(exe.parent / 'res')
+    running = FLOOR_SEEN or built
+    floor_pedal = floor_reference and built.pedal and running.pedal
     if navigation and not floor_reference:
         raise ValueError('Navigation requires the Floor reference profile.')
     library = library if library is not None else Library()
@@ -217,8 +222,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                               trace_callback=trace if navigation else None,
                               optimize=bool(navigation and (exe.parent / 'res' / 'nam-optimize.flag').is_file()),
                               pedal_block=bool(navigation and floor_pedal),
-                              nam_load=floor_firmware.recorded(exe.parent / 'res').nam_load if floor_reference else 36.0,
-                              pedal_load=floor_firmware.recorded(exe.parent / 'res').pedal_load if floor_reference else 7.5,
+                              nam_load=running.nam_load if floor_reference else 36.0,
+                              pedal_load=running.pedal_load if floor_reference else 7.5,
                               level=bool(navigation), level_di=level_di(exe) if navigation else None)
         if navigation:
             from nam_sidebar import NamSidebar
@@ -401,14 +406,10 @@ def main():
         if args.floor_reference:
             import floor_firmware
             floor = floor_firmware.profile()
-            # Ask the Floor itself (firmware with editor command 0x53), opt-in until tried on the unit:
-            # settings.json "floorFirmwareAsk": true or HX_EDIT_FLOOR_ASK=1. Its answer wins over the setting.
-            from nam_catalog import load_settings
-            if os.environ.get('HX_EDIT_FLOOR_ASK') == '1' or load_settings().get('floorFirmwareAsk') is True:
-                asked = floor_firmware.ask_floor(CONVERTER.parent)
-                print('Floor firmware: ' + (f'{asked.describe()} (the Floor says)' if asked else
-                                            f'{floor.describe()} (the Floor did not say; from {floor.source})'))
-                floor = asked or floor
+            # Ask the Floor itself (editor command 0x53); without an answer, a profile set by hand, its last answer,
+            # else the basic NAM firmware (floor_firmware.detect). "floorFirmwareAsk": false skips asking.
+            floor = floor_firmware.detect(CONVERTER.parent)
+            print(f'Floor firmware: {floor.describe()} ({floor.source})')
         exe = prepare_copy(workspace, scan_error, hx_nam=args.hx_nam, floor=floor)
         if args.navigation:
             from nav_resources import patch_navigation_resources, patch_library_navigation
