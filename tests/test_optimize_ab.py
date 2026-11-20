@@ -419,11 +419,11 @@ class ListenFlowTests(unittest.TestCase):
             self.assertIn('Stopped.', texts)
             self.player.play.assert_not_called()
 
-    def test_the_page_has_listen_beside_the_quality_badge(self):
+    def test_the_page_has_hear_on_this_pc_beside_the_version_line(self):
         with tempfile.TemporaryDirectory() as folder:
             library, _ = pedal_library(folder)
             page = render_library(library.entries())
-            for marker in ('id="listenOriginal"', 'id="listenPedal"', 'id="listenStop"', 'id="listenBadge"',
+            for marker in ('id="listenOriginal"', 'id="listenPedal"', 'id="listenStop"', 'Hear on this PC:',
                            "'listen:' + selected + ':original'", "'listen:' + selected + ':pedal'",
                            "host?.postMessage('listenStop')", 'listening = data.listen || null',
                            'group.hidden = !canOptimize || !capture || !pedal', 'renderListen(capture, running ? null : pedal)'):

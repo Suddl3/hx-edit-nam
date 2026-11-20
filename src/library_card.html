@@ -162,12 +162,17 @@
   .levelHead { color: #8a8a8a; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
   #levelPanel .buttons { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }   /* the list gives way, not these panels */
   #optimizePanel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; background: #1e1e1e; border-top: 1px solid #404040; }
-  #optimizePanel p { margin: 0; flex-basis: 100%; }
+  #optimizePanel p { margin: 0; }
+  #versionLine { display: flex; align-items: center; gap: 8px; flex-basis: 100%; }
+  #versionLine p { flex: 1; min-width: 0; }
+  #optimizeInfo[data-quality="same"] b { color: #7fc48a; }
+  #optimizeInfo[data-quality="different"] b { color: #d9a441; }
+  #versionRemove { padding: 1px 8px; font-size: 12px; }
+  #optimizePanel .label { color: #aaa; min-width: 92px; }
   #optimizeBar { flex: 1; min-width: 80px; }
   #listen { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex-basis: 100%; }
   #listen button[aria-pressed="true"] { background: #3a3a3a; border-color: #888; color: #fff; }
   #listenMatch { color: #aaa; font-size: 12px; }
-  #listenBadge { margin-left: 0; }
   #useVersion { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex-basis: 100%; }
   #light { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; background: #1e1e1e; border-top: 1px solid #404040; }
   #light p { margin: 0; flex-basis: 100%; }
@@ -308,21 +313,23 @@
   <div id="lookScenes"></div>
 </section>
 <section id="optimizePanel" hidden aria-label="Optimized versions">
-  <p id="optimizeInfo" role="status"></p>
-  <span id="listen" hidden role="group" aria-label="Listen on this PC: the original against the Pedal version">Listen:
+  <div id="versionLine">
+    <p id="optimizeInfo" role="status"></p>
+    <button id="versionRemove" hidden title="Delete the Pedal version. The original capture stays.">Remove</button>
+  </div>
+  <span id="listen" hidden role="group" aria-label="Hear on this PC: the original against the Pedal version"
+        title="Plays a few seconds of your guitar through each on this PC (not the Floor), at the same loudness. Nothing on the Floor changes."><span class="label">Hear on this PC:</span>
     <button id="listenOriginal" aria-pressed="false" title="Play a few seconds of your guitar through the original capture on this PC">Original</button>
     <button id="listenPedal" aria-pressed="false" title="Play the same guitar through the Pedal version on this PC, at the same loudness">Pedal</button>
     <button id="listenStop" hidden>Stop</button>
-    <span id="listenBadge" class="chip"></span>
     <span id="listenMatch"></span>
   </span>
-  <span id="useVersion" hidden role="group" aria-label="Use on the selected NAM block">On the selected block:
+  <span id="useVersion" hidden role="group" aria-label="Put on the selected NAM block"><span class="label">Put on the block:</span>
     <button id="useOriginal" title="Put the original capture on the selected block (as a NAM A2 Lite block). The preset is not saved.">Original</button>
     <button id="usePedal" title="Put the Pedal version on the selected block (HX Edit changes it to a NAM Pedal block). The preset is not saved.">Pedal</button>
   </span>
   <progress id="optimizeBar" max="1" value="0" hidden></progress>
   <button id="optimizeCancel" hidden>Cancel</button>
-  <button id="versionRemove" hidden>Remove the Pedal version</button>
 </section>
 <section id="light" hidden aria-label="Lighter version">
   <span id="lightTitle"></span>
@@ -426,13 +433,10 @@
     for (const [id, which] of [['#listenOriginal', 'original'], ['#listenPedal', 'pedal']])
       q(id).setAttribute('aria-pressed', (rendering ? mine.which : mine?.playing) === which ? 'true' : 'false');
     q('#listenStop').hidden = !(rendering || mine?.playing);
-    const badge = q('#listenBadge');
-    badge.dataset.quality = pedal.quality;
-    badge.textContent = pedal.quality === 'same' ? 'Same' : pedal.quality === 'different' ? 'May differ ⚠' : 'Not compared';
-    badge.title = 'Pedal version: ' + qualityText(pedal) + (pedal.error != null ? ' (' + pct(pedal.error) + ' error)' : '');
+    // Only while there is something to say: the explanation is the row's tooltip.
     q('#listenMatch').textContent = rendering ? 'Rendering ' + (mine.source || 'your guitar') + ' through both…' :
       mine?.match ? matchText(mine.match) + ' Guitar: ' + (mine.source || '') + '.' :
-      mine?.error ? 'Listen: ' + mine.error : 'Plays on this PC, not the Floor, at the same loudness.';
+      mine?.error ? mine.error : '';
   }
 
   function renderOptimize(capture) {
@@ -457,10 +461,19 @@
     q('#useVersion').hidden = running || !pedal || !pedalBlock;
     q('#useOriginal').disabled = q('#usePedal').disabled = q('#install').disabled;
     renderListen(capture, running ? null : pedal);
-    q('#optimizeInfo').textContent = running ? 'Optimizing… step ' + (optimizing.step || 0) + ' of ' + (optimizing.steps || 400) :
-      pedal ? 'Pedal version: ' + qualityText(pedal) + (pedal.error != null ? ' (' + pct(pedal.error) + ' error)' : '') +
-        (pedalBlock ? '. It plays in a NAM Pedal block.' : '. It plays in a NAM Pedal block; using it needs Floor firmware with that block.') :
-      optimizing?.error ? 'Optimize: ' + optimizing.error : '';
+    const info = q('#optimizeInfo');
+    info.dataset.quality = !running && pedal ? pedal.quality : '';
+    info.title = pedal && !running ? 'Pedal version: ' + qualityText(pedal) + (pedal.error != null ? ' (' + pct(pedal.error) +
+      ' error)' : '') + '. It plays in a NAM Pedal block' + (pedalBlock ? '.' : ', which needs Floor firmware with that block.') : '';
+    if (running) info.textContent = 'Optimizing… step ' + (optimizing.step || 0) + ' of ' + (optimizing.steps || 400);
+    else if (pedal) {
+      // One short line: what the Pedal version is and how close it is (the details are the tooltip).
+      const close = document.createElement('b');
+      close.textContent = pedal.quality === 'same' ? 'sounds the same' :
+        pedal.quality === 'different' ? 'may sound a little different' : 'not compared yet';
+      info.replaceChildren('Pedal version: ', close, pedal.error != null ? ' · ' + pct(pedal.error) + ' error' : '',
+        pedalBlock ? '' : ' · needs pedal firmware');
+    } else info.textContent = optimizing?.error ? 'Optimize: ' + optimizing.error : '';
   }
 
   function slotText(row) {
