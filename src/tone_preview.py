@@ -506,6 +506,20 @@ class TonePreview:
             title = next((t for k, *_, t, _ in nam_modes.MODES if k == mode_now), None)
             return f'{block} · {title.rpartition(" · ")[0]}' if title else block
 
+        listen_source_seen = [0.0, None]
+
+        def listen_source_name():
+            """The guitar "Hear on this PC" would play ('' when there is none), looked up at most every 2 s."""
+            import time
+            if time.monotonic() - listen_source_seen[0] > 2.0:
+                import nam_ab
+                try:
+                    source = nam_ab.pick_source(extra=[self.level_di] if self.level_di else [])
+                except Exception:
+                    source = None
+                listen_source_seen[:] = [time.monotonic(), source['name'] if source else '']
+            return listen_source_seen[1]
+
         def status(message, busy=False):
             nonlocal text
             if not busy:
@@ -515,6 +529,7 @@ class TonePreview:
             inventory = None
             if self.navigation and self.library:
                 inventory = {'rows': [dict(id=identity, irSlots=entry.get('irSlots', []), pendingSlots=entry.get('pendingSlots', []),
+                                           versionSlots=entry.get('versionSlots', {}),
                                            slotState=entry.get('slotState', 'unverified'))
                                       for identity, entry in self.library.entries().items()]}
             browser.send('status', text=message, busy=busy, trial=trial if slot is not None else None,
@@ -526,7 +541,9 @@ class TonePreview:
                          installed=loaded_now,
                          can_train=not self.navigation,
                          optimize=optimizing, can_optimize=self.optimize, pedal_block=self.pedal_block,
-                         listen=listening,
+                         listen=listening, listen_source=listen_source_name() if self.optimize else None,
+                         block_model=self.navigation_state.get('blockModel'),
+                         block_slot=self.navigation_state.get('blockSlot'),
                          level=leveling.view() if leveling else None, can_level=self.level,
                          levelPage=level_page, lookPage=look_page,
                          look=look_view() if look_page else None,

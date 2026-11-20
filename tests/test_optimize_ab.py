@@ -423,7 +423,8 @@ class ListenFlowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             library, _ = pedal_library(folder)
             page = render_library(library.entries())
-            for marker in ('id="listenOriginal"', 'id="listenPedal"', 'id="listenStop"', 'Hear on this PC:',
+            for marker in ('id="listenOriginal"', 'id="listenPedal"', 'id="listenStop"', 'Hear on this PC', 'id="listenRecord"', "host?.postMessage('levelOpen')",
+                           "listenSource === '' && !mine", "(capture.versionSlots?.pedal || []).includes(blockSlot)",
                            "'listen:' + selected + ':original'", "'listen:' + selected + ':pedal'",
                            "host?.postMessage('listenStop')", 'listening = data.listen || null',
                            'group.hidden = !canOptimize || !capture || !pedal', 'renderListen(capture, running ? null : pedal)'):

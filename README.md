@@ -24,7 +24,7 @@ Some of HX Edit's own controls work differently here. None of this changes your 
 - **One click selects; it does not change the block.** Double-click a model, or press Enter, to put it on the block. The Up and Down arrows only move the selection. In stock HX Edit, every click and arrow press changes the block.
 - **The model the block is playing is shown in yellow.** Click away, or select another block, and the selection goes back to it.
 - **Drag any model from the picker onto the chain.** Drop it on a block to replace it, on an empty cell to add it, or between blocks to insert it.
-- **NAM categories** (NAM Amp, NAM Amp + cab, NAM Pedal, NAM Other) list your captures, and Amp > NAM is removed. Amp and Preamp gain an All / Guitar / Bass filter.
+- **NAM categories** (NAM Amp, NAM Amp + cab, NAM Cab, NAM Drive, NAM Other) list your captures, and Amp > NAM is removed. Amp and Preamp gain an All / Guitar / Bass filter.
 - **A padlock on the Model control** keeps a NAM block on its capture. Click it to unlock.
 
 ## What it adds

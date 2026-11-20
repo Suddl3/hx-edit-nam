@@ -142,7 +142,7 @@ class NavigationWorkerTests(unittest.TestCase):
         with patch('tone_preview.Thread'):
             p.browse(b, 5, 't3k_pub_test')
         self.assertFalse(any(x['type'] == 'card' for x in b.sent))
-        self.assertEqual(b.sent[-1]['inventory']['rows'], [dict(id='abc', irSlots=[7, 14], pendingSlots=[], slotState='verified')])
+        self.assertEqual(b.sent[-1]['inventory']['rows'], [dict(id='abc', irSlots=[7, 14], pendingSlots=[], versionSlots={}, slotState='verified')])
 
     def test_known_converted_payload_registration_notifies_native_metadata(self):
         callback, library = Mock(), Mock()
@@ -248,6 +248,7 @@ class NavigationNativeTests(unittest.TestCase):
           const sent=[],counts=[],selectedTarget=()=>selected,atTarget=()=>true,controllerReady=()=>true;
           const send=value=>sent.push(value),invalidate=()=>{throw Error('unexpected invalidation');};
           const autoBindSelected=()=>{}; // Full binding/cleanup is exercised by tone_navigation_flow_probe.cjs.
+        const boundModel=()=>null,boundSlot=()=>null;
         ''' + function('publishTarget') + function('observeController') + '''
           for(let i=0;i<5000;i++)observeController('A');
           counts.push(sent.length);
@@ -299,6 +300,7 @@ class NavigationNativeTests(unittest.TestCase):
           const autoBindSelected=()=>{},refreshBounds=()=>{},allowForeground=()=>{};
           const dockPanel={isNull:()=>false},panelBounds=()=>({visible:true,x:80,y:100,w:500,h:600});
           const targets=()=>sent.filter(value=>value.type==='toneTarget');
+        const boundModel=()=>null,boundSlot=()=>null;
         ''' + function('publishTarget') + function('observeController') + function('invalidate') + \
             function('afterRestore') + function('openBrowser') + '''
           observeController('A');

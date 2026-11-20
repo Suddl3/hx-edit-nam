@@ -288,7 +288,7 @@ const assert=require('node:assert/strict');
 const profile={pickerSides:{'NAM Amp':2,bad:'x'}};
 ''' + sides + r'''
 assert.equal(rememberedSide('NAM Amp'),SIDE_BASS);
-assert.equal(rememberedSide('NAM Pedal'),SIDE_ALL);          // never picked: All
+assert.equal(rememberedSide('NAM Drive'),SIDE_ALL);          // never picked: All
 assert.equal(rememberedSides.has('bad'),false);
 const bass={instrument:'bass'},guitar={instrument:'guitar'},any={instrument:'any'},old={};
 assert.deepEqual([bass,guitar,any,old].map(c=>onSide(c,SIDE_ALL)),[true,true,true,true]);

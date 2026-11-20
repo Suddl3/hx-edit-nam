@@ -14,7 +14,7 @@ class NamCategoryCatalogTests(unittest.TestCase):
         models = [{'id\0': 'HD2_AmpNAMLite\0', 'name\0': 'NAM A2 Lite\0', 'image\0': 'x.png\0', 'params\0': []}]
         rows = [nam_category_rows(index, models) for index in range(1, len(NAM_CATEGORY_GROUPS) + 1)]
         self.assertEqual([name for name, _ in NAM_CATEGORY_GROUPS],
-                         ['NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Pedal', 'NAM Other'])
+                         ['NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Drive', 'NAM Other'])
         self.assertEqual([row[0]['name\0'] for row in rows], ['NAM A2 Lite' + ' ' * n + '\0' for n in range(1, 6)])
         # The same model identity everywhere; the source row is not modified.
         self.assertTrue(all(row[0]['id\0'] == 'HD2_AmpNAMLite\0' for row in rows))
@@ -50,7 +50,7 @@ const installed=[{slot:127,name:'Deluxe Reverb',gear:'amp-cab'},{slot:9,name:'FN
 installed.push({slot:50,name:'Ampeg SVT',gear:'amp',instrument:'bass'},{slot:51,name:'Darkglass B7K',gear:'pedal',instrument:'bass'},
   {slot:52,name:'Both ways amp',gear:'amp',instrument:'any'});
 const namView={installedCaptures:()=>installed};
-const NAM_CATEGORY_NAMES=['NAM Amp','NAM Amp + cab','NAM Cab','NAM Pedal','NAM Other'];
+const NAM_CATEGORY_NAMES=['NAM Amp','NAM Amp + cab','NAM Cab','NAM Drive','NAM Other'];
 ''' + helpers + r'''
 assert.deepEqual(['amp','preamp','amp-cab','amp-pedal-cab','cab','pedal','pedal-amp','','studio','experimental'].map(captureGroup),
   [1,1,2,2,3,4,4,5,5,5]);
@@ -141,7 +141,7 @@ const NULL={isNull:()=>true,equals:o=>o===NULL,toString:()=>'0'};
 const Memory={allocUtf8String:text=>({text})};
 const method=()=>()=>{};
 const profile={namCategory:true}, tiles=[{block:'NAM A2 Lite'}], selectionEvent=1;
-const NAM_CATEGORY_NAMES=['NAM Amp','NAM Amp + cab','NAM Cab','NAM Pedal','NAM Other'];
+const NAM_CATEGORY_NAMES=['NAM Amp','NAM Amp + cab','NAM Cab','NAM Drive','NAM Other'];
 let active=null,command=null,workflowRequest=null,toneImport=null,pendingCapture=null;
 const sent=[],send=v=>sent.push(v);
 const captureRows=new Map(),captureLabels=new Map();
@@ -203,7 +203,7 @@ assert.equal(models.rows[models.selected].text,'10: BRIT50 Plexi');
 // Opening another NAM category by hand is left alone while nothing changes.
 categories.selected=4; modelEvent(controller,1,categories);
 appendCaptureRows({header:models.rows[0].text,list:models,image:NULL,index:0,model:NULL});
-listCheckAt=0; refreshCaptureList(); assert.equal(rebuilds,6); assert.equal(categories.rows[categories.selected].text,'NAM Pedal');
+listCheckAt=0; refreshCaptureList(); assert.equal(rebuilds,6); assert.equal(categories.rows[categories.selected].text,'NAM Drive');
 // Not while a preview is running, and not when a stock category is on show.
 installed=[]; active={transfer:{}}; listCheckAt=0; refreshCaptureList(); assert.equal(rebuilds,6);
 active=null; categories.selected=0; listCheckAt=0; refreshCaptureList(); assert.equal(rebuilds,6);

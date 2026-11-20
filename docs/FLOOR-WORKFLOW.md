@@ -111,8 +111,8 @@ The offline suite is 249 tests. It is not a substitute for the checks below.
 An experiment added after Candidate63, off unless the launcher is given
 `--nam-category`. With it:
 
-- the block selector gains four categories after Looper (NAM Amp, NAM Amp + cab,
-  NAM Pedal, NAM Other), under a thin line; Amp > NAM is removed;
+- the block selector gains five categories after Looper (NAM Amp, NAM Amp + cab,
+  NAM Cab, NAM Drive, NAM Other), under a thin line; Amp > NAM is removed;
 - each lists the NAM A2 Lite block and the captures of that type that are on the
   Floor; picking a capture sets the block to it;
 - the block in the signal path shows the icon of its capture's type;

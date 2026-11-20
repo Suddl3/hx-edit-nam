@@ -71,7 +71,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // Sides of the dropdown (nam_catalog.PICKER_SIDES): All 99, Guitar 1, Bass 2. Each category
   // remembers the side last picked there (floor-memory.json); never picked: All.
   const SIDE_ALL = 99, SIDE_GUITAR = 1, SIDE_BASS = 2;
-  const SIDED_CATEGORIES = new Set(['Amp', 'Amp+Cab', 'Preamp', 'NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Pedal',
+  const SIDED_CATEGORIES = new Set(['Amp', 'Amp+Cab', 'Preamp', 'NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Drive',
     'NAM Other']);
   const rememberedSides = new Map(Object.entries(profile.pickerSides && typeof profile.pickerSides === 'object' ?
     profile.pickerSides : {}).filter(([, value]) => Number.isInteger(value)));
@@ -389,6 +389,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     const bound = active.bound && !active.quarantined && atTarget();
     const payload = { type: 'toneTarget', session: active.id, version: active.targetVersion,
       bound: !!bound, label: bound ? active.targetLabel : '',
+      // What the bound block plays (the library's Original | Pedal switch shows it): its model and capture slot.
+      blockModel: bound ? boundModel() : null, blockSlot: bound ? boundSlot() : null,
       selected: selected ? selected.label : '', canBind: payloadCanBind(selected),
       preview: !!active.transfer || !!active.orphanTransfer || !!active.pendingTransfer, quarantined: !!active.quarantined,
       text: text || (bound ? active.transfer ? 'Auditioning in User IR 128. Input and EQ stay with this block.' :
@@ -2414,7 +2416,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // exchanged between these four siblings of the same model; nothing is sent to the device.
   // (Addresses and layouts: BLOCK-ICON-RESEARCH.md; confirmed by probes on November 13.)
   const NAM_MODEL_ID = 'HD2_AmpNAMLite';
-  const NAM_CATEGORY_NAMES = ['NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Pedal', 'NAM Other'];  // nam_catalog.NAM_CATEGORY_GROUPS
+  const NAM_CATEGORY_NAMES = ['NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Drive', 'NAM Other'];  // nam_catalog.NAM_CATEGORY_GROUPS
   const namRecords = new Map();      // "category name:subcategory index" -> that record of the NAM model
   const flowDsp = new Map();         // path object -> its DSP index
   const flowItems = new Map();       // path item -> {item, object, vtable}, to redraw after a change
@@ -4005,6 +4007,10 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
 
   // Optimize versions (NAM Pedal firmware builds): the NAM block a capture plays in, by model symbol.
   const NAM_BLOCKS = {HD2_AmpNAMLite: 'NAM A2 Lite', HD2_AmpNAMPedal: 'NAM Pedal'};
+
+  function boundSlot() {
+    try { const slot = namView.modelSlot(); return Number.isInteger(slot) ? slot : null; } catch (_) { return null; }
+  }
 
   function boundModel() {
     // The bound block's model symbol, from the preset as the editor holds it; null when it cannot be read.

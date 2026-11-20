@@ -173,6 +173,12 @@
   #listen { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex-basis: 100%; }
   #listen button[aria-pressed="true"] { background: #3a3a3a; border-color: #888; color: #fff; }
   #listenMatch { color: #aaa; font-size: 12px; }
+  #listenSource { color: #ccc; }
+  .switch { display: inline-flex; }
+  .switch button { border-radius: 0; margin: 0; }
+  .switch button:first-child { border-radius: 3px 0 0 3px; }
+  .switch button:last-child { border-radius: 0 3px 3px 0; border-left: 0; }
+  .switch button[aria-pressed="true"] { background: #5a3c7a; border-color: #9a6bd0; color: #fff; }
   #useVersion { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex-basis: 100%; }
   #light { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; background: #1e1e1e; border-top: 1px solid #404040; }
   #light p { margin: 0; flex-basis: 100%; }
@@ -318,15 +324,15 @@
     <button id="versionRemove" hidden title="Delete the Pedal version. The original capture stays.">Remove</button>
   </div>
   <span id="listen" hidden role="group" aria-label="Hear on this PC: the original against the Pedal version"
-        title="Plays a few seconds of your guitar through each on this PC (not the Floor), at the same loudness. Nothing on the Floor changes."><span class="label">Hear on this PC:</span>
+        title="Plays a few seconds of your guitar through each on this PC (not the Floor), at the same loudness. Nothing on the Floor changes."><span class="label">Hear on this PC<span id="listenSource"></span>:</span>
+    <button id="listenRecord" hidden title="Opens Level presets, where you record 10 seconds of your guitar once (kept on this PC). Both versions are then played with it.">Record your guitar…</button>
     <button id="listenOriginal" aria-pressed="false" title="Play a few seconds of your guitar through the original capture on this PC">Original</button>
     <button id="listenPedal" aria-pressed="false" title="Play the same guitar through the Pedal version on this PC, at the same loudness">Pedal</button>
     <button id="listenStop" hidden>Stop</button>
     <span id="listenMatch"></span>
   </span>
-  <span id="useVersion" hidden role="group" aria-label="Put on the selected NAM block"><span class="label">Put on the block:</span>
-    <button id="useOriginal" title="Put the original capture on the selected block (as a NAM A2 Lite block). The preset is not saved.">Original</button>
-    <button id="usePedal" title="Put the Pedal version on the selected block (HX Edit changes it to a NAM Pedal block). The preset is not saved.">Pedal</button>
+  <span id="useVersion" hidden role="group" aria-label="Put on the selected NAM block"><span class="label">Selected block plays:</span>
+    <span class="switch"><button id="useOriginal" aria-pressed="false" title="Put the original capture on the selected block (as a NAM A2 Lite block). The preset is not saved.">Original</button><button id="usePedal" aria-pressed="false" title="Put the Pedal version on the selected block (HX Edit changes it to a NAM Pedal block). The preset is not saved.">Pedal</button></span>
   </span>
   <progress id="optimizeBar" max="1" value="0" hidden></progress>
   <button id="optimizeCancel" hidden>Cancel</button>
@@ -388,6 +394,7 @@
   let sort = { key: 'name', direction: 1 };
   let selected = null, trial = null, busy = false, light = null, lightShown = false, canInstall = false, canTrain = true;
   let optimizing = null, canOptimize = false, pedalBlock = false;   // pedalBlock: the Floor's firmware has NAM Pedal
+  let listenSource = null, blockModel = null, blockSlot = null;   // the guitar Hear on this PC plays; the bound block
   let listening = null;   // Optimize A/B on this PC: {id, which, running, playing, match, source, error}
   let leveling = null, canLevel = false, levelPage = false;
   let look = null, lookPage = false, lookShown = '';   // the Floor look page (HX Unbound menu)
@@ -430,9 +437,15 @@
     if (group.hidden) return;
     const mine = listening && listening.id === capture.id ? listening : null;
     const rendering = !!mine?.running;
+    // No guitar to play through both yet: one button to record it (Level presets), not an error after a click.
+    const none = listenSource === '' && !mine;
+    q('#listenSource').textContent = listenSource ? ' (' + listenSource + ')' : '';
+    q('#listenRecord').hidden = !none || !canLevel;
+    q('#listenOriginal').hidden = q('#listenPedal').hidden = none;
     for (const [id, which] of [['#listenOriginal', 'original'], ['#listenPedal', 'pedal']])
       q(id).setAttribute('aria-pressed', (rendering ? mine.which : mine?.playing) === which ? 'true' : 'false');
     q('#listenStop').hidden = !(rendering || mine?.playing);
+    if (none) { q('#listenMatch').textContent = canLevel ? '' : 'Needs a recording of your guitar (Level presets).'; return; }
     // Only while there is something to say: the explanation is the row's tooltip.
     q('#listenMatch').textContent = rendering ? 'Rendering ' + (mine.source || 'your guitar') + ' through both…' :
       mine?.match ? matchText(mine.match) + ' Guitar: ' + (mine.source || '') + '.' :
@@ -460,6 +473,13 @@
     // (block type and slot together; one Undo step each in HX Edit). Enabled as Load on Floor is.
     q('#useVersion').hidden = running || !pedal || !pedalBlock;
     q('#useOriginal').disabled = q('#usePedal').disabled = q('#install').disabled;
+    // Which one the selected block plays, when it plays this capture (its slot is one of the capture's).
+    // (the Pedal version is a payload of its own, in its own slot: versionSlots.pedal).
+    const onBlock = blockSlot == null || !capture ? null :
+      blockModel === 'HD2_AmpNAMPedal' ? ((capture.versionSlots?.pedal || []).includes(blockSlot) ? 'pedal' : null) :
+      (capture.irSlots || []).includes(blockSlot) ? 'original' : null;
+    q('#useOriginal').setAttribute('aria-pressed', onBlock === 'original' ? 'true' : 'false');
+    q('#usePedal').setAttribute('aria-pressed', onBlock === 'pedal' ? 'true' : 'false');
     renderListen(capture, running ? null : pedal);
     const info = q('#optimizeInfo');
     info.dataset.quality = !running && pedal ? pedal.quality : '';
@@ -472,7 +492,7 @@
       close.textContent = pedal.quality === 'same' ? 'sounds the same' :
         pedal.quality === 'different' ? 'may sound a little different' : 'not compared yet';
       info.replaceChildren('Pedal version: ', close, pedal.error != null ? ' · ' + pct(pedal.error) + ' error' : '',
-        pedalBlock ? '' : ' · needs pedal firmware');
+        pedalBlock ? '' : ' · for the NAM Pedal block, coming with the pedal firmware');
     } else info.textContent = optimizing?.error ? 'Optimize: ' + optimizing.error : '';
   }
 
@@ -1035,9 +1055,10 @@
   q('#optimizeCancel').onclick = () => host?.postMessage('optimizeCancel');
   q('#listenOriginal').onclick = () => { if (canOptimize && selected) host?.postMessage('listen:' + selected + ':original'); };
   q('#listenPedal').onclick = () => { if (canOptimize && selected) host?.postMessage('listen:' + selected + ':pedal'); };
+  q('#listenRecord').onclick = () => host?.postMessage('levelOpen');   // record once there; Hear on this PC then uses it
   q('#listenStop').onclick = () => host?.postMessage('listenStop');
-  q('#useOriginal').onclick = () => { if (pedalBlock && selected && !q('#useOriginal').disabled) host?.postMessage('useVersion:' + selected + ':original'); };
-  q('#usePedal').onclick = () => { if (pedalBlock && selected && !q('#usePedal').disabled) host?.postMessage('useVersion:' + selected + ':pedal'); };
+  q('#useOriginal').onclick = () => { if (pedalBlock && selected && !q('#useOriginal').disabled && q('#useOriginal').getAttribute('aria-pressed') !== 'true') host?.postMessage('useVersion:' + selected + ':original'); };
+  q('#usePedal').onclick = () => { if (pedalBlock && selected && !q('#usePedal').disabled && q('#usePedal').getAttribute('aria-pressed') !== 'true') host?.postMessage('useVersion:' + selected + ':pedal'); };
   q('#versionRemove').onclick = async () => {
     const id = selected;
     if (id && await ask('Remove the Pedal version? The original capture stays.', 'Remove version') && id === selected)
@@ -1341,6 +1362,7 @@
         const update = data.inventory.rows.find(item => item.id === row.id);
         row.irSlots = update?.irSlots || [];
         row.pendingSlots = update?.pendingSlots || [];
+        row.versionSlots = update?.versionSlots || {};
         row.slotState = data.inventory.state || update?.slotState || 'unverified';
       }
     }
@@ -1356,6 +1378,9 @@
     look = data.look || null;
     optimizing = data.optimize || null;
     listening = data.listen || null;
+    listenSource = typeof data.listen_source === 'string' ? data.listen_source : null;
+    blockModel = data.block_model || null;
+    blockSlot = Number.isInteger(data.block_slot) ? data.block_slot : null;
     q('#status').textContent = q('#status').title = data.text || '';
     q('#target').textContent = data.target || '';
     q('#target').hidden = !data.target || !!data.navigation;
