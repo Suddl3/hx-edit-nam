@@ -169,13 +169,18 @@
   #optimizePanel { flex-direction: column; align-items: stretch; gap: 4px; }
   #optimizePanel p { margin: 0; }
   #versionsHead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; max-width: 760px; }
-  #versionsToggle { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: #cfcfcf; }
+  #optimizePanel { background: #1d1a22; border-top-color: #3a3046; }
+  #versionsToggle { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: #cfcfcf;
+                    padding: 2px 10px 2px 8px; border: 1px solid #4a3d5c; border-radius: 12px; background: #2a2233; }
+  #versionsToggle:hover { border-color: #9a6bd0; }
+  #versionsToggle .count { color: #c9aef0; font-size: 11px; }
   #versionsToggle:focus-visible { outline: 2px solid #fa8585; outline-offset: 2px; border-radius: 3px; }
   #versionsToggle b { color: #eee; font-weight: 600; }
   #versionsToggle .names { color: #a9a9a9; }
   #versionsToggle .dot { width: 5px; height: 5px; border-radius: 50%; background: #b8893a; }
   #versionsToggle .chev { color: #888; transition: transform .15s; }
-  #optimizePanel:not(.collapsed) #versionsToggle .names, #optimizePanel:not(.collapsed) #versionsToggle .dot { display: none; }
+  #optimizePanel:not(.collapsed) #versionsToggle .names, #optimizePanel:not(.collapsed) #versionsToggle .dot,
+  #optimizePanel.collapsed #versionsToggle .count { display: none; }
   #optimizePanel:not(.collapsed) #versionsToggle .chev { transform: rotate(90deg); }
   #optimizePanel.collapsed #versionRows, #optimizePanel.collapsed #listenSource, #optimizePanel.collapsed #listenRecord,
   #optimizePanel.collapsed #listenMatch { display: none !important; }
@@ -203,8 +208,9 @@
   body:not(.levelMode):not(.lookMode) footer #finish { display: none; }
   @media (max-width: 560px) { #catalog .label { display: none; } header select { max-width: 96px; } }
   /* Type and Instrument read as text; a row's dropdowns show on hover, on the selected row and while in use. */
-  tbody tr:not(:hover):not([aria-selected="true"]) td select:not(:focus) { -webkit-appearance: none; appearance: none;
-      background: transparent; border-color: transparent; color: #bdbdbd; }
+  td select { -webkit-appearance: none; appearance: none; padding: 1px 22px 1px 4px; background: #333 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23cfcfcf' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") right 7px center / 9px 6px no-repeat; }
+  tbody tr:not(:hover):not([aria-selected="true"]) td select:not(:focus) { background-color: transparent; background-image: none;
+      border-color: transparent; color: #bdbdbd; }
   #listenSource { color: #9a9a9a; font-size: 12px; flex: 1; min-width: 0; }
   #versionRows { display: flex; flex-direction: column; gap: 2px; max-width: 760px; }
   /* One grid for every row, so Hear, Put on block and the delete cross line up whatever the text. */
@@ -251,7 +257,15 @@
   #choose .option::after { content: '\203A'; position: absolute; right: 11px; top: 50%; transform: translateY(-50%); color: #888; font-size: 18px; }
   #choose .option b { display: block; margin-bottom: 2px; }
   #choose .option small { color: #aaa; }
-  #choose .option em { font-style: normal; color: #d8c4f2; margin-left: 6px; font-size: 11px; font-weight: 400; }
+  #choose .option b { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  #choose .tags { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 11px; font-weight: 400; }
+  #choose .badge { padding: 0 7px; border-radius: 9px; line-height: 17px; border: 1px solid; }
+  #choose .badge.made { color: #a8dcb1; border-color: #3d7a46; background: #1d2e20; }
+  #choose .badge.suggested { color: #e2d2f7; border-color: #7a5aa6; background: #2a2233; }
+  #choose .badge.off { color: #9a9a9a; border-color: #4a4a4a; }
+  #choose .tags .same { color: #7fc48a; }
+  #choose .tags .different { color: #c9a25a; }
+  #choose .tags .quiet { color: #8a8a8a; }
   #light { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 10px; background: #1e1e1e; border-top: 1px solid #404040; }
   #light p { margin: 0; flex-basis: 100%; }
   #light .note { color: #aaa; font-size: 12px; }
@@ -343,16 +357,16 @@
 <div id="choose" role="dialog" aria-modal="true" aria-labelledby="chooseTitle" hidden>
   <div class="panel">
     <p id="chooseTitle"></p>
-    <button class="option" id="choosePedal"><b>Pedal version<em id="choosePedalTag"></em></b>
+    <button class="option" id="choosePedal"><b>Pedal version<span class="tags" id="choosePedalTag"></span></b>
       <small id="choosePedalText"></small></button>
-    <button class="option" id="chooseLight"><b>Light version<em id="chooseLightTag"></em></b>
+    <button class="option" id="chooseLight"><b>Light version<span class="tags" id="chooseLightTag"></span></b>
       <small id="chooseLightText"></small></button>
     <div class="buttons"><button id="chooseCancel">Cancel</button></div>
   </div>
 </div>
 <div id="moreMenu" role="menu" hidden>
   <button role="menuitem" data-for="lighter"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2 11h10M4 8.5h6M6 6h2"/></svg><span>Lighter…</span></button>
-  <button role="menuitem" data-for="optimize"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2 11h10M4 8.5h6M6 6h2"/></svg><span>Make lighter…</span></button>
+  <button role="menuitem" data-for="optimize"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2 11h10M4 8.5h6M6 6h2"/></svg><span>Make a lighter version…</span></button>
   <button role="menuitem" data-for="changeIcon"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="1.5" y="2.5" width="11" height="9" rx="1.5"/><path d="M3 10l3-3 2 2 1.5-1.5L11 10"/></svg><span>Change icon…</span></button>
   <hr>
   <button role="menuitem" data-for="remove" class="danger"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4h9M5.5 4V2.5h3V4M3.8 4l.6 8h5.2l.6-8"/></svg><span>Remove from library…</span></button>
@@ -411,7 +425,7 @@
 </section>
 <section id="optimizePanel" hidden aria-label="Versions of this capture">
   <div id="versionsHead">
-    <button id="versionsToggle" aria-expanded="false"><span class="chev">▸</span><b>Versions</b><span class="names"></span><span class="dot" hidden></span></button>
+    <button id="versionsToggle" aria-expanded="false"><span class="chev">▸</span><b>Versions</b><span class="count"></span><span class="names"></span><span class="dot" hidden></span></button>
     <span id="listenSource"></span>
     <button id="listenRecord" hidden title="Opens Level presets, where you record 10 seconds of your guitar once (kept on this PC). Hear then plays it through each version.">Record your guitar…</button>
   </div>
@@ -632,6 +646,7 @@
     panel.classList.toggle('collapsed', !open);
     q('#versionsToggle').setAttribute('aria-expanded', String(open));
     q('#versionsToggle .names').textContent = ['Original', ...versions.map(version => VERSION_INFO[version.key].name)].join(' · ');
+    q('#versionsToggle .count').textContent = String(versions.length + 1);
     q('#versionsToggle .dot').hidden = !versions.some(version => version.quality === 'different');
     q('#versionsToggle').title = open ? 'Hide the versions' : 'Show the versions: hear, compare and choose the default';
     const onBlock = blockOn(capture);
@@ -688,11 +703,15 @@
       'Floor until a firmware update; then about ' + Math.round(namLoad * 29 / 36) + '% of a DSP instead of ' + full + '.';
     q('#chooseTitle').textContent = 'Make a lighter version of “' + capture.name + '”. The original is kept.';
     q('#choosePedal').disabled = !pedalSuits;
-    const made = version => 'made · ' + (version.quality === 'same' ? 'sounds the same' :
-      version.quality === 'different' ? 'may sound different' : 'not compared') + ' · making it again replaces it';
-    q('#choosePedalTag').textContent = !pedalSuits ? 'pedal captures only' : pedal ? made(pedal) : !light ? 'suggested' : '';
-    q('#chooseLightTag').textContent = light ? made(light) :
-      !pedalSuits || pedal?.quality === 'different' ? 'suggested' : '';
+    const span = (className, text) => { const s = document.createElement('span'); s.className = className; s.textContent = text; return s; };
+    const made = version => [span('badge made', '✓ Made'),
+      span(version.quality === 'same' ? 'same' : version.quality === 'different' ? 'different' : 'quiet',
+        version.quality === 'same' ? 'sounds the same' : version.quality === 'different' ? 'may sound different' : 'not compared'),
+      span('quiet', '· making it again replaces it')];
+    q('#choosePedalTag').replaceChildren(...(!pedalSuits ? [span('badge off', 'Pedal captures only')] : pedal ? made(pedal) :
+      !light ? [span('badge suggested', 'Suggested')] : []));
+    q('#chooseLightTag').replaceChildren(...(light ? made(light) :
+      !pedalSuits || pedal?.quality === 'different' ? [span('badge suggested', 'Suggested')] : []));
     box.hidden = false;
     host?.postMessage('dialog:open');
     q(pedalSuits && !(pedal?.quality === 'different') ? '#choosePedal' : '#chooseLight').focus();
