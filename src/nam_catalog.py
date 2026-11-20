@@ -285,6 +285,34 @@ def patch_model_art(resources):
     return replaced
 
 
+CHAIN_MODELS = ROOT / 'helix_model_icons' / 'chain'      # make_chain_pictures.py
+CHAIN_CAPTURES = CAPTURE_ICONS / 'chain'
+
+
+def patch_chain_art(resources):
+    """The signal-chain pictures (HX Unbound menu, Options: "3D pictures in the signal chain"): each stock model's
+    3D render and each NAM capture picture at the chain icon's size, as res/icons_models/CHAIN_<stock file> and
+    CHAIN_NAMCAP_<id>.png. tone_view shows them only while the option is on. Returns how many were added."""
+    models = resources / 'icons_models'
+    added = 0
+    for picture in sorted(CHAIN_MODELS.glob('*.png')):
+        if (models / picture.name).is_file():
+            shutil.copyfile(picture, models / f'CHAIN_{picture.name}')
+            added += 1
+    for picture in sorted(CHAIN_CAPTURES.glob('*.png')):
+        shutil.copyfile(picture, models / f'CHAIN_NAMCAP_{picture.name}')
+        added += 1
+    return added
+
+
+def chain_art_files(resources):
+    """The CHAIN_*.png pictures a prepared copy has (tone_view asks HX Edit only for these)."""
+    try:
+        return sorted(path.name for path in (Path(resources) / 'icons_models').glob('CHAIN_*.png'))
+    except OSError:
+        return []
+
+
 def patch_nam_category(resources):
     """Experiment: NAM capture categories in the block selector, under their own heading.
 
@@ -317,6 +345,7 @@ def patch_nam_category(resources):
     for _, name in NAM_CATEGORY_GROUPS:
         shutil.copyfile(NAM_CATEGORY_ICONS / name, icons / name)
     add_capture_pictures(resources)
+    patch_chain_art(resources)
 
     identifier = max(category['id\0'] for category in categories)
     after_stock = next(index for index, category in enumerate(categories)

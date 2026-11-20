@@ -46,6 +46,7 @@ class DspMeter:
         self.dsp = [None, None]
         self.notice = None
         self.ir_dots = None       # the HX Unbound menu's "Mark NAM slots in the IR list" tick (set_ir_dots)
+        self.chain_art = None     # its "3D pictures in the signal chain" tick (set_chain_art)
         self.ghost = None         # {name, icon, over} while a model from the block picker is dragged
         self.ghost_shown = False
         self.icons = Path(icons) if icons else None   # HX Edit's res/icons_models
@@ -84,7 +85,7 @@ class DspMeter:
         if self.on_choice and getattr(self.process, 'stdout', None) is not None:
             Thread(target=self._clicks, args=(self.process.stdout,), daemon=True).start()
 
-    CHOICES = ('level', 'look', 'library', 'irDots')
+    CHOICES = ('level', 'look', 'library', 'irDots', 'chainArt')
 
     def _clicks(self, output):
         # The helper writes one line per choice from the HX Unbound menu.
@@ -109,6 +110,8 @@ class DspMeter:
             state['notice'], self.notice = self.notice, None
         if self.ir_dots is not None:
             state['irDots'] = self.ir_dots
+        if self.chain_art is not None:
+            state['chainArt'] = self.chain_art
         if self.ghost is not None or self.ghost_shown:
             state['ghost'] = self.ghost             # shown, or one line to hide it
             self.ghost_shown = self.ghost is not None
@@ -144,6 +147,8 @@ class DspMeter:
                 self.notice = value
             elif kind == 'irDots':
                 self.ir_dots = value
+            elif kind == 'chainArt':
+                self.chain_art = value
             elif kind == 'ghost':
                 self.ghost = self._ghost(value)
             self._send()
@@ -178,6 +183,9 @@ class DspMeter:
             ghost['hint'] = value.get('hint') if value.get('hint') in ('place', 'replace', 'insert', 'full') else 'none'
         ghost.setdefault('hint', 'none')
         return ghost
+
+    def set_chain_art(self, on):
+        self.queue.put(('chainArt', bool(on)))
 
     def set_ir_dots(self, on):
         self.queue.put(('irDots', bool(on)))

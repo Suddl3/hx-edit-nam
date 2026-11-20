@@ -1398,6 +1398,8 @@ class UnboundButton : Form
     ToolStripMenuItem irDots;
     // The menu has no image margin, so the tick is part of the label (a fixed-width space when off).
     public void SetIrDots(bool on){ if(irDots!=null)irDots.Text=(on?"\u2713":"\u2003")+"  Mark NAM slots in the IR list"; }
+    ToolStripMenuItem chainArt;
+    public void SetChainArt(bool on){ if(chainArt!=null)chainArt.Text=(on?"\u2713":"\u2003")+"  3D pictures in the signal chain"; }
     public UnboundButton(IntPtr parent){
         this.parent=parent;
         FormBorderStyle=FormBorderStyle.None; ShowInTaskbar=false; StartPosition=FormStartPosition.Manual;
@@ -1420,6 +1422,9 @@ class UnboundButton : Form
         irDots.Click+=(sender,e)=>{try{Console.Out.WriteLine("irDots");Console.Out.Flush();}catch(Exception){}};
         menu.Items.Add(irDots);
         SetIrDots(true);
+        chainArt=new ToolStripMenuItem("\u2003  3D pictures in the signal chain"){ForeColor=Ink};
+        chainArt.Click+=(sender,e)=>{try{Console.Out.WriteLine("chainArt");Console.Out.Flush();}catch(Exception){}};
+        menu.Items.Add(chainArt);
         outside.Tick+=(sender,e)=>{
             if(!menu.Visible){outside.Stop();return;}
             if(Control.MouseButtons!=MouseButtons.None&&!menu.Bounds.Contains(Cursor.Position)&&
@@ -1739,6 +1744,7 @@ class DspMeter : Form
         unbound=state.TryGetValue("unbound",out value)&&value is bool&&(bool)value;
         if(unbound&&unboundButton==null)unboundButton=new UnboundButton(parent);
         if(unboundButton!=null&&state.TryGetValue("irDots",out value)&&value is bool)unboundButton.SetIrDots((bool)value);
+        if(unboundButton!=null&&state.TryGetValue("chainArt",out value)&&value is bool)unboundButton.SetChainArt((bool)value);
         if(state.ContainsKey("ghost"))ApplyGhost(state["ghost"] as Dictionary<string,object>);
         if(state.TryGetValue("notice",out value)&&value is string&&((string)value).Length>0){
             notice=(string)value;noticeUntil=Environment.TickCount+NoticeMs;}

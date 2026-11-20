@@ -106,5 +106,13 @@ function installNamSidebar(namView) {
       irDots();
     });
   }
-  ready();actions();irDots();
+  function chainArt() {
+    // HX Unbound menu: "3D pictures in the signal chain" turned on or off (redrawn on HX Edit's UI thread).
+    recv('chainArt', message => {
+      const on = message.payload?.on === true;
+      namView.queueSidebarAction(() => toneView.setChainArt?.(on));
+      chainArt();
+    });
+  }
+  ready();actions();irDots();chainArt();
 }

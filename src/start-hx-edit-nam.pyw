@@ -192,6 +192,9 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                            dragFavorite=str(drag_favorite_path()))
             # HX Unbound menu: "Mark NAM slots in the IR list" (on unless turned off).
             options.update(irDots=nam_catalog.load_settings().get('irNamDots') is not False)
+            # HX Unbound menu: "3D pictures in the signal chain" (off unless turned on), and the pictures it has.
+            options.update(chainArt=nam_catalog.load_settings().get('chainModelArt') is True,
+                           chainArtFiles=nam_catalog.chain_art_files(exe.parent / 'res'))
             # Read-only research probes: only in a copy prepared with this marker file.
             options.update(namProbe=(exe.parent / 'res' / 'nam-probe.flag').is_file())
             before = '\n'.join((ROOT / name).read_text(encoding='utf-8') for name in
@@ -251,9 +254,18 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     meter.set_ir_dots(on)
                     if not detached.is_set():
                         script.post({'type': 'irDots', 'payload': {'on': on}})
+                elif name == 'chainArt':
+                    on = not chain_art[0]
+                    chain_art[0] = on
+                    nam_catalog.save_setting('chainModelArt', on)
+                    meter.set_chain_art(on)
+                    if not detached.is_set():
+                        script.post({'type': 'chainArt', 'payload': {'on': on}})
             ir_dots = [options.get('irDots') is not False]
+            chain_art = [options.get('chainArt') is True]
             meter = DspMeter(trace=trace, on_choice=unbound_choice, icons=exe.parent / 'res' / 'icons_models')
             meter.set_ir_dots(ir_dots[0])
+            meter.set_chain_art(chain_art[0])
 
         def on_message(event, _data):
             if event['type'] == 'error':

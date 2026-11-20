@@ -2535,6 +2535,76 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     } catch (error) { iconWhy = String(error.message); iconSkipped(stage, '?'); }
   }
 
+  // Signal-chain pictures (HX Unbound menu, Options: "3D pictures in the signal chain", off by default). HX Edit
+  // gives a chain block its category's flat picture as it refreshes the block (HXSFVItem::refresh 0x40ae70, the
+  // picture set at 0x40b203 through the icon widget's setImage, vtable +0x18). With the option on, right after
+  // that refresh the block gets its model's 3D render instead (CHAIN_<the model's picture file>, made at the
+  // chain icon's size by make_chain_pictures.py), and a NAM block the picture chosen for the capture in its slot
+  // (CHAIN_NAMCAP_<icon>). The outline and label stay HX Edit's, in the category colour (NAM purple). Inputs and
+  // outputs, and any block without such a picture, keep HX Edit's own.
+  let chainArt = profile.chainArt === true;
+  const chainFiles = new Set(Array.isArray(profile.chainArtFiles) ? profile.chainArtFiles : []);
+  const chainImages = new Map();     // file -> image, retained once
+  const chainItems = new Map();      // chain block items seen, to redraw when the option changes
+  let chainReports = 6;
+  function chainImage(file) {
+    if (!chainFiles.has(file)) return NULL;
+    if (!chainImages.has(file)) {
+      let image = NULL;
+      try {
+        const cache = imageCache();
+        image = cache.isNull() ? NULL : imageNamed(cache, Memory.allocUtf8String(file));
+        if (!image.isNull()) retainImage(image);
+      } catch (error) { image = NULL; }
+      chainImages.set(file, image);
+    }
+    return chainImages.get(file);
+  }
+  function chainFile(object) {
+    const record = object.add(0x24).readPointer();
+    if (record.isNull()) return null;
+    if (l6text(record.add(0x24)) === NAM_MODEL_ID) {
+      const dsp = flowDsp.get(object.toString());
+      if (dsp === undefined || iconEditor.isNull()) return null;
+      const slot = targetBinding.peekSlot(iconEditor, dsp, l6text(object.add(8)));
+      const capture = Number.isInteger(slot) ? knownCaptures().find(entry => entry.slot === slot) : null;
+      return capture && /^[a-z0-9_]{1,40}$/.test(capture.icon || '') ? `CHAIN_NAMCAP_${capture.icon}.png` : null;
+    }
+    const picture = l6text(record.add(0x18));              // the model's own picture file (ModelObj +0x18)
+    return /^[A-Za-z0-9_ +%.()-]{1,80}\.png$/.test(picture) ? 'CHAIN_' + picture : null;
+  }
+  function chainPicture(item) {
+    // Put the block's 3D picture on one chain item, after HX Edit has refreshed it. Never throws.
+    try {
+      let object = item.add(0x8c).readPointer();
+      if (object.isNull()) object = item.add(0x88).readPointer();
+      if (object.isNull() || object.readS32() !== 0) return;                 // blocks only
+      if (chainItems.size > 256) chainItems.clear();
+      chainItems.set(item.toString(), {item, object, vtable: item.readPointer()});
+      const file = chainFile(object), image = file ? chainImage(file) : NULL;
+      if (chainReports > 0) { chainReports--; send({type: 'toneTrace', reason: 'chain-art', block: l6text(object.add(8)), file, shown: !image.isNull()}); }
+      if (image.isNull()) return;
+      const icon = item.add(0x80).readPointer();
+      if (icon.isNull()) return;
+      const setImage = new NativeFunction(icon.readPointer().add(0x18).readPointer(), 'void', ['pointer', 'pointer', 'int'], 'thiscall');
+      setImage(icon, image, 1);
+    } catch (error) {
+      if (chainReports > 0) { chainReports--; send({type: 'toneTrace', reason: 'chain-art', error: String(error.message)}); }
+    }
+  }
+  function setChainArt(on) {
+    // UI thread. HX Edit's own refresh puts its picture back; with the option on, ours follows.
+    chainArt = on === true;
+    for (const [key, entry] of [...chainItems]) {
+      try {
+        const current = entry.item.add(0x8c).readPointer().isNull() ? entry.item.add(0x88).readPointer() : entry.item.add(0x8c).readPointer();
+        if (!entry.item.readPointer().equals(entry.vtable) || !current.equals(entry.object)) { chainItems.delete(key); continue; }
+        redrawItem(entry.item, 1);
+        if (chainArt) chainPicture(entry.item);
+      } catch (_) { chainItems.delete(key); }
+    }
+  }
+
   function redrawNamBlocks() {
     // Ask the path items seen so far to redraw. An item that is no longer the object it was is dropped.
     for (const [key, entry] of [...flowItems]) {
@@ -2543,6 +2613,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         if (!entry.item.readPointer().equals(entry.vtable) || !current.equals(entry.object)) { flowItems.delete(key); continue; }
         retargetItem(entry.item, 'redraw');
         redrawItem(entry.item, 1);
+        if (chainArt) chainPicture(entry.item);       // a redraw asked for here runs no hooks
       } catch (_) { flowItems.delete(key); }
     }
   }
@@ -2680,7 +2751,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       },
     });
     Interceptor.attach(base.add(0x40ae70), {            // path item: refresh icon, label and colour
-      onEnter() { retargetItem(this.context.ecx, 'path'); },
+      onEnter() { this.item = this.context.ecx; retargetItem(this.context.ecx, 'path'); },
+      onLeave() { if (chainArt) chainPicture(this.item); },
     });
   }
 
@@ -4261,5 +4333,6 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     });
   }
   listen();
-  return { openBrowser, makeNamBlock, selectedIsNam, startChainDrag, chainDragTook };
+  return { openBrowser, makeNamBlock, selectedIsNam, startChainDrag, chainDragTook,
+           setChainArt: on => { try { setChainArt(on); } catch (_) { /* presentation only */ } } };
 }
