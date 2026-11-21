@@ -71,7 +71,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // Sides of the dropdown (nam_catalog.PICKER_SIDES): All 99, Guitar 1, Bass 2. Each category
   // remembers the side last picked there (floor-memory.json); never picked: All.
   const SIDE_ALL = 99, SIDE_GUITAR = 1, SIDE_BASS = 2;
-  const SIDED_CATEGORIES = new Set(['Amp', 'Amp+Cab', 'Preamp', 'NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Drive',
+  const SIDED_CATEGORIES = new Set(['Amp', 'Amp+Cab', 'Preamp', 'NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Pedal',
     'NAM Other']);
   const rememberedSides = new Map(Object.entries(profile.pickerSides && typeof profile.pickerSides === 'object' ?
     profile.pickerSides : {}).filter(([, value]) => Number.isInteger(value)));
@@ -1225,9 +1225,15 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       return {obj: D.add(0x44).readPointer(), mode: D.add(0x48).readS32(), row: D.add(0x4c).readS32(), col: D.add(0x50).readS32()};
     }
     const sameZone = (a, b) => !!a && !!b && a.obj.equals(b.obj) && a.mode === b.mode && a.row === b.row && a.col === b.col;
+    function dimLook(item, on) {
+      // HX Edit's replace highlight (0x40adc0: +0x97, its look, then its layout) puts the stock picture size
+      // back; from inside this hook its look runs without ours, so the large picture is put back here.
+      dimItem(item, on, 1);
+      try { if (chainArt || chainSized.size) { chainLook(item); applyLook(item, 1); } } catch (_) { /* drawing only */ }
+    }
     function undim() {
       if (!dimmed) return;
-      try { dimItem(dimmed, 0, 1); } catch (_) { /* drawing only */ }
+      try { dimLook(dimmed, 0); } catch (_) { /* drawing only */ }
       dimmed = null;
     }
     let roomSeen = {key: '', at: 0, full: null};
@@ -1299,7 +1305,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
           if (dropHint !== 'none') { try { if (namDropFull(D, find(this.dd, LBIR))) dropHint = 'full'; } catch (_) { /* HX Edit decides */ } }
           if (dropHint !== 'full' && D.add(0x48).readS32() === REPLACE && (effect === 1 || effect === 2) && !D.add(0x18).readPointer().isNull()) {
             const item = itemAt(D.add(0xc).readPointer(), D.add(0x4c).readS32(), D.add(0x50).readS32());
-            if (!item.isNull() && !item.equals(dimmed)) { undim(); dimItem(item, 1, 1); dimmed = item; }
+            if (!item.isNull() && !item.equals(dimmed)) { undim(); dimLook(item, 1); dimmed = item; }
           } else undim();
         } catch (_) { dimmed = null; }
       },
@@ -1477,6 +1483,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
           if (full) {
             // The drag box said so already: nothing changes (as makeNamBlock and pickerCaptureDrop refuse).
             info.writeU8(0);
+            dropRefused = true;
             namView.clearIrPick?.();
             send({type: 'dspNotice', text: full});
             send({type: 'toneTrace', reason: 'drop-replace', stage: 'no-room'});
@@ -1600,8 +1607,11 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       const effect = drag.info.readU8();
       if (dropIt && (effect === 1 || effect === 2)) {
         const entry = native.find(drag.dd, drag.info.add(4).readU32());
+        dropRefused = false;
         if (!entry.isNull()) native.drop(drag.window, 0, drag.point, entry, drag.info);
         else native.leave(drag.window, 0, drag.dd);
+        if (dropRefused || entry.isNull()) settleChainLater();
+        dropRefused = false;
         send({type: 'toneTrace', reason: 'chain-drag', stage: 'dropped', slot: drag.slot, effect, ms: Date.now()});
         // From the picker: the dropped block is selected, as a click on it would (after HX Edit has it).
         if (selectDropped && !irReplace) {
@@ -1615,6 +1625,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       } else {
         native.leave(drag.window, 0, drag.dd);
         if (!dropIt) namView.clearIrPick?.();
+        settleChainLater();
         send({type: 'toneTrace', reason: 'chain-drag', stage: 'left', slot: drag.slot});
       }
       drag.window.add(0x84).writePointer(NULL);   // no drop target left over
@@ -1624,6 +1635,37 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       droppingDrag = null;
       try { native.clear(drag.dd); } catch (_) { /* freed with the drag */ }
     }
+  }
+  // While a drag is over a path, HX Edit slides its blocks apart to show where the drop would go. When
+  // the drop is turned down (no room for a NAM block) or the drag ends off the chain, nothing slid them
+  // back: a block stayed a column over (the preset itself unchanged) until the path was laid out again.
+  // So each path view is laid out again (with redraw), and the pictures are put back.
+  let dropRefused = false;           // set by the drop hook when it turns a drop down
+  function settleChain() {
+    const views = new Map();
+    for (const map of [flowItems, chainItems]) {
+      for (const entry of map.values()) {
+        try {
+          if (!entry.item.readPointer().equals(entry.vtable)) continue;
+          const view = entry.item.add(0x54).readPointer().add(0x14).readPointer();
+          if (!view.isNull()) views.set(view.toString(), view);
+        } catch (_) { /* gone with its path */ }
+      }
+    }
+    for (const view of views.values()) { try { relayout(view, 1); } catch (_) { /* gone with its path */ } }
+    // HX Edit's refresh during the drag put its own small picture back; each block still shown is drawn
+    // again (its block object may be a new one after the drag, which setChainArt would skip).
+    if (chainArt || chainSized.size) {
+      const items = new Map();
+      for (const map of [flowItems, chainItems]) for (const [key, entry] of map) items.set(key, entry);
+      for (const entry of items.values()) {
+        try { if (entry.item.readPointer().equals(entry.vtable) && blockObject(entry.item)) chainRedraw(entry.item); } catch (_) { /* gone */ }
+      }
+    }
+    send({type: 'toneTrace', reason: 'chain-drag', stage: 'settled', paths: views.size});
+  }
+  function settleChainLater() {
+    setTimeout(() => namView.queueSidebarAction(() => { try { settleChain(); } catch (_) { /* presentation only */ } }), 80);
   }
   function startChainDrag(what) {
     // UI thread, the button down. what: a library capture's identity (a string), {slot} (a NAM
@@ -2416,7 +2458,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // exchanged between these four siblings of the same model; nothing is sent to the device.
   // (Addresses and layouts: BLOCK-ICON-RESEARCH.md; confirmed by probes on November 13.)
   const NAM_MODEL_ID = 'HD2_AmpNAMLite';
-  const NAM_CATEGORY_NAMES = ['NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Drive', 'NAM Other'];  // nam_catalog.NAM_CATEGORY_GROUPS
+  const NAM_CATEGORY_NAMES = ['NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Pedal', 'NAM Other'];  // nam_catalog.NAM_CATEGORY_GROUPS
   const namRecords = new Map();      // "category name:subcategory index" -> that record of the NAM model
   const flowDsp = new Map();         // path object -> its DSP index
   const flowItems = new Map();       // path item -> {item, object, vtable}, to redraw after a change
@@ -2573,6 +2615,20 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     const picture = l6text(record.add(0x18));              // the model's own picture file (ModelObj +0x18)
     return /^[A-Za-z0-9_ +%.()-]{1,80}\.png$/.test(picture) ? 'CHAIN_' + picture : null;
   }
+  function previewFile(item, object) {
+    // While a drag hovers a block, HX Edit shows the incoming model there (item +0x8c, the block's own at +0x88).
+    // A previewed NAM block holds no capture: the dragged capture's picture, else the block's own.
+    try {
+      const own = item.add(0x88).readPointer();
+      if (item.add(0x8c).readPointer().isNull() || own.isNull() || own.equals(object)) return null;
+      const record = object.add(0x24).readPointer();
+      if (!record.isNull() && l6text(record.add(0x24)) === NAM_MODEL_ID && Number.isInteger(chainDrag?.slot)) {
+        const capture = knownCaptures().find(entry => entry.slot === chainDrag.slot);
+        if (capture && /^[a-z0-9_]{1,40}$/.test(capture.icon || '')) return `CHAIN_NAMCAP_${capture.icon}.png`;
+      }
+      return own.readS32() === 0 ? chainFile(own) : null;
+    } catch (_) { return null; }
+  }
   // A chain block's look is applied by 0x40b790 (item, redraw): the label in the item's colour (+0x90, set from the
   // category by each refresh) and the picture at an opacity from the block's state: bypassed (SFObj+0x1c) 0.66.
   // (SFObj+0x1e only brackets the label: 0x40b225.) It runs at the end of every refresh and on its own when only
@@ -2677,7 +2733,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       chainItems.set(item.toString(), {item, object, vtable: item.readPointer()});
       const bypassed = object.add(0x1c).readU8() !== 0;
       // "Block names under large pictures" off: a large block's label is drawn clear (alpha 0), selected or not.
-      const unnamed = chainArt && chainLarge && !chainNames && !!chainFile(object);
+      const unnamed = chainArt && chainLarge && !chainNames && !!(chainFile(object) || previewFile(item, object));
       const colour = item.add(0x90), now = colour.readU32(), key = item.toString(), seen = chainColours.get(key);
       const base = seen && seen.dimmed === now ? seen.base : now;            // a refresh writes the category's again
       if ((chainArt && bypassed) || unnamed) {
@@ -2695,7 +2751,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       const icon = item.add(0x80).readPointer();
       if (icon.isNull()) return;
       if (!chainArt) { sizePicture(item, icon, false); return; }
-      let file = chainFile(object);
+      let file = chainFile(object) || previewFile(item, object);
       if (file && bypassed) file = file.replace(/^CHAIN_/, 'CHAIN_OFF_');
       if (file) file = chainSet(file);
       const image = file ? chainImage(file) : NULL;

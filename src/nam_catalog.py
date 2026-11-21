@@ -160,7 +160,7 @@ def patch_catalog(resources, layers=False, pedal=False, *, nam_load=None, pedal_
 # maps a capture's type to the same number and lists that type's captures under the row.
 # Numbered in this order (tone_view.captureGroup, the row tags). Favorites are HX Edit's own.
 NAM_CATEGORY_GROUPS = (('NAM Amp', 'FX_HX_Category_NAM_Amp.png'), ('NAM Amp + cab', 'FX_HX_Category_NAM_AmpCab.png'),
-                       ('NAM Cab', 'FX_HX_Category_NAM_Cab.png'), ('NAM Drive', 'FX_HX_Category_NAM_Pedal.png'),
+                       ('NAM Cab', 'FX_HX_Category_NAM_Cab.png'), ('NAM Pedal', 'FX_HX_Category_NAM_Pedal.png'),
                        ('NAM Other', 'FX_HX_Category_NAM_Other.png'))
 NAM_CATEGORY_COLOR = '0xB070E0'
 # The block picker's side dropdown: All (first, so a category opens on it the first time), Guitar
@@ -333,7 +333,7 @@ def patch_nam_category(resources):
     took a full row and highlighted on hover). The list is laid out as:
 
         None, Favorites, Distortion ... Looper     stock, unchanged; a thin line under Looper
-        NAM Amp / NAM Amp + cab / NAM Drive / NAM Other
+        NAM Amp / NAM Amp + cab / NAM Pedal / NAM Other
 
     Every NAM category has All, Guitar and Bass sides (the dropdown HX Edit's own Amp has), and
     stock Amp and Preamp get an All side first. Each side holds the NAM A2 Lite block row, tagged by
@@ -367,9 +367,9 @@ def patch_nam_category(resources):
                     'image\0': nul(icon), 'color\0': nul(NAM_CATEGORY_COLOR)}
         # Each side holds the NAM A2 Lite row tagged with group + 4 x side spaces (All 1-4, Guitar
         # 5-8, Bass 9-12): tone_view.captureView reads the group and side back from it.
-        # The NAM Pedal block (pedal firmware builds) is listed in NAM Drive only (pedal captures): everywhere else a
+        # The NAM Pedal block (pedal firmware builds) is listed in NAM Pedal only (pedal captures): everywhere else a
         # capture is reached through its own row, and a pedal version through its library chip.
-        rows = models if name == 'NAM Drive' else [m for m in models if m['id\0'] == nul(NAM_SYMBOL)]
+        rows = models if name == 'NAM Pedal' else [m for m in models if m['id\0'] == nul(NAM_SYMBOL)]
         category['subcategories\0'] = [
             {'name\0': nul(side), 'id\0': ident,
              'models\0': nam_category_rows(index + len(NAM_CATEGORY_GROUPS) * position, rows)}
